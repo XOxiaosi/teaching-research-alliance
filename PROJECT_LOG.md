@@ -170,3 +170,10 @@
 - 已将跨项目规则写入本机 Codex 全局规则 `/Users/xiaosi/.codex/AGENTS.md`；该全局文件在本项目仓库之外。本项目 AGENTS 同步限定为 Codex 创建的提交，不要求其他工具的提交带此标记，不修改 Git 作者身份或历史提交。
 - 验证：读取并核对全局及项目规则，暂存区仅含 AGENTS 与本日志，`git diff --cached --check` 通过后提交同步；提交标题自身包含 `[xiaosi]`。本任务不改变产品范围。
 - 提交关联：`docs(GOV-003): [xiaosi] scope tracking marker to Codex commits`；Git 基线 `abd9b63`。
+
+### GOV-004｜2026-09-16｜个人提交标记规则仅在本地保留
+
+- 用户要求撤回项目 AGENTS 中的个人提交标记说明，将规则仅保存在本地。
+- 已将项目 AGENTS 的提交格式条款恢复为 GOV-002 之前的内容；个人标记规则保留在本机 Codex 全局规则文件，未将该本地文件加入项目仓库。历史日志仅作追溯，不作为当前规则。
+- 验证：项目 AGENTS 不再包含该个人标记，本地规则仍存在；暂存仅含 AGENTS 和本日志，`git diff --cached --check` 通过后提交并同步。未改写历史提交。
+- 提交关联：GOV-004；Git 基线 `729277e`。
