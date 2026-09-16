@@ -156,3 +156,10 @@
 - 主 Agent 实际验证：12张原文业务表与5段公式均保留（只将章号引用重定向为功能编号）；第13张阶段建议表保留于历史日志。两份源文件 SHA-256 均仍为 `f5ed4e730db6f5d33ee377b5175b1194c63c83763242b28e89dc4631407dfbb2`；既有日志历史完整保留；F01–F14、D01–D22编号、Markdown代码围栏、本地链接及锚点检查通过；5组 Decimal 算例重新执行通过。完整输出见 [文档验证证据](/Users/xiaosi/Developer/artifacts/teaching-research-alliance/PRE-001/document-validation.json)。
 - 交付边界：本轮完成需求审查与技术/导出文档，不是结算算法业务验收、真机验证或上线结果。动态费率、净课时费、舍入、单据入账与期间规则仍按 PRODUCT 待决定项澄清；Excel 仅导出不导入已确认。
 - 提交检查：仅提交 PRODUCT、PROJECT_LOG、README、TECHNICAL_DESIGN、Excel 规范及审查报告六份文档；暂存差异与 `git diff --cached --check` 通过后使用 `docs(PRE-001)` 提交并按既有授权推送，最终同步结果以远端 SHA 与本地 HEAD 核对。
+
+### GOV-002｜2026-09-16｜提交标题加入 xiaosi 标记
+
+- 用户要求：提交记录带上 `xiaosi` 字样，方便追踪。
+- 已更新 AGENTS 的提交格式为 `类型(任务编号): [xiaosi] 具体变化`，从本次提交开始生效，保留既有历史。
+- 本任务仅调整提交追踪规则，不改变 PRODUCT 或业务设计。核对规则文本和暂存差异，通过 `git diff --cached --check` 后提交，沿用已授权的 GitHub 同步。
+- 提交关联：`docs(GOV-002): [xiaosi] add commit tracking marker`；基线 `fe7db299ddad1d0db14f93b5146aa68c87caa575`。后续可用 `git log --fixed-strings --grep='[xiaosi]'` 检索。
