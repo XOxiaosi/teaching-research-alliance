@@ -1,0 +1,52 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+credentials.json
+
+# Dependencies / caches
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.turbo/
+
+# Build / test output
+dist/
+build/
+.next/
+out/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# Runtime / private data / temporary output
+*.log
+logs/
+tmp/
+temp/
+uploads/
+data/
+backups/
+releases/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
