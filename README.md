@@ -6,7 +6,7 @@ GitHub 私有仓库：[XOxiaosi/teaching-research-alliance](https://github.com/X
 
 ## 当前状态
 
-已依据用户提供的 V1.6 文档整理内部绩效结算需求，并完成开发前核查与技术设计。已确认微信小程序为主端、手机/电脑网页看板，以及管理端完整 Excel 导出（不含导入）。计算与入账歧义集中在 PRODUCT 待决定表；当前尚未实现业务功能。
+当前需求为V1.9：微信小程序与手机/电脑网页具备同等业务能力；采用个人/公司账户、三类权限和按身份分列的欢乐豆结算。已明确实时月度及全财年重算、9月至次年8月的财年、每周五10点自动Excel与凭证原件备份，文件及历史数据永久保留（不含导入）。用户集中答复和补充确认已归档，剩余口径见PRODUCT待决定表。当前只有需求与技术文档，尚无业务实现。
 
 ## 项目文档
 
@@ -15,7 +15,9 @@ GitHub 私有仓库：[XOxiaosi/teaching-research-alliance](https://github.com/X
 - [AGENTS.md](AGENTS.md)：项目协作规则。
 - [TECHNICAL_DESIGN.md](TECHNICAL_DESIGN.md)：多端架构、数据模型、计算与权限、接口及验证方案。
 - [Excel 导出规范](docs/EXCEL_BACKUP_SPEC.md)：全量数据范围、快照、文件格式、权限与完整性验收。
-- [开发前审查](docs/reviews/PREDEVELOPMENT_AUDIT.md)：原文覆盖、计算反例和待澄清口径。
+- [最新答复审查](docs/reviews/REQ-008_DECISION_REVIEW.md)：35条答复覆盖、后续澄清及剩余口径。
+- [集中答复来源](docs/requirements/REQ-008-用户集中答复.md)：用户提供的条目及补充确认，未进行音频核验。
+- [历史开发前审查](docs/reviews/PREDEVELOPMENT_AUDIT.md)：原始V1.6问题与当时的计算例证。
 
 ## Git 管理
 
