@@ -6,7 +6,7 @@ GitHub 私有仓库：[XOxiaosi/teaching-research-alliance](https://github.com/X
 
 ## 当前状态
 
-项目初始化阶段，尚未实现业务功能或确定技术栈。
+已依据用户提供的 V1.6 文档，按功能整理内部绩效结算需求；详见 PRODUCT.md。当前尚未实现业务功能或确定技术栈。
 
 ## 项目文档
 
