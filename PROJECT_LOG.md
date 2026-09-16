@@ -163,3 +163,10 @@
 - 已更新 AGENTS 的提交格式为 `类型(任务编号): [xiaosi] 具体变化`，从本次提交开始生效，保留既有历史。
 - 本任务仅调整提交追踪规则，不改变 PRODUCT 或业务设计。核对规则文本和暂存差异，通过 `git diff --cached --check` 后提交，沿用已授权的 GitHub 同步。
 - 提交关联：`docs(GOV-002): [xiaosi] add commit tracking marker`；基线 `fe7db299ddad1d0db14f93b5146aa68c87caa575`。后续可用 `git log --fixed-strings --grep='[xiaosi]'` 检索。
+
+### GOV-003｜2026-09-16｜明确 xiaosi 标记适用于 Codex 提交
+
+- 用户澄清：通过 Codex 提交的内容要加入 `xiaosi`。
+- 已将跨项目规则写入本机 Codex 全局规则 `/Users/xiaosi/.codex/AGENTS.md`；该全局文件在本项目仓库之外。本项目 AGENTS 同步限定为 Codex 创建的提交，不要求其他工具的提交带此标记，不修改 Git 作者身份或历史提交。
+- 验证：读取并核对全局及项目规则，暂存区仅含 AGENTS 与本日志，`git diff --cached --check` 通过后提交同步；提交标题自身包含 `[xiaosi]`。本任务不改变产品范围。
+- 提交关联：`docs(GOV-003): [xiaosi] scope tracking marker to Codex commits`；Git 基线 `abd9b63`。
