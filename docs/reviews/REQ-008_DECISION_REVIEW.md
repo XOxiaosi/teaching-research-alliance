@@ -3,7 +3,7 @@
 > 历史审查快照：后续REQ-010已明确提现提交时余额足够即扣款、自动审批通过，财务待转账并办理完成，用户显示“已转账”。本报告保留当时复核记录；当前要求和未决事项以[PRODUCT](../../PRODUCT.md)为准。
 
 **审查日期：** 2026-09-16
-**审查对象：** 原始 V1.6 正式正文、[REQ-008 用户条目](../requirements/REQ-008-用户集中答复.md)、当前 [PRODUCT.md](../../PRODUCT.md)、[TECHNICAL_DESIGN.md](../../TECHNICAL_DESIGN.md)、[Excel 备份规范](../EXCEL_BACKUP_SPEC.md) 和 [PROJECT_LOG.md](../../PROJECT_LOG.md)。
+**审查对象：** 原始 V1.6 正式正文、[REQ-008 用户条目](../requirements/REQ-008-用户集中答复.md)、当前 [PRODUCT.md](../../PRODUCT.md)、[TECHNICAL_DESIGN.md](../../TECHNICAL_DESIGN.md)、[Excel 备份规范](../EXCEL_BACKUP_SPEC.md) 和 [PROJECT_LOG.md](../../product-log/PROJECT_LOG.md)。
 **审查边界：** 文档契约、计算可复算性及原文覆盖；不审查或修改业务代码、真实支付、部署或真实资料。
 
 ## 当前结论
