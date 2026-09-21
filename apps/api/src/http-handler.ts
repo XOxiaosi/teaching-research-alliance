@@ -78,6 +78,14 @@ export type ApiServices = Readonly<{
     assign: (context:RoleContext, draft:{fundId:string;expectedAssignmentId:string|null;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
     setStatus: (context:RoleContext, id:string, draft:{expectedVersion:number;status:"ACTIVE"|"INACTIVE";reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
   }>;
+  selfPurchases?: Readonly<{
+    submit: (context:RoleContext, id:string, draft:{expectedVersion:number;amountCents:string;reason:string;attachmentVersionIds:readonly string[]}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
+  selfPurchaseReads?: Readonly<{
+    listOwn: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
+    listManaged: (context:RoleContext) => unknown | Promise<unknown>;
+    getDetail: (context:RoleContext, id:string, at:Date) => unknown | Promise<unknown>;
+  }>;
   financeAttachments?: Readonly<{
     reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     getOwnVersion: (context: RoleContext, versionId: string, at: Date) => unknown | Promise<unknown>;
@@ -123,9 +131,12 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
+  if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE")return 500;
+  if(code==="HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED")return 403;
+  if(["SELF_PURCHASE_STATE_CONFLICT","HEADQUARTERS_FINANCE_ASSIGNMENT_AMBIGUOUS","COMPANY_FUND_ASSIGNMENT_NOT_FOUND"].includes(code))return 409;
   if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
   if (code === "FINANCE_SERVICE_UNAVAILABLE") return 503;
-  if (code === "FINANCE_WITHDRAWAL_STATE_CONFLICT" || code === "INSUFFICIENT_BALANCE") return 409;
+  if (code === "FINANCE_WITHDRAWAL_STATE_CONFLICT" || code === "INSUFFICIENT_BALANCE" || code === "SOURCE_ACCOUNT_NOT_ACTIVE") return 409;
   if (["COMPANY_FUND_CONFLICT","COMPANY_FUND_ASSIGNMENT_CONFLICT","COMPANY_FUND_INACTIVE"].includes(code)) return 409;
   if (code === "SOURCE_ACCOUNT_FORBIDDEN") return 403;
   if (["ATTACHMENT_STORAGE_UNAVAILABLE","ATTACHMENT_VALIDATOR_BUSY","ATTACHMENT_VALIDATION_TIMEOUT","ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION"].includes(code)) return 503;
@@ -394,6 +405,28 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if(id==="pending-transfer")return success(await services.withdrawalReads.listPending(context));
       if(id==="managed")return success(await services.withdrawalReads.listManaged(context));
       return success(await services.withdrawalReads.getDetail(context,id,at));
+    }
+    const selfPurchaseSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/self-purchase-submit$/);
+    if(selfPurchaseSubmitPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.selfPurchases)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","amountCents","reason","attachmentVersionIds","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1
+        ||!Array.isArray(body.attachmentVersionIds)||!body.attachmentVersionIds.every(id=>typeof id==="string"))throw new Error("INVALID_INPUT");
+      return success(await services.selfPurchases.submit(context,selfPurchaseSubmitPath[1]!,{
+        expectedVersion:body.expectedVersion,amountCents:requiredString(body,"amountCents"),reason:requiredString(body,"reason"),attachmentVersionIds:body.attachmentVersionIds as string[]
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const selfPurchaseReadPath=request.path.match(/^\/v1\/finance\/self-purchases\/([^/]+)$/);
+    if(selfPurchaseReadPath!==null&&request.method==="GET"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.selfPurchaseReads)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const id=selfPurchaseReadPath[1]!;
+      if(id==="mine")return success(await services.selfPurchaseReads.listOwn(context,at));
+      if(id==="managed")return success(await services.selfPurchaseReads.listManaged(context));
+      return success(await services.selfPurchaseReads.getDetail(context,id,at));
     }
     const companyFundActionPath=request.path.match(/^\/v1\/admin\/company-funds\/([^/]+)\/(assignment|status)$/);
     if((request.path==="/v1/admin/company-funds"&&(request.method==="GET"||request.method==="POST"))

@@ -35,3 +35,5 @@ export { FinanceSensitiveFieldCrypto } from "./finance-sensitive-field-crypto.js
 export { PostgresWithdrawalService } from "./postgres-withdrawal-service.js";
 export { PostgresWithdrawalReadService } from "./postgres-withdrawal-read-service.js";
 export { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
+export { PostgresSelfPurchaseService } from "./postgres-self-purchase-service.js";
+export { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-service.js";

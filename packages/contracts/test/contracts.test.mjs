@@ -26,6 +26,19 @@ test("财务业务账户配置只授予最高维护角色，不跟随财务办�
   for(const subject of ['HEADQUARTERS_FINANCE','REGION_FINANCE','TEACHING_TEACHER','CAMPUS_PRINCIPAL'])assert.equal(hasPermission(subject,'MANAGE_COMPANY_FUNDS'),false);
 });
 
+test("本人采买从个人入口提交，财务管理读取独立授权",()=>{
+  for(const subject of ['TEACHING_TEACHER','ACADEMIC_PLANNER','PLANNING_MENTOR']){
+    assert.equal(permissionScope(subject,'SUBMIT_OWN_SELF_PURCHASE'),'SELF');
+    assert.equal(hasPermission(subject,'READ_MANAGED_SELF_PURCHASE'),false);
+  }
+  for(const subject of ['HEADQUARTERS_FINANCE','SYSTEM_ADMIN','SYSTEM_OWNER']){
+    assert.equal(permissionScope(subject,'READ_MANAGED_SELF_PURCHASE'),'GLOBAL');
+    assert.equal(hasPermission(subject,'SUBMIT_OWN_SELF_PURCHASE'),false);
+  }
+  assert.equal(hasPermission('REGION_FINANCE','READ_MANAGED_SELF_PURCHASE'),false);
+  assert.deepEqual(ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/self-purchases/:documentId').alternativeActions,['READ_MANAGED_SELF_PURCHASE']);
+});
+
 test("场地选用与共享查看/提现是独立能力", () => {
   assert.equal(hasPermission("TEACHING_TEACHER", "CREATE_WEEKLY_FEE"), true);
   assert.equal(hasPermission("TEACHING_TEACHER", "VIEW_SHARED_VENUE_BOARD"), true);
