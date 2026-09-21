@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_RATE_POLICY_VALUES } from "@teaching-research-alliance/domain";
 import { createTestDatabase } from "../apps/api/test/integration/postgres-test-database.mjs";
-import { createApiServer, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresWeeklyFeeService, hashPassword } from "../apps/api/dist/main.js";
+import { createApiServer, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresWeeklyFeeService, hashPassword } from "../apps/api/dist/main.js";
 
 // Explicitly synthetic, isolated, disposable local demonstration data.
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL_REQUIRED");
@@ -147,7 +147,7 @@ try {
     }
     await pool.query("UPDATE person SET nickname='演示授课老师' WHERE id=$1", [ids.teacher]);
     await pool.query("UPDATE person SET nickname='演示规划师' WHERE id=$1", [ids.planner]);
-    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),weeklyFees:new PostgresWeeklyFeeService(pool),now:()=>at});
+    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),financeDrafts:new PostgresFinanceDraftService(pool),weeklyFees:new PostgresWeeklyFeeService(pool),now:()=>at});
     await new Promise((resolve,reject) => { server.once('error',reject); server.listen(port,'127.0.0.1',resolve); });
     console.log(`合成演示API http://127.0.0.1:${port}；业务时钟固定为北京时间2026-09-21 12:00；正常退出时删除本次独立演示数据。`);
     console.log(`授课老师：13800000001；规划师：13800000002；合成演示密码：${password}`);

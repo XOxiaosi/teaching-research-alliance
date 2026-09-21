@@ -66,6 +66,11 @@ export type ApiServices = Readonly<{
     archive: (context: RoleContext, referralId: string, draft: {expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
     reactivate: (context: RoleContext, referralId: string, draft: {expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
   }>;
+  financeDrafts?: Readonly<{
+    create: (context: RoleContext, draft: {kind: "WITHDRAWAL" | "REIMBURSEMENT" | "EXTERNAL_PAYMENT" | "REFUND" | "SELF_PURCHASE"}, key: string, at: Date) => unknown | Promise<unknown>;
+    listOwn: (context: RoleContext) => unknown | Promise<unknown>;
+    getOwn: (context: RoleContext, id: string) => unknown | Promise<unknown>;
+  }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -294,6 +299,28 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         studentDisplayName: requiredString(body,"studentDisplayName"),
         courseContextId: requiredString(body,"courseContextId"), classType
       }, requiredString(body,"idempotencyKey"), at));
+    }
+    if (request.path === "/v1/finance/drafts" && request.method === "POST") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
+      if (Object.keys(body).some(key => !["sessionId","kind","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      const kind = requiredString(body,"kind");
+      if (kind !== "WITHDRAWAL" && kind !== "REIMBURSEMENT" && kind !== "EXTERNAL_PAYMENT" && kind !== "REFUND" && kind !== "SELF_PURCHASE") throw new Error("INVALID_INPUT");
+      return success(await services.financeDrafts.create(context,{kind},requiredString(body,"idempotencyKey"),at));
+    }
+    if (request.path === "/v1/finance/drafts/mine" && request.method === "GET") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
+      return success(await services.financeDrafts.listOwn(context));
+    }
+    const financeDraftPath = request.path.match(/^\/v1\/finance\/drafts\/([^/]+)$/);
+    if (financeDraftPath !== null && request.method === "GET") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
+      return success(await services.financeDrafts.getOwn(context,financeDraftPath[1]!));
     }
     const copyPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/copy$/);
     if (request.method === "POST" && copyPath !== null) {
