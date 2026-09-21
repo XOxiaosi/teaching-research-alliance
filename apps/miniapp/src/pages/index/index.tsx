@@ -8,6 +8,7 @@ import {
   StaleResponseError,
   TeacherApiClient,
   type SessionSnapshot,
+  type ReferralAcceptanceSubmission,
   type WeeklyFeeSubmission
 } from "@teaching-research-alliance/client";
 import { taroTransport } from "../../services";
@@ -32,6 +33,8 @@ type Referral = Readonly<{
   studentDisplayName: string;
   courseContextId: string;
   referralStatus: string;
+  version: number;
+  initialVenueId: string | null;
   weeklyFees: readonly Fee[];
 }>;
 
@@ -87,6 +90,11 @@ const messages: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: "这笔费用已有新版本，请刷新后重新填写。",
   PERIOD_LOCKED: "该期间已关闭，暂时不能修改。",
   FORBIDDEN_SCOPE: "当前身份没有访问权限，请重新选择身份。",
+  VENUE_CHANGE_REQUIRED: "已有费用使用了其他场地，请先处理场地变更，或选择与已有费用一致的场地。",
+  REFERRAL_ALREADY_ACCEPTED: "该学生已接收，请刷新查看。",
+  REFERRAL_ACCEPTANCE_INVALID: "该推荐当前无法接收，请刷新状态或联系管理员。",
+  VENUE_NOT_FOUND: "所选场地已停用或不存在，请重新选择。",
+  VENUE_ACCOUNT_REQUIRED: "场地账户未配置完整，请联系管理员。",
   INVALID_INPUT: "请检查金额、教学周和场地后重试。",
   INTERNAL_ERROR: "暂时无法完成，请稍后重试。"
 };
@@ -98,6 +106,7 @@ export default function IndexPage(): ReactNode {
   const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [referrals, setReferrals] = useState<readonly Referral[]>([]);
+  const [showArchived,setShowArchived]=useState(false);
   const [weeks, setWeeks] = useState<readonly Week[]>([]);
   const [venues, setVenues] = useState<readonly Venue[]>([]);
   const [phone, setPhone] = useState("");
@@ -109,10 +118,12 @@ export default function IndexPage(): ReactNode {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
+  const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
 
   const clearTeachingState = (): void => {
     setOverview(null);
     setReferrals([]);
+    setShowArchived(false);
     setWeeks([]);
     setVenues([]);
     setSelectedReferralId("");
@@ -120,6 +131,7 @@ export default function IndexPage(): ReactNode {
     setSelectedVenueId("");
     setAmount("");
     pendingSubmission.current = null;
+    pendingAcceptance.current = null;
   };
 
   const load = async (): Promise<void> => {
@@ -153,6 +165,7 @@ export default function IndexPage(): ReactNode {
         setNotice(messages[error.code] ?? "操作未完成，请检查当前身份后重试。");
         if (error.status === 409) {
           pendingSubmission.current = null;
+          pendingAcceptance.current = null;
           setSelectedReferralId("");
           try {
             await load();
@@ -182,7 +195,21 @@ export default function IndexPage(): ReactNode {
       .find((referral) => referral.referralId === referralId)
       ?.weeklyFees.find((fee) => fee.teachingWeekId === weekId);
     setAmount(existingFee === undefined ? "" : formatCentsAsBeans(existingFee.grossAmountCents));
-    setSelectedVenueId(existingFee?.venueId ?? venues.find((venue) => venue.isOwn)?.id ?? "");
+    const ownVenues=venues.filter(venue=>venue.isOwn);
+    const referral=referrals.find(item=>item.referralId===referralId);
+    setSelectedVenueId(existingFee?.venueId ?? referral?.initialVenueId ?? (ownVenues.length===1 ? ownVenues[0]?.id ?? "" : ""));
+  };
+
+  const acceptSelectedReferral = async (): Promise<void> => {
+    const referral=referrals.find(item=>item.referralId===selectedReferralId);
+    if(!referral || !selectedVenueId){setNotice("请先选择学生和授课场地。");return;}
+    const draft={referralId:referral.referralId,expectedVersion:referral.version,venueId:selectedVenueId};
+    const signature=JSON.stringify(draft);
+    if(pendingAcceptance.current?.signature!==signature)pendingAcceptance.current={signature,submission:client.createReferralAcceptanceSubmission(draft)};
+    await client.acceptReferral(pendingAcceptance.current.submission);
+    pendingAcceptance.current=null;
+    await load();
+    setNotice("已接收学生，所选场地已保存。");
   };
 
   const saveWeeklyFee = async (): Promise<void> => {
@@ -229,6 +256,7 @@ export default function IndexPage(): ReactNode {
     : Math.max(session.roleContexts.findIndex((role) => role.subject === session.currentRoleContext?.subject), 0);
   const roleChoices = session?.roleContexts.map((role) => roleLabels[role.subject] ?? role.subject) ?? [];
   const selectedReferral = referrals.find((referral) => referral.referralId === selectedReferralId);
+  const visibleReferrals=referrals.filter(referral=>(referral.referralStatus==="ARCHIVED")===showArchived);
   const selectableWeeks = selectedReferral?.referralStatus === "ARCHIVED"
     ? weeks.filter((week) => selectedReferral.weeklyFees.some((fee) => fee.teachingWeekId === week.weekId))
     : weeks;
@@ -351,51 +379,26 @@ export default function IndexPage(): ReactNode {
             <View className="panel"><Text>请选择已授权身份后查看工作台。</Text></View>
           )}
 
-          {overview !== null && (
-            <>
-              <View className="balance-card">
-                <Text className="balance-caption">个人可用余额 / 欢乐豆</Text>
-                <Text className="balance-value">{formatCentsAsBeans(overview.balanceCents)}</Text>
-                <Text className="balance-note">个人账户余额</Text>
-              </View>
-              <View className="panel income-panel">
-                <Text className="panel-title">当前财年课时分润</Text>
-                {incomeEntries.length === 0 ? (
-                  <Text className="panel-description">暂无收入记录</Text>
-                ) : incomeEntries.map(([category, value]) => (
-                  <View className="income-row" key={category}>
-                    <Text>{incomeLabels[category] ?? "其他课时收入"}</Text>
-                    <Text>{formatCentsAsBeans(value)}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-
-          {["TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(session.currentRoleContext?.subject ?? "") && (
-            <ReferralPanel key={`${session.personId}:${session.currentRoleContext?.subject}`} client={client} onSessionInvalidated={()=>{
-              clearTeachingState();setSession(client.currentSession);setNotice("登录或身份已失效，请重新登录或选择身份。");
-            }}/>
-          )}
           {isTeacher(session) && (
             <>
               <View className="panel">
                 <View className="section-heading">
-                  <Text className="panel-title">我的生源库</Text>
-                  <Text className="section-count">{referrals.length} 位学生</Text>
+                  <Text className="panel-title">周费用登记</Text>
+                  <Text className="section-count">{visibleReferrals.length} 条记录</Text>
                 </View>
-                {referrals.length === 0 ? (
+                <View className="section-heading">
+                  <Button className="quiet-button" disabled={busy||!showArchived} onClick={()=>{setShowArchived(false);setSelectedReferralId("");}}>活动学生</Button>
+                  <Button className="quiet-button" disabled={busy||showArchived} onClick={()=>{setShowArchived(true);setSelectedReferralId("");}}>归档记录</Button>
+                </View>
+                {visibleReferrals.length === 0 ? (
                   <Text className="panel-description">暂无学生记录</Text>
-                ) : referrals.map((referral) => (
+                ) : visibleReferrals.map((referral) => (
                   <View className="student-row" key={referral.referralId}>
                     <View className="student-detail">
                       <Text className="student-name">{referral.studentDisplayName}</Text>
                       <Text className="student-meta">
                         {referral.courseContextId} · {statusLabels[referral.referralStatus] ?? referral.referralStatus}
                       </Text>
-                      {referral.referralStatus !== "ACCEPTED" && (
-                        <Text className="student-meta">此页面暂不提供接收操作。</Text>
-                      )}
                     </View>
                     {(() => {
                       const existingOpenFee = referral.weeklyFees.find((fee) =>
@@ -407,10 +410,10 @@ export default function IndexPage(): ReactNode {
                       return (
                       <Button
                         className="quiet-button student-button"
-                        disabled={busy || initialWeekId === ""}
+                        disabled={busy || (referral.referralStatus === "ARCHIVED" && initialWeekId === "")}
                         onClick={() => chooseReferral(referral.referralId, initialWeekId)}
                       >
-                        登记周费用
+                        {referral.referralStatus === "PENDING" || referral.referralStatus === "REACTIVATED" ? "接收 / 登记费用" : "登记周费用"}
                       </Button>
                       );
                     })()}
@@ -440,16 +443,17 @@ export default function IndexPage(): ReactNode {
                   <Text className="field-label">授课场地</Text>
                   <Picker
                     mode="selector"
-                    range={venues.map((venue) => `${venue.name}${venue.isOwn ? "（本人场地，免费）" : ""}`)}
-                    value={Math.max(venues.findIndex((venue) => venue.id === selectedVenueId), 0)}
+                    range={["请选择场地",...venues.map((venue) => `${venue.name}${venue.isOwn ? "（本人场地，免费）" : ""}`)]}
+                    value={venues.findIndex((venue) => venue.id === selectedVenueId)+1}
                     disabled={busy || venues.length === 0}
                     onChange={(event) => {
-                      const venue = venues[Number(event.detail.value)];
-                      if (venue !== undefined) setSelectedVenueId(venue.id);
+                      const venue = venues[Number(event.detail.value)-1];
+                      setSelectedVenueId(venue?.id ?? "");
                     }}
                   >
                     <View className="picker-value"><Text>{venues.find((venue) => venue.id === selectedVenueId)?.name ?? "请选择场地"}</Text><Text>⌄</Text></View>
                   </Picker>
+                  {["PENDING","REACTIVATED"].includes(selectedReferral.referralStatus)&&<Button className="quiet-button" disabled={busy||!selectedVenueId} onClick={()=>void run(acceptSelectedReferral)}>接收并使用此场地</Button>}
                   <Text className="field-label">本周累计 / 欢乐豆</Text>
                   <Input
                     className="text-input"
@@ -469,6 +473,32 @@ export default function IndexPage(): ReactNode {
                 </View>
               )}
             </>
+          )}
+          {overview !== null && (
+            <>
+              <View className="balance-card">
+                <Text className="balance-caption">个人可用余额 / 欢乐豆</Text>
+                <Text className="balance-value">{formatCentsAsBeans(overview.balanceCents)}</Text>
+                <Text className="balance-note">个人账户余额</Text>
+              </View>
+              <View className="panel income-panel">
+                <Text className="panel-title">当前财年课时分润</Text>
+                {incomeEntries.length === 0 ? (
+                  <Text className="panel-description">暂无收入记录</Text>
+                ) : incomeEntries.map(([category, value]) => (
+                  <View className="income-row" key={category}>
+                    <Text>{incomeLabels[category] ?? "其他课时收入"}</Text>
+                    <Text>{formatCentsAsBeans(value)}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {["TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(session.currentRoleContext?.subject ?? "") && (
+            <ReferralPanel key={`${session.personId}:${session.currentRoleContext?.subject}`} client={client} onSessionInvalidated={()=>{
+              clearTeachingState();setSession(client.currentSession);setNotice("登录或身份已失效，请重新登录或选择身份。");
+            }}/>
           )}
         </>
       )}

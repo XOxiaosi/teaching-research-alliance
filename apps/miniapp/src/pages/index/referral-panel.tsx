@@ -60,7 +60,7 @@ export function ReferralPanel({ client, onSessionInvalidated }: {client: Teacher
       <Text className="panel-description">每位接收老师和课程分别记录。</Text>
       <Input placeholder="学生名字" maxlength={100} value={student} disabled={busy||uncertain} onInput={e=>setStudent(e.detail.value)}/>
       <Input placeholder="课程" maxlength={100} value={course} disabled={busy||uncertain} onInput={e=>setCourse(e.detail.value)}/>
-      <Picker mode="selector" range={teachers.map(t=>t.nickname)} value={Math.max(0,teachers.findIndex(t=>t.personId===receiver))} disabled={busy||uncertain||!teachers.length} onChange={e=>setReceiver(teachers[Number(e.detail.value)]?.personId??"")}>
+      <Picker mode="selector" range={["请选择接收老师",...teachers.map(t=>t.nickname)]} value={teachers.findIndex(t=>t.personId===receiver)+1} disabled={busy||uncertain||!teachers.length} onChange={e=>setReceiver(teachers[Number(e.detail.value)-1]?.personId??"")}>
         <View className="picker-value">{teachers.find(t=>t.personId===receiver)?.nickname??"选择接收老师"}</View>
       </Picker>
       <Picker mode="selector" range={["一对一","小班课"]} value={classType==="ONE_TO_ONE"?0:1} disabled={busy||uncertain} onChange={e=>setClassType(Number(e.detail.value)===0?"ONE_TO_ONE":"SMALL_GROUP")}>
