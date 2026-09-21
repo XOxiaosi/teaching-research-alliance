@@ -32,6 +32,11 @@ export const ACTIONS = [
   "READ_OWN_FINANCE_DRAFT",
   "UPLOAD_OWN_FINANCE_ATTACHMENT",
   "READ_OWN_FINANCE_ATTACHMENT",
+  "UPLOAD_FINANCE_RECEIPT",
+  "READ_MANAGED_FINANCE_ATTACHMENT",
+  "READ_OWN_WITHDRAWAL",
+  "READ_MANAGED_WITHDRAWAL",
+  "PROCESS_WITHDRAWAL",
   "APPROVE_FINANCE_DOCUMENT",
   "MANAGE_CASH_WAGES",
   "VIEW_REGION_PERSONAL_SUMMARY",
@@ -115,6 +120,19 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("PLANNING_MENTOR", "MANAGE_OWN_REFERRALS", "SELF"),
   rule("PLANNING_MENTOR", "MANAGE_OWN_PLANNING_RELATIONSHIPS", "SELF"),
   rule("PLANNING_MENTOR", "VIEW_MENTEE_SCOPE_SETTLEMENT", "MENTEES"),
+  rule("TEACHING_TEACHER", "READ_OWN_WITHDRAWAL", "SELF"),
+  rule("ACADEMIC_PLANNER", "READ_OWN_WITHDRAWAL", "SELF"),
+  rule("ACADEMIC_PLANNER", "CREATE_PERSONAL_WITHDRAWAL", "SELF"),
+  rule("PLANNING_MENTOR", "READ_OWN_WITHDRAWAL", "SELF"),
+  rule("PLANNING_MENTOR", "CREATE_PERSONAL_WITHDRAWAL", "SELF"),
+  rule("HEADQUARTERS_FINANCE", "READ_MANAGED_FINANCE_ATTACHMENT", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "READ_MANAGED_WITHDRAWAL", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "READ_MANAGED_FINANCE_ATTACHMENT", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "READ_MANAGED_WITHDRAWAL", "GLOBAL"),
+  rule("SYSTEM_OWNER", "READ_MANAGED_FINANCE_ATTACHMENT", "GLOBAL"),
+  rule("SYSTEM_OWNER", "READ_MANAGED_WITHDRAWAL", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "UPLOAD_FINANCE_RECEIPT", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "PROCESS_WITHDRAWAL", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "APPROVE_FINANCE_DOCUMENT", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "MANAGE_CASH_WAGES", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "VIEW_ALL_DATA", "GLOBAL"),
@@ -135,6 +153,8 @@ export const permissionScope = (subject: PermissionSubject, action: Action): Per
 export type RoleContext = Readonly<{
   subject: PermissionSubject;
   personId: string;
+  /** Issued from the active assignment. Global financial access requires an explicit GLOBAL value. */
+  scope?: PermissionScope;
   regionId?: string;
   campusId?: string;
   venueId?: string;
@@ -165,6 +185,15 @@ export const API_ERROR_CODES = [
   "FINANCE_ATTACHMENT_NOT_READY",
   "FINANCE_ATTACHMENT_FAILED",
   "FINANCE_ATTACHMENT_UPLOAD_FAILED",
+  "FINANCE_SERVICE_UNAVAILABLE",
+  "FINANCE_RECIPIENT_UNAVAILABLE",
+  "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE",
+  "INSUFFICIENT_BALANCE",
+  "FINANCE_WITHDRAWAL_STATE_CONFLICT",
+  "SOURCE_ACCOUNT_NOT_FOUND",
+  "SOURCE_ACCOUNT_NOT_ACTIVE",
+  "SOURCE_ACCOUNT_NOT_WITHDRAWABLE",
+  "SOURCE_ACCOUNT_FORBIDDEN",
   "ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION",
   "ATTACHMENT_STORAGE_UNAVAILABLE",
   "ATTACHMENT_VALIDATOR_BUSY",
@@ -200,6 +229,7 @@ export type EndpointContract = Readonly<{
   method: HttpMethod;
   path: string;
   action: Action;
+  alternativeActions?: readonly Action[];
   responseVersion: string;
   requiresRoleContext: boolean;
 }>;
@@ -219,15 +249,22 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "POST", path: "/v1/finance/drafts", action: "CREATE_FINANCE_DOCUMENT", responseVersion: "finance-draft.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/finance/drafts/mine", action: "READ_OWN_FINANCE_DRAFT", responseVersion: "finance-drafts.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/finance/drafts/:documentId", action: "READ_OWN_FINANCE_DRAFT", responseVersion: "finance-draft.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/attachment-uploads", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", responseVersion: "attachment-reservation.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/attachment-uploads/:versionId", action: "READ_OWN_FINANCE_ATTACHMENT", responseVersion: "attachment-metadata.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/attachment-uploads/:versionId/content", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", responseVersion: "attachment-upload.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/attachments/:versionId/content", action: "READ_OWN_FINANCE_ATTACHMENT", responseVersion: "attachment-binary.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/drafts/:documentId/attachment-uploads", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", alternativeActions: ["UPLOAD_FINANCE_RECEIPT"], responseVersion: "attachment-reservation.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/attachment-uploads/:versionId", action: "READ_OWN_FINANCE_ATTACHMENT", alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"], responseVersion: "attachment-metadata.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/attachment-uploads/:versionId/content", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", alternativeActions: ["UPLOAD_FINANCE_RECEIPT"], responseVersion: "attachment-upload.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/attachments/:versionId/content", action: "READ_OWN_FINANCE_ATTACHMENT", alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"], responseVersion: "attachment-binary.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/referrals/:referralId/archive", action: "MANAGE_OWN_REFERRALS", responseVersion: "referral-lifecycle.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/referrals/:referralId/reactivate", action: "MANAGE_OWN_REFERRALS", responseVersion: "referral-lifecycle.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/referrals/:referralId/accept", action: "ACCEPT_REFERRAL", responseVersion: "referral.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/referrals/:referralId/weekly-fees", action: "CREATE_WEEKLY_FEE", responseVersion: "weekly-fee.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/accounts/:accountId/withdrawals", action: "CREATE_PERSONAL_WITHDRAWAL", responseVersion: "withdrawal.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/drafts/:documentId/withdrawal-submit", action: "CREATE_PERSONAL_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/withdrawals/:documentId/finance-revoke", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/withdrawals/:documentId/mark-transferred", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/withdrawals/sources", action: "READ_OWN_WITHDRAWAL", responseVersion: "withdrawal-sources.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/withdrawals/mine", action: "READ_OWN_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/withdrawals/pending-transfer", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/withdrawals/managed", action: "READ_MANAGED_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/finance/withdrawals/:documentId", action: "READ_OWN_WITHDRAWAL", alternativeActions: ["READ_MANAGED_WITHDRAWAL"], responseVersion: "withdrawal-detail.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/finance/documents", action: "CREATE_FINANCE_DOCUMENT", responseVersion: "finance-document.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/finance/documents/:documentId/approve", action: "APPROVE_FINANCE_DOCUMENT", responseVersion: "finance-document.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/regions/:regionId/person-summaries", action: "VIEW_REGION_PERSONAL_SUMMARY", responseVersion: "region-person-summary.v1", requiresRoleContext: true },

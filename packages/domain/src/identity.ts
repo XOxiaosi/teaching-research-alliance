@@ -25,7 +25,7 @@ export const roleContextsFor = (
   at: Date
 ): readonly RoleContext[] =>
   activeRoleAssignments(personId, assignments, at).map((assignment) => {
-    const context: RoleContext = { subject: assignment.subject, personId };
+    const context: RoleContext = { subject: assignment.subject, personId, scope: assignment.scope };
     if (assignment.scopeId === undefined) return context;
     if (assignment.scope === "REGION") return { ...context, regionId: assignment.scopeId };
     if (assignment.scope === "CAMPUS") return { ...context, campusId: assignment.scopeId };

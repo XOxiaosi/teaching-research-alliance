@@ -31,3 +31,6 @@ export { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-
 export { PostgresFinanceAttachmentUploadService } from "./postgres-finance-attachment-upload-service.js";
 export { PostgresFinanceAttachmentReadService } from "./postgres-finance-attachment-read-service.js";
 export { LocalAttachmentStore } from "./local-attachment-store.js";
+export { FinanceSensitiveFieldCrypto } from "./finance-sensitive-field-crypto.js";
+export { PostgresWithdrawalService } from "./postgres-withdrawal-service.js";
+export { PostgresWithdrawalReadService } from "./postgres-withdrawal-read-service.js";

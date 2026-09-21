@@ -29,3 +29,14 @@ test("只有系统所有者能管理管理员身份", () => {
   assert.throws(() => assertAdminAssignmentActor(["SYSTEM_ADMIN"]), /ONLY_SYSTEM_OWNER_CAN_MANAGE_ADMIN/);
   assert.throws(() => assertAdminAssignmentActor(["CAMPUS_PRINCIPAL"]), /ONLY_SYSTEM_OWNER_CAN_MANAGE_ADMIN/);
 });
+
+test("会话上下文保留明确范围，不把缺少组织编号推断为全局财务", () => {
+  const roles=[
+    {personId:'finance',subject:'HEADQUARTERS_FINANCE',scope:'SELF',validFrom:date('2026-01-01')},
+    {personId:'finance',subject:'HEADQUARTERS_FINANCE',scope:'GLOBAL',validFrom:date('2026-01-01')}
+  ];
+  const contexts=roleContextsFor('finance',roles,date('2026-06-01'));
+  assert.deepEqual(contexts.map(context=>context.scope),['SELF','GLOBAL']);
+  assert.equal(contexts[0].regionId,undefined);
+  assert.equal(contexts[1].regionId,undefined);
+});

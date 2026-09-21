@@ -34,6 +34,19 @@ test("契约规则没有重复动作定义", () => {
   assert.equal(new Set(keys).size, keys.length);
 });
 
+test("提现提交、财务办理和凭证查阅各自授权，分区不取得财务能力",()=>{
+  for(const subject of ['TEACHING_TEACHER','ACADEMIC_PLANNER','PLANNING_MENTOR']){
+    assert.equal(hasPermission(subject,'CREATE_PERSONAL_WITHDRAWAL'),true);
+    assert.equal(hasPermission(subject,'READ_OWN_WITHDRAWAL'),true);
+    assert.equal(hasPermission(subject,'PROCESS_WITHDRAWAL'),false);
+  }
+  assert.equal(hasPermission('HEADQUARTERS_FINANCE','PROCESS_WITHDRAWAL'),true);
+  for(const action of ['UPLOAD_FINANCE_RECEIPT','READ_MANAGED_FINANCE_ATTACHMENT','PROCESS_WITHDRAWAL','READ_MANAGED_WITHDRAWAL'])assert.equal(hasPermission('REGION_FINANCE',action),false);
+  assert.equal(ENDPOINT_CONTRACTS.some(item=>item.path==='/v1/accounts/:accountId/withdrawals'),false);
+  const attachment=ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/attachments/:versionId/content');
+  assert.deepEqual(attachment.alternativeActions,['READ_MANAGED_FINANCE_ATTACHMENT']);
+});
+
 test("端点契约包含分区汇总、关系预览和全正常场地目录", () => {
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/regions/:regionId/person-summaries"), true);
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/admin/person-relationships/preview"), true);

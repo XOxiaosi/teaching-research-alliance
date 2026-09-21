@@ -33,7 +33,7 @@ test("真实 PostgreSQL 财务草稿仅创建本人元数据，幂等并发且�
       updatedAt: at.toISOString(),
       replay: created.replay
     });
-    assert.deepEqual(await service.getOwn(contextFor(teacherId), created.id), {
+    assert.deepEqual(await service.getOwn(contextFor(teacherId), created.id,at), {
       id: created.id,
       kind: "REIMBURSEMENT",
       status: "DRAFT",
@@ -41,7 +41,7 @@ test("真实 PostgreSQL 财务草稿仅创建本人元数据，幂等并发且�
       createdAt: at.toISOString(),
       updatedAt: at.toISOString()
     });
-    assert.deepEqual(await service.listOwn(contextFor(teacherId)), [{
+    assert.deepEqual(await service.listOwn(contextFor(teacherId),at), [{
       id: created.id,
       kind: "REIMBURSEMENT",
       status: "DRAFT",
@@ -49,8 +49,8 @@ test("真实 PostgreSQL 财务草稿仅创建本人元数据，幂等并发且�
       createdAt: at.toISOString(),
       updatedAt: at.toISOString()
     }]);
-    await assert.rejects(service.getOwn(contextFor(otherTeacherId), created.id), /FINANCE_DOCUMENT_NOT_FOUND/);
-    assert.deepEqual(await service.listOwn(contextFor(otherTeacherId)), []);
+    await assert.rejects(service.getOwn(contextFor(otherTeacherId), created.id,at), /FINANCE_DOCUMENT_NOT_FOUND/);
+    assert.deepEqual(await service.listOwn(contextFor(otherTeacherId),at), []);
     await assert.rejects(service.create(contextFor(teacherId), { kind: "WITHDRAWAL" }, "finance-same-key", at), /IDEMPOTENCY_REPLAY/);
     await assert.rejects(service.create({ personId: teacherId, subject: "HEADQUARTERS_FINANCE" }, { kind: "WITHDRAWAL" }, "finance-forbidden", at), /FORBIDDEN_SCOPE/);
     await assert.rejects(service.create(contextFor(plannerId, "ACADEMIC_PLANNER"), { kind: "NOT_A_KIND" }, "finance-invalid", at), /INVALID_INPUT/);
@@ -59,8 +59,12 @@ test("真实 PostgreSQL 财务草稿仅创建本人元数据，幂等并发且�
     await assert.rejects(pool.query("UPDATE finance_document_event SET event_type='CREATED' WHERE finance_document_id=$1", [created.id]), /FINANCE_DOCUMENT_EVENT_IMMUTABLE/);
     await assert.rejects(pool.query("DELETE FROM finance_document_event WHERE finance_document_id=$1",[created.id]),/FINANCE_DOCUMENT_EVENT_IMMUTABLE/);
     await assert.rejects(pool.query("DELETE FROM finance_draft_idempotency WHERE actor_person_id=$1", [teacherId]), /FINANCE_DRAFT_IDEMPOTENCY_IMMUTABLE/);
-    await pool.query("UPDATE finance_document SET version=2,kind='WITHDRAWAL',updated_at='2026-09-22' WHERE id=$1",[created.id]);
+    await assert.rejects(pool.query("UPDATE finance_document SET kind='WITHDRAWAL' WHERE id=$1",[created.id]),/FINANCE_DOCUMENT_.*IMMUTABLE/);
+    await pool.query("UPDATE finance_document SET version=2,updated_at='2026-09-22' WHERE id=$1",[created.id]);
     assert.deepEqual(await service.create(contextFor(teacherId),{kind:'REIMBURSEMENT'},'finance-same-key',new Date('2026-09-23')),{...created,replay:true});
+    const nextYear=new Date('2027-08-31T16:00:00Z');
+    assert.deepEqual(await service.listOwn(contextFor(teacherId),nextYear),[]);
+    await assert.rejects(service.getOwn(contextFor(teacherId),created.id,nextYear),/FINANCE_DOCUMENT_NOT_FOUND/);
   } finally {
     await db.close();
   }
@@ -131,7 +135,7 @@ test('财务草稿真实HTTP拒绝伪造身份与金额，仅本人可读且创�
   sessions.switchRole('draft-token-1','HEADQUARTERS_FINANCE',at);
   assert.equal((await request('/mine')).status,403);
   assert.equal((await request(`/${created.id}`)).status,403);
-  assert.equal((await fetch(attachmentUrl,{headers:{authorization:'Bearer draft-token-1'}})).status,403);
+  assert.equal((await fetch(attachmentUrl,{headers:{authorization:'Bearer draft-token-1'}})).status,200);
   assert.equal((await request('',{...command,idempotencyKey:'hq-draft'})).status,403);
   assert.equal((await db.pool.query('SELECT count(*)::int n FROM ledger_event')).rows[0].n,0);
  }finally{if(server)await new Promise(resolve=>server.close(resolve));await db.close();}

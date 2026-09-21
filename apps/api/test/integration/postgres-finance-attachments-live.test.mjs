@@ -28,10 +28,10 @@ test("真实 PostgreSQL 附件预留仅生成UPLOADING元数据，并发同键�
     const reserved=results[0];
     assert.deepEqual(reserved,{attachmentId:reserved.attachmentId,versionId:reserved.versionId,versionNo:1,status:"UPLOADING",purpose:"SUPPORTING_DOCUMENT",originalFilename:"合成单据.pdf",declaredMediaType:"application/pdf",declaredSizeBytes:40,expectedSha256:"a".repeat(64),createdAt:at.toISOString(),replay:reserved.replay});
     const {replay: _replay,...reservedMetadata}=reserved;
-    assert.deepEqual(await service.getOwnVersion(contextFor(teacherId),reserved.versionId),reservedMetadata);
+    assert.deepEqual(await service.getOwnVersion(contextFor(teacherId),reserved.versionId,at),reservedMetadata);
     const reordered={declaredSizeBytes:40,expectedSha256:"a".repeat(64),declaredMediaType:"application/pdf",originalFilename:"合成单据.pdf",purpose:"SUPPORTING_DOCUMENT",ignoredByService:"not-hashed"};
     assert.deepEqual(await service.reserve(contextFor(teacherId),docId,reordered,"attachment-same-key",at),{...reserved,replay:true});
-    await assert.rejects(service.getOwnVersion(contextFor(otherId),reserved.versionId),/FINANCE_ATTACHMENT_NOT_FOUND/);
+    await assert.rejects(service.getOwnVersion(contextFor(otherId),reserved.versionId,at),/FINANCE_ATTACHMENT_NOT_FOUND/);
     await assert.rejects(service.reserve(contextFor(teacherId),docId,draft({purpose:"INVOICE"}),"attachment-same-key",at),/IDEMPOTENCY_REPLAY/);
     const budgetRace=await Promise.allSettled([
       service.reserve(contextFor(teacherId),docId,draft({declaredSizeBytes:60}),"attachment-budget-a",at),
@@ -70,7 +70,7 @@ test("附件预留不泄露他人文档，末端失败回滚，终结版本不�
     await assert.rejects(pool.query("UPDATE finance_attachment_version SET status='READY',detected_media_type='application/pdf',actual_size_bytes=39,sha256=$2,ready_at=$3::timestamptz WHERE id=$1::uuid",[reserved.versionId,"b".repeat(64),at.toISOString()]),/finance_attachment_version_check/);
     await assert.rejects(pool.query("UPDATE finance_attachment_version SET status='READY',detected_media_type='application/pdf',actual_size_bytes=40,sha256=$2,ready_at=$3::timestamptz WHERE id=$1::uuid",[reserved.versionId,"a".repeat(64),at.toISOString()]),/finance_attachment_version_check/);
     await pool.query("UPDATE finance_attachment_version SET status='READY',detected_media_type='application/pdf',actual_size_bytes=40,sha256=$2,ready_at=$3::timestamptz WHERE id=$1::uuid",[reserved.versionId,"b".repeat(64),at.toISOString()]);
-    assert.equal((await service.getOwnVersion(contextFor(teacherId),reserved.versionId)).status,"READY");
+    assert.equal((await service.getOwnVersion(contextFor(teacherId),reserved.versionId,at)).status,"READY");
     await assert.rejects(pool.query("UPDATE finance_attachment_version SET failure_code='rewritten' WHERE id=$1",[reserved.versionId]),/FINANCE_ATTACHMENT_VERSION_IMMUTABLE/);
     await assert.rejects(pool.query("DELETE FROM finance_attachment_version WHERE id=$1",[reserved.versionId]),/FINANCE_ATTACHMENT_VERSION_IMMUTABLE/);
     await assert.rejects(pool.query("UPDATE finance_attachment_version SET id=$2::uuid WHERE id=$1::uuid",[reserved.versionId,randomUUID()]),/FINANCE_ATTACHMENT_VERSION_IMMUTABLE/);

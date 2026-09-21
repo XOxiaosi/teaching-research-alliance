@@ -1,3 +1,4 @@
+import { financeYearBounds } from "./finance-year.js";
 import { createHash } from "node:crypto";
 import type { RoleContext } from "@teaching-research-alliance/contracts";
 import type { PostgresPool } from "./postgres-ledger-repository.js";
@@ -142,15 +143,17 @@ export class PostgresFinanceDraftService {
     }
   }
 
-  public async getOwn(context: RoleContext, documentId: string): Promise<FinanceDraftMetadata> {
+  public async getOwn(context: RoleContext, documentId: string, at: Date): Promise<FinanceDraftMetadata> {
     assertContext(context);
     if (!UUID_PATTERN.test(documentId)) throw new Error("INVALID_INPUT");
+    const bounds=financeYearBounds(at);
     const client = await this.pool.connect();
     try {
       const result = await client.query<FinanceDocumentRow>(
         `${financeDocumentSelect}
-          WHERE id = $1::uuid AND applicant_person_id = $2::uuid AND status='DRAFT'`,
-        [documentId, context.personId]
+          WHERE id = $1::uuid AND applicant_person_id = $2::uuid AND status='DRAFT'
+            AND created_at >= $3::timestamptz AND created_at < $4::timestamptz`,
+        [documentId, context.personId, bounds.start, bounds.end]
       );
       const row = result.rows[0];
       if (row === undefined) throw new Error("FINANCE_DOCUMENT_NOT_FOUND");
@@ -160,15 +163,17 @@ export class PostgresFinanceDraftService {
     }
   }
 
-  public async listOwn(context: RoleContext): Promise<readonly FinanceDraftMetadata[]> {
+  public async listOwn(context: RoleContext, at: Date): Promise<readonly FinanceDraftMetadata[]> {
     assertContext(context);
+    const bounds=financeYearBounds(at);
     const client = await this.pool.connect();
     try {
       const result = await client.query<FinanceDocumentRow>(
         `${financeDocumentSelect}
           WHERE applicant_person_id = $1::uuid AND status='DRAFT'
+            AND created_at >= $2::timestamptz AND created_at < $3::timestamptz
           ORDER BY created_at DESC, id DESC`,
-        [context.personId]
+        [context.personId,bounds.start,bounds.end]
       );
       return result.rows.map((row) => toMetadata(row));
     } finally {

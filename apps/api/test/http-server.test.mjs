@@ -163,3 +163,23 @@ test('附件下载完成授权后才发送原件，禁缓存并安全编码文�
   assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'ATTACHMENT_INTEGRITY_FAILED');
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('未配置财务存储或密钥时明确不可用，不伪造上传或提现成功',async()=>{
+ const services=createServices();
+ services.sessions.login('13800000001','digest-server',now);
+ services.sessions.switchRole('session-server','TEACHING_TEACHER',now);
+ const server=createApiServer(services),baseUrl=await listen(server);
+ const headers={authorization:'Bearer session-server'};
+ try{
+  for(const [path,method,body,type] of [
+   ['/v1/finance/attachment-uploads/version/content','POST',Buffer.from('test'),'application/octet-stream'],
+   ['/v1/finance/attachments/version/content','GET',undefined,undefined],
+   ['/v1/finance/drafts/document/withdrawal-submit','POST','{}','application/json']
+  ]){
+   const response=await fetch(baseUrl+path,{method,headers:{...headers,...(type?{'content-type':type}:{})},...(body===undefined?{}:{body})});
+   assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'private, no-store');
+   const envelope=await response.json();assert.equal(envelope.data,undefined);
+   assert.ok(['ATTACHMENT_STORAGE_UNAVAILABLE','FINANCE_SERVICE_UNAVAILABLE'].includes(envelope.error.code));
+  }
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});

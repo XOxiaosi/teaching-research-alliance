@@ -1,4 +1,4 @@
-import type { PermissionSubject, RoleContext } from "@teaching-research-alliance/contracts";
+import type { PermissionScope, PermissionSubject, RoleContext } from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
   version?: string;
@@ -175,6 +175,154 @@ export type FinanceDraftSubmission = Readonly<{
 
 export type FinanceDraftCreateResult = FinanceDraftMetadata & Readonly<{ replay: boolean }>;
 
+export const FINANCE_ATTACHMENT_PURPOSES = [
+  "SUPPORTING_DOCUMENT",
+  "APPLICATION_SCREENSHOT",
+  "INVOICE",
+  "PAYMENT_RECEIPT"
+] as const;
+
+export const FINANCE_ATTACHMENT_MEDIA_TYPES = ["application/pdf", "image/png", "image/jpeg"] as const;
+
+export type FinanceAttachmentPurpose = (typeof FINANCE_ATTACHMENT_PURPOSES)[number];
+export type FinanceAttachmentMediaType = (typeof FINANCE_ATTACHMENT_MEDIA_TYPES)[number];
+
+/** JSON metadata only. Uploading the original bytes is deliberately a separate transport contract. */
+export type FinanceAttachmentReservationDraft = Readonly<{
+  documentId: string;
+  purpose: FinanceAttachmentPurpose;
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+}>;
+
+export type FinanceAttachmentReservationSubmission = Readonly<{
+  draft: FinanceAttachmentReservationDraft;
+  idempotencyKey: string;
+}>;
+
+export type FinanceAttachmentReservation = Readonly<{
+  attachmentId: string;
+  versionId: string;
+  versionNo: number;
+  status: "UPLOADING";
+  purpose: FinanceAttachmentPurpose;
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+  createdAt: string;
+  replay: boolean;
+}>;
+
+export type FinanceAttachmentVersionMetadata = Readonly<{
+  attachmentId: string;
+  versionId: string;
+  versionNo: number;
+  status: "UPLOADING" | "READY" | "FAILED";
+  purpose: FinanceAttachmentPurpose;
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+  createdAt: string;
+}>;
+
+export type WithdrawalStatus = "PENDING_TRANSFER" | "TRANSFERRED" | "FINANCE_REVOKED";
+export type WithdrawalSourceType = "PERSON" | "VENUE";
+
+/** A currently withdrawable settlement account; the server remains authoritative for its balance and grant. */
+export type WithdrawalSource = Readonly<{
+  accountId: string;
+  sourceType: WithdrawalSourceType;
+  label: string;
+  balanceCents: string;
+  venueId?: string;
+}>;
+
+/** This list item deliberately exposes only a masked recipient account. */
+export type WithdrawalSummary = Readonly<{
+  id: string;
+  applicantPersonId: string;
+  applicantName: string;
+  status: WithdrawalStatus;
+  version: number;
+  amountCents: string;
+  sourceAccountId: string;
+  sourceType: WithdrawalSourceType;
+  venueId?: string;
+  venueName?: string;
+  bankAccountLast4: string;
+  submittedAt: string;
+}>;
+
+export type WithdrawalRecipient = Readonly<{
+  recipientName: string;
+  bankAccount: string;
+  bankName?: string;
+}>;
+
+export type WithdrawalAttachment = Readonly<{
+  stage: "SUBMISSION" | "COMPLETION";
+  purpose: FinanceAttachmentPurpose;
+  versionId: string;
+  originalFilename: string;
+  mediaType: FinanceAttachmentMediaType;
+  sizeBytes: number;
+  sha256: string;
+}>;
+
+export type WithdrawalDetail = WithdrawalSummary & Readonly<{
+  recipient: WithdrawalRecipient;
+  attachments: readonly WithdrawalAttachment[];
+}>;
+
+export type WithdrawalCommandResult = Readonly<{
+  id: string;
+  status: WithdrawalStatus;
+  version: number;
+  replay: boolean;
+}>;
+
+export type WithdrawalSubmitDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  sourceAccountId: string;
+  amountCents: string;
+  recipientName: string;
+  bankAccount: string;
+  bankName?: string;
+  attachmentVersionIds: readonly string[];
+}>;
+
+export type WithdrawalRevokeDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+}>;
+
+export type WithdrawalMarkTransferredDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  attachmentVersionIds: readonly string[];
+}>;
+
+export type WithdrawalSubmitSubmission = Readonly<{
+  draft: WithdrawalSubmitDraft;
+  idempotencyKey: string;
+}>;
+
+export type WithdrawalRevokeSubmission = Readonly<{
+  draft: WithdrawalRevokeDraft;
+  idempotencyKey: string;
+}>;
+
+export type WithdrawalMarkTransferredSubmission = Readonly<{
+  draft: WithdrawalMarkTransferredDraft;
+  idempotencyKey: string;
+}>;
+
 export type SentReferralWeeklyFee = Readonly<{
   entryId: string;
   teachingWeekId: string;
@@ -244,7 +392,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -257,6 +405,10 @@ type SubmissionScope = Readonly<{
   personId: string;
   roleSubject: PermissionSubject | null;
   rolePersonId: string | null;
+  roleScope: PermissionScope | null;
+  roleRegionId: string | null;
+  roleCampusId: string | null;
+  roleVenueId: string | null;
   epoch: number;
 }>;
 
@@ -354,8 +506,110 @@ const validateFinanceDraftKind = (kind: string): kind is FinanceDraftKind => {
   return true;
 };
 
+/** UTF-8 byte length without relying on browser, Node, or miniapp-specific globals. */
+const utf8ByteLength = (value: string): number => {
+  let length = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit < 0x80) length += 1;
+    else if (codeUnit < 0x800) length += 2;
+    else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        length += 4;
+        index += 1;
+      } else length += 3;
+    } else length += 3;
+  }
+  return length;
+};
+
+const validateFinanceAttachmentDraft = (draft: FinanceAttachmentReservationDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  if (!(FINANCE_ATTACHMENT_PURPOSES as readonly string[]).includes(draft.purpose)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:purpose");
+  }
+  requireNonBlank(draft.originalFilename, "originalFilename");
+  if (utf8ByteLength(draft.originalFilename) > 255 || /[\x00-\x1f\x7f/\\]/.test(draft.originalFilename)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:originalFilename");
+  }
+  if (!(FINANCE_ATTACHMENT_MEDIA_TYPES as readonly string[]).includes(draft.declaredMediaType)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:declaredMediaType");
+  }
+  if (!Number.isSafeInteger(draft.declaredSizeBytes) || draft.declaredSizeBytes < 1 || draft.declaredSizeBytes > 20 * 1024 * 1024) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:declaredSizeBytes");
+  }
+  if (draft.expectedSha256 !== undefined && !/^[0-9a-f]{64}$/.test(draft.expectedSha256)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedSha256");
+  }
+};
+
+const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
+
+const validateExpectedWithdrawalVersion = (value: number): void => {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  }
+};
+
+const validateWithdrawalAmount = (value: string): void => {
+  if (!/^\d+$/.test(value) || value.length > 19 || BigInt(value) < 1n || BigInt(value) > MAX_POSTGRES_BIGINT) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:amountCents");
+  }
+};
+
+/** Validate whitespace and control characters without rewriting bank text that must be submitted verbatim. */
+const validateFinancialText = (value: string | undefined, field: string, maximum: number, optional = false): void => {
+  if (value === undefined && optional) return;
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximum || /[\x00-\x1f\x7f]/.test(value)) {
+    throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
+  }
+};
+
+const freezeAttachmentVersionIds = (ids: readonly string[], minimumCount = 1): readonly string[] => {
+  if (!Array.isArray(ids) || ids.length < minimumCount || ids.length > 20) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:attachmentVersionIds");
+  }
+  const copied = ids.map((id) => {
+    requireNonBlank(id, "attachmentVersionIds");
+    return id;
+  });
+  if (new Set(copied).size !== copied.length) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:attachmentVersionIds");
+  }
+  return Object.freeze(copied);
+};
+
+const validateWithdrawalSubmitDraft = (draft: WithdrawalSubmitDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  requireNonBlank(draft.sourceAccountId, "sourceAccountId");
+  validateWithdrawalAmount(draft.amountCents);
+  validateFinancialText(draft.recipientName, "recipientName", 200);
+  validateFinancialText(draft.bankAccount, "bankAccount", 256);
+  validateFinancialText(draft.bankName, "bankName", 200, true);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateWithdrawalRevokeDraft = (draft: WithdrawalRevokeDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validateWithdrawalMarkTransferredDraft = (draft: WithdrawalMarkTransferredDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds);
+};
+
 const sameRoleContext = (left: RoleContext | null, right: RoleContext | null): boolean =>
-  left?.subject === right?.subject && left?.personId === right?.personId;
+  left?.subject === right?.subject
+  && left?.personId === right?.personId
+  && left?.scope === right?.scope
+  && left?.regionId === right?.regionId
+  && left?.campusId === right?.campusId
+  && left?.venueId === right?.venueId;
 
 const sameSubmissionScope = (left: SessionSnapshot | null, right: SessionSnapshot): boolean =>
   left !== null
@@ -477,6 +731,35 @@ export class TeacherApiClient {
     return this.authenticatedRequest<FinanceDraftMetadata>("GET", `/v1/finance/drafts/${encodeURIComponent(documentId)}`);
   }
 
+  public async getOwnFinanceAttachmentVersion(versionId: string): Promise<FinanceAttachmentVersionMetadata> {
+    requireNonBlank(versionId, "versionId");
+    return this.authenticatedRequest<FinanceAttachmentVersionMetadata>(
+      "GET",
+      `/v1/finance/attachment-uploads/${encodeURIComponent(versionId)}`
+    );
+  }
+
+  public async listWithdrawalSources(): Promise<readonly WithdrawalSource[]> {
+    return this.authenticatedRequest<readonly WithdrawalSource[]>("GET", "/v1/finance/withdrawals/sources");
+  }
+
+  public async listOwnWithdrawals(): Promise<readonly WithdrawalSummary[]> {
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/mine");
+  }
+
+  public async listPendingTransferWithdrawals(): Promise<readonly WithdrawalSummary[]> {
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/pending-transfer");
+  }
+
+  public async listManagedWithdrawals(): Promise<readonly WithdrawalSummary[]> {
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/managed");
+  }
+
+  public async getWithdrawalDetail(documentId: string): Promise<WithdrawalDetail> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<WithdrawalDetail>("GET", `/v1/finance/withdrawals/${encodeURIComponent(documentId)}`);
+  }
+
   /**
    * A submission is immutable. Retry the same object after an uncertain network failure;
    * create a new object after editing any field so the old idempotency key is never reused.
@@ -562,6 +845,85 @@ export class TeacherApiClient {
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ kind: draft.kind });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Reserve immutable attachment metadata before starting the separate binary upload flow. */
+  public createFinanceAttachmentReservationSubmission(
+    draft: FinanceAttachmentReservationDraft
+  ): FinanceAttachmentReservationSubmission {
+    validateFinanceAttachmentDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({
+      documentId: draft.documentId,
+      purpose: draft.purpose,
+      originalFilename: draft.originalFilename,
+      declaredMediaType: draft.declaredMediaType,
+      declaredSizeBytes: draft.declaredSizeBytes,
+      ...(draft.expectedSha256 === undefined ? {} : { expectedSha256: draft.expectedSha256 })
+    });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Freeze all sensitive form text and attachment IDs so uncertain retries reproduce the original request exactly. */
+  public createWithdrawalSubmitSubmission(draft: WithdrawalSubmitDraft): WithdrawalSubmitSubmission {
+    validateWithdrawalSubmitDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const attachmentVersionIds = freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+    const frozenDraft = Object.freeze({
+      documentId: draft.documentId,
+      expectedVersion: draft.expectedVersion,
+      sourceAccountId: draft.sourceAccountId,
+      amountCents: draft.amountCents,
+      recipientName: draft.recipientName,
+      bankAccount: draft.bankAccount,
+      ...(draft.bankName === undefined ? {} : { bankName: draft.bankName }),
+      attachmentVersionIds
+    });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createWithdrawalRevokeSubmission(draft: WithdrawalRevokeDraft): WithdrawalRevokeSubmission {
+    validateWithdrawalRevokeDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ documentId: draft.documentId, expectedVersion: draft.expectedVersion, reason: draft.reason }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createWithdrawalMarkTransferredSubmission(
+    draft: WithdrawalMarkTransferredDraft
+  ): WithdrawalMarkTransferredSubmission {
+    validateWithdrawalMarkTransferredDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds)
+      }),
+      idempotencyKey
+    });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
     return submission;
@@ -703,6 +1065,114 @@ export class TeacherApiClient {
     }
   }
 
+  public async reserveFinanceAttachment(
+    submission: FinanceAttachmentReservationSubmission
+  ): Promise<FinanceAttachmentReservation> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<FinanceAttachmentReservation>(
+        "POST",
+        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/attachment-uploads`,
+        {
+          purpose: submission.draft.purpose,
+          originalFilename: submission.draft.originalFilename,
+          declaredMediaType: submission.draft.declaredMediaType,
+          declaredSizeBytes: submission.draft.declaredSizeBytes,
+          ...(submission.draft.expectedSha256 === undefined ? {} : { expectedSha256: submission.draft.expectedSha256 }),
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async submitWithdrawal(submission: WithdrawalSubmitSubmission): Promise<WithdrawalCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<WithdrawalCommandResult>(
+        "POST",
+        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/withdrawal-submit`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          sourceAccountId: submission.draft.sourceAccountId,
+          amountCents: submission.draft.amountCents,
+          recipientName: submission.draft.recipientName,
+          bankAccount: submission.draft.bankAccount,
+          ...(submission.draft.bankName === undefined ? {} : { bankName: submission.draft.bankName }),
+          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async revokeWithdrawal(submission: WithdrawalRevokeSubmission): Promise<WithdrawalCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<WithdrawalCommandResult>(
+        "POST",
+        `/v1/finance/withdrawals/${encodeURIComponent(submission.draft.documentId)}/finance-revoke`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async markWithdrawalTransferred(
+    submission: WithdrawalMarkTransferredSubmission
+  ): Promise<WithdrawalCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<WithdrawalCommandResult>(
+        "POST",
+        `/v1/finance/withdrawals/${encodeURIComponent(submission.draft.documentId)}/mark-transferred`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   private requireAuthentication(): Authentication {
     if (this.session === null) throw new ApiClientError(401, "UNAUTHENTICATED");
     return { sessionId: this.session.sessionId, epoch: this.epoch };
@@ -717,6 +1187,10 @@ export class TeacherApiClient {
       personId: session.personId,
       roleSubject: session.currentRoleContext?.subject ?? null,
       rolePersonId: session.currentRoleContext?.personId ?? null,
+      roleScope: session.currentRoleContext?.scope ?? null,
+      roleRegionId: session.currentRoleContext?.regionId ?? null,
+      roleCampusId: session.currentRoleContext?.campusId ?? null,
+      roleVenueId: session.currentRoleContext?.venueId ?? null,
       epoch: this.submissionScopeEpoch
     };
   }
@@ -733,6 +1207,10 @@ export class TeacherApiClient {
       || scope.personId !== session.personId
       || scope.roleSubject !== (session.currentRoleContext?.subject ?? null)
       || scope.rolePersonId !== (session.currentRoleContext?.personId ?? null)
+      || scope.roleScope !== (session.currentRoleContext?.scope ?? null)
+      || scope.roleRegionId !== (session.currentRoleContext?.regionId ?? null)
+      || scope.roleCampusId !== (session.currentRoleContext?.campusId ?? null)
+      || scope.roleVenueId !== (session.currentRoleContext?.venueId ?? null)
     ) {
       this.submissionStatuses.set(submission, "FAILED");
       throw new StaleResponseError();

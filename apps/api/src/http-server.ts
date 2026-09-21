@@ -46,6 +46,10 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
   return createServer(async (request, response) => {
     try {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      if(pathname.startsWith("/v1/finance/")){
+        response.setHeader("cache-control","private, no-store");
+        response.setHeader("x-content-type-options","nosniff");
+      }
       if (request.method === "GET" && pathname === "/health") {
         writeJson(response, 200, { service: "teaching-research-alliance-api", status: "ok" });
         return;

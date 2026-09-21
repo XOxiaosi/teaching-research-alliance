@@ -5,6 +5,7 @@ import {
   formatCentsAsBeans,
   parseBeanAmountToCents,
   RoleSelectionRequiredError,
+  SubmissionInProgressError,
   StaleResponseError,
   TeacherApiClient
 } from "../dist/index.js";
@@ -541,6 +542,135 @@ test("退出后在途推荐创建不能写回当前会话", async () => {
   assert.equal(client.submissionStatus(submission), "FAILED");
 });
 
+test("附件预留冻结元数据、未知结果使用同键重试且不发送伪造字段", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const reservation = {
+    attachmentId: "attachment-1", versionId: "version-1", versionNo: 1, status: "UPLOADING",
+    purpose: "SUPPORTING_DOCUMENT", originalFilename: "合成凭证.pdf", declaredMediaType: "application/pdf",
+    declaredSizeBytes: 42, expectedSha256: "a".repeat(64), createdAt: "2026-09-21T00:00:00.000Z", replay: true
+  };
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "attachment-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/finance/drafts/draft-1/attachment-uploads") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success(reservation);
+      }
+      if (request.path === "/v1/finance/attachment-uploads/version-1") {
+        const { replay: _replay, ...metadata } = reservation;
+        return success(metadata);
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createFinanceAttachmentReservationSubmission({
+    documentId: "draft-1", purpose: "SUPPORTING_DOCUMENT", originalFilename: "合成凭证.pdf",
+    declaredMediaType: "application/pdf", declaredSizeBytes: 42, expectedSha256: "a".repeat(64),
+    status: "READY", attachmentId: "forged", uploadedByPersonId: "forged", storagePath: "/private/original"
+  });
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.throws(() => { submission.draft.originalFilename = "rewritten.pdf"; }, TypeError);
+  await assert.rejects(client.reserveFinanceAttachment(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.reserveFinanceAttachment(submission), reservation);
+  assert.equal(client.submissionStatus(submission), "SUCCEEDED");
+  assert.deepEqual(bodies.map((body) => body.idempotencyKey), ["attachment-key-1", "attachment-key-1"]);
+  assert.deepEqual(Object.keys(bodies[0]).sort(), [
+    "declaredMediaType", "declaredSizeBytes", "expectedSha256", "idempotencyKey", "originalFilename", "purpose"
+  ]);
+  assert.equal(bodies[0].attachmentId, undefined);
+  assert.equal(bodies[0].uploadedByPersonId, undefined);
+  assert.equal(bodies[0].storagePath, undefined);
+  const { replay: _replay, ...metadata } = reservation;
+  assert.deepEqual(await client.getOwnFinanceAttachmentVersion("version-1"), metadata);
+});
+
+test("附件预留校验文件元数据，并在角色变化后拒绝旧提交或旧读取", async () => {
+  const reading = deferred();
+  let reserveRequests = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/finance/attachment-uploads/version-1") return reading.promise;
+      if (request.path.includes("/attachment-uploads")) {
+        reserveRequests += 1;
+        return success({});
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createFinanceAttachmentReservationSubmission({
+    documentId: "draft-1", purpose: "INVOICE", originalFilename: "invoice.pdf",
+    declaredMediaType: "application/pdf", declaredSizeBytes: 1
+  });
+  const oldRead = client.getOwnFinanceAttachmentVersion("version-1");
+  await client.switchRole("ACADEMIC_PLANNER");
+  reading.resolve(success({ versionId: "version-1" }));
+  await assert.rejects(oldRead, StaleResponseError);
+  await assert.rejects(client.reserveFinanceAttachment(submission), StaleResponseError);
+  assert.equal(reserveRequests, 0);
+
+  const valid = {
+    documentId: "draft-1", purpose: "INVOICE", originalFilename: "invoice.pdf",
+    declaredMediaType: "application/pdf", declaredSizeBytes: 1
+  };
+  for (const draft of [
+    { ...valid, documentId: "" },
+    { ...valid, purpose: "UNKNOWN" },
+    { ...valid, originalFilename: "../invoice.pdf" },
+    { ...valid, originalFilename: "测".repeat(86) },
+    { ...valid, declaredMediaType: "text/plain" },
+    { ...valid, declaredSizeBytes: 0 },
+    { ...valid, declaredSizeBytes: 20 * 1024 * 1024 + 1 },
+    { ...valid, expectedSha256: "A".repeat(64) }
+  ]) {
+    assert.throws(() => client.createFinanceAttachmentReservationSubmission(draft), ApiClientError);
+  }
+});
+
+test("附件预留的401清会话，403清角色上下文", async () => {
+  let loginCount = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        loginCount += 1;
+        return success({ ...teacherSession(), sessionId: `attachment-session-${loginCount}` });
+      }
+      if (request.path === "/v1/finance/drafts/draft-1/attachment-uploads") {
+        return { status: 401, body: { error: { code: "UNAUTHENTICATED", message: "expired" } } };
+      }
+      if (request.path === "/v1/finance/attachment-uploads/version-1") {
+        return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "role" } } };
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createFinanceAttachmentReservationSubmission({
+    documentId: "draft-1", purpose: "INVOICE", originalFilename: "invoice.pdf",
+    declaredMediaType: "application/pdf", declaredSizeBytes: 1
+  });
+  await assert.rejects(client.reserveFinanceAttachment(submission), (error) => {
+    assert.ok(error instanceof ApiClientError);
+    assert.equal(error.code, "UNAUTHENTICATED");
+    return true;
+  });
+  assert.equal(client.currentSession, null);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.getOwnFinanceAttachmentVersion("version-1"), RoleSelectionRequiredError);
+  assert.equal(client.currentSession?.currentRoleContext, null);
+});
+
 test("金额和版本在客户端校验，401清会话，403返回角色选择", async () => {
   const client = new TeacherApiClient({
     transport: async (request) => {
@@ -572,4 +702,144 @@ test("server sign-out clears local state even if the logout request fails", asyn
   await client.login({phoneNormalized:'13800000000',password:'password'});
   await assert.rejects(client.endSession(), /network/);
   assert.equal(client.currentSession,null);
+});
+
+test("提现提交冻结银行文本与附件快照，以同一键重试且不发送伪造字段", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const attachmentVersionIds = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "withdrawal-submit-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/finance/drafts/draft-1/withdrawal-submit") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "PENDING_TRANSFER", version: 2, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createWithdrawalSubmitSubmission({
+    documentId: "draft-1", expectedVersion: 1, sourceAccountId: "account-1", amountCents: "600",
+    recipientName: "张老师", bankAccount: " 0012 3400 ", bankName: " 中国银行 ", attachmentVersionIds,
+    applicantPersonId: "forged", status: "TRANSFERRED", bankAccountLast4: "9999"
+  });
+  attachmentVersionIds.push("later-ui-change");
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.equal(Object.isFrozen(submission.draft.attachmentVersionIds), true);
+  await assert.rejects(client.submitWithdrawal(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.equal((await client.submitWithdrawal(submission)).replay, true);
+  assert.deepEqual(bodies.map((body) => body.idempotencyKey), ["withdrawal-submit-key-1", "withdrawal-submit-key-1"]);
+  assert.deepEqual(bodies[0], {
+    expectedVersion: 1, sourceAccountId: "account-1", amountCents: "600", recipientName: "张老师",
+    bankAccount: " 0012 3400 ", bankName: " 中国银行 ", attachmentVersionIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"],
+    idempotencyKey: "withdrawal-submit-key-1"
+  });
+  assert.equal(bodies[0].applicantPersonId, undefined);
+  assert.equal(bodies[0].status, undefined);
+  assert.throws(() => client.createWithdrawalSubmitSubmission({
+    documentId: "draft-1", expectedVersion: 1, sourceAccountId: "account-1", amountCents: "9223372036854775808",
+    recipientName: "张老师", bankAccount: "0012", attachmentVersionIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+  }), ApiClientError);
+  assert.throws(() => client.createWithdrawalSubmitSubmission({
+    documentId: "draft-1", expectedVersion: 1, sourceAccountId: "account-1", amountCents: "600",
+    recipientName: "张老师", bankAccount: "0012", attachmentVersionIds: ["11111111-1111-4111-8111-111111111111"]
+  }), ApiClientError);
+});
+
+test("提现命令拒绝跨角色复用，并阻止同一提交并发执行", async () => {
+  const request = deferred();
+  let posts = 0;
+  const client = new TeacherApiClient({
+    transport: async (transportRequest) => {
+      if (transportRequest.path === "/v1/session") return success(teacherSession());
+      if (transportRequest.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (transportRequest.path === "/v1/finance/drafts/draft-1/withdrawal-submit") {
+        posts += 1;
+        return request.promise;
+      }
+      throw new Error(`unexpected ${transportRequest.method} ${transportRequest.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const stale = client.createWithdrawalSubmitSubmission({
+    documentId: "draft-1", expectedVersion: 1, sourceAccountId: "account-1", amountCents: "1",
+    recipientName: "张老师", bankAccount: "0012", attachmentVersionIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+  });
+  await client.switchRole("ACADEMIC_PLANNER");
+  await assert.rejects(client.submitWithdrawal(stale), StaleResponseError);
+  assert.equal(posts, 0);
+
+  const current = client.createWithdrawalSubmitSubmission({
+    documentId: "draft-1", expectedVersion: 1, sourceAccountId: "account-1", amountCents: "1",
+    recipientName: "张老师", bankAccount: "0012", attachmentVersionIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"]
+  });
+  const first = client.submitWithdrawal(current);
+  await assert.rejects(client.submitWithdrawal(current), SubmissionInProgressError);
+  request.resolve(success({ id: "draft-1", status: "PENDING_TRANSFER", version: 2, replay: false }));
+  await first;
+  assert.equal(posts, 1);
+});
+
+test("提现读取路径、财务撤回和转账完成命令使用严格 JSON 白名单", async () => {
+  const requests = [];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => { let sequence = 0; return () => `withdrawal-key-${++sequence}`; })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("HEADQUARTERS_FINANCE"));
+      requests.push(request);
+      if (request.method === "GET") return success([]);
+      if (request.path.endsWith("finance-revoke")) return success({ id: "draft-1", status: "FINANCE_REVOKED", version: 3, replay: false });
+      if (request.path.endsWith("mark-transferred")) return success({ id: "draft-1", status: "TRANSFERRED", version: 3, replay: false });
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await client.listWithdrawalSources();
+  await client.listOwnWithdrawals();
+  await client.listPendingTransferWithdrawals();
+  await client.listManagedWithdrawals();
+  await client.getWithdrawalDetail("draft/1");
+  assert.deepEqual(requests.slice(0, 5).map((request) => request.path), [
+    "/v1/finance/withdrawals/sources", "/v1/finance/withdrawals/mine", "/v1/finance/withdrawals/pending-transfer",
+    "/v1/finance/withdrawals/managed", "/v1/finance/withdrawals/draft%2F1"
+  ]);
+  const revoke = client.createWithdrawalRevokeSubmission({ documentId: "draft-1", expectedVersion: 2, reason: " 人工核对失败 ", actorPersonId: "forged" });
+  const transferred = client.createWithdrawalMarkTransferredSubmission({
+    documentId: "draft-2", expectedVersion: 2, attachmentVersionIds: ["receipt-1"], status: "PENDING_TRANSFER"
+  });
+  assert.equal((await client.revokeWithdrawal(revoke)).status, "FINANCE_REVOKED");
+  assert.equal((await client.markWithdrawalTransferred(transferred)).status, "TRANSFERRED");
+  assert.deepEqual(requests[5].body, { expectedVersion: 2, reason: " 人工核对失败 ", idempotencyKey: "withdrawal-key-1" });
+  assert.deepEqual(requests[6].body, { expectedVersion: 2, attachmentVersionIds: ["receipt-1"], idempotencyKey: "withdrawal-key-2" });
+});
+
+test("提现读取沿用 401 清会话与 403 清角色上下文", async () => {
+  let loginCount = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        loginCount += 1;
+        return success({ ...teacherSession(), sessionId: `withdrawal-session-${loginCount}` });
+      }
+      if (request.path === "/v1/finance/withdrawals/sources") {
+        return { status: 401, body: { error: { code: "UNAUTHENTICATED", message: "expired" } } };
+      }
+      if (request.path === "/v1/finance/withdrawals/pending-transfer") {
+        return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "role" } } };
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.listWithdrawalSources(), ApiClientError);
+  assert.equal(client.currentSession, null);
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.listPendingTransferWithdrawals(), RoleSelectionRequiredError);
+  assert.equal(client.currentSession?.currentRoleContext, null);
 });

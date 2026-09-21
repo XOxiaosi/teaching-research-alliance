@@ -69,18 +69,30 @@ export type ApiServices = Readonly<{
   }>;
   financeDrafts?: Readonly<{
     create: (context: RoleContext, draft: {kind: "WITHDRAWAL" | "REIMBURSEMENT" | "EXTERNAL_PAYMENT" | "REFUND" | "SELF_PURCHASE"}, key: string, at: Date) => unknown | Promise<unknown>;
-    listOwn: (context: RoleContext) => unknown | Promise<unknown>;
-    getOwn: (context: RoleContext, id: string) => unknown | Promise<unknown>;
+    listOwn: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    getOwn: (context: RoleContext, id: string, at: Date) => unknown | Promise<unknown>;
   }>;
   financeAttachments?: Readonly<{
     reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
-    getOwnVersion: (context: RoleContext, versionId: string) => unknown | Promise<unknown>;
+    getOwnVersion: (context: RoleContext, versionId: string, at: Date) => unknown | Promise<unknown>;
   }>;
   financeAttachmentUploads?: Readonly<{
     upload: (context: RoleContext, versionId: string, chunks: AsyncIterable<Uint8Array>, at: Date) => unknown | Promise<unknown>;
   }>;
   financeAttachmentReads?: Readonly<{
     readOwn: (context: RoleContext, versionId: string, at: Date) => Promise<Readonly<{bytes:Buffer;mediaType:string;originalFilename:string;sha256:string;sizeBytes:number}>>;
+  }>;
+  withdrawals?: Readonly<{
+    submit: (context: RoleContext, id: string, draft: { expectedVersion: number; sourceAccountId: string; amountCents: string; recipientName: string; bankAccount: string; bankName?: string; attachmentVersionIds: readonly string[] }, key: string, at: Date) => unknown | Promise<unknown>;
+    revoke: (context: RoleContext, id: string, draft: { expectedVersion: number; reason: string }, key: string, at: Date) => unknown | Promise<unknown>;
+    markTransferred: (context: RoleContext, id: string, draft: { expectedVersion: number; attachmentVersionIds: readonly string[] }, key: string, at: Date) => unknown | Promise<unknown>;
+  }>;
+  withdrawalReads?: Readonly<{
+    listSources: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    listOwn: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    listPending: (context: RoleContext) => unknown | Promise<unknown>;
+    listManaged: (context: RoleContext) => unknown | Promise<unknown>;
+    getDetail: (context: RoleContext, id: string, at: Date) => unknown | Promise<unknown>;
   }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -103,7 +115,10 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
-  if (code === "INTERNAL_ERROR") return 500;
+  if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
+  if (code === "FINANCE_SERVICE_UNAVAILABLE") return 503;
+  if (code === "FINANCE_WITHDRAWAL_STATE_CONFLICT" || code === "INSUFFICIENT_BALANCE") return 409;
+  if (code === "SOURCE_ACCOUNT_FORBIDDEN") return 403;
   if (["ATTACHMENT_STORAGE_UNAVAILABLE","ATTACHMENT_VALIDATOR_BUSY","ATTACHMENT_VALIDATION_TIMEOUT","ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION"].includes(code)) return 503;
   if (["ATTACHMENT_INTEGRITY_FAILED","ATTACHMENT_UNAVAILABLE"].includes(code)) return 500;
   if (["FINANCE_ATTACHMENT_NOT_READY","FINANCE_ATTACHMENT_FAILED"].includes(code)) return 409;
@@ -327,14 +342,49 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
-      return success(await services.financeDrafts.listOwn(context));
+      return success(await services.financeDrafts.listOwn(context,at));
     }
     const financeDraftPath = request.path.match(/^\/v1\/finance\/drafts\/([^/]+)$/);
     if (financeDraftPath !== null && request.method === "GET") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
-      return success(await services.financeDrafts.getOwn(context,financeDraftPath[1]!));
+      return success(await services.financeDrafts.getOwn(context,financeDraftPath[1]!,at));
+    }
+    const withdrawalSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/withdrawal-submit$/);
+    const withdrawalActionPath=request.path.match(/^\/v1\/finance\/withdrawals\/([^/]+)\/(finance-revoke|mark-transferred)$/);
+    if(request.method==="POST"&&(withdrawalSubmitPath||withdrawalActionPath)){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.withdrawals)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const common=["sessionId","expectedVersion","idempotencyKey"];
+      const allowed=withdrawalSubmitPath?[...common,"sourceAccountId","amountCents","recipientName","bankAccount","bankName","attachmentVersionIds"]
+        :withdrawalActionPath![2]==="finance-revoke"?[...common,"reason"]:[...common,"attachmentVersionIds"];
+      if(Object.keys(body).some(key=>!allowed.includes(key))||typeof body.expectedVersion!=="number"
+        ||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error("INVALID_INPUT");
+      const expectedVersion=body.expectedVersion,key=requiredString(body,"idempotencyKey");
+      if(withdrawalActionPath?.[2]==="finance-revoke")return success(await services.withdrawals.revoke(context,withdrawalActionPath[1]!,{expectedVersion,reason:requiredString(body,"reason")},key,at));
+      if(!Array.isArray(body.attachmentVersionIds)||body.attachmentVersionIds.length===0||body.attachmentVersionIds.length>20
+        ||body.attachmentVersionIds.some(id=>typeof id!=="string"))throw new Error("INVALID_INPUT");
+      const attachmentVersionIds=body.attachmentVersionIds as string[];
+      if(withdrawalSubmitPath)return success(await services.withdrawals.submit(context,withdrawalSubmitPath[1]!,{
+        expectedVersion,sourceAccountId:requiredString(body,"sourceAccountId"),amountCents:requiredString(body,"amountCents"),
+        recipientName:requiredString(body,"recipientName"),bankAccount:requiredString(body,"bankAccount"),
+        ...(body.bankName===undefined?{}:{bankName:requiredString(body,"bankName")}),attachmentVersionIds
+      },key,at));
+      return success(await services.withdrawals.markTransferred(context,withdrawalActionPath![1]!,{expectedVersion,attachmentVersionIds},key,at));
+    }
+    const withdrawalReadPath=request.path.match(/^\/v1\/finance\/withdrawals\/([^/]+)$/);
+    if(request.method==="GET"&&withdrawalReadPath){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.withdrawalReads)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const id=withdrawalReadPath[1]!;
+      if(id==="sources")return success(await services.withdrawalReads.listSources(context,at));
+      if(id==="mine")return success(await services.withdrawalReads.listOwn(context,at));
+      if(id==="pending-transfer")return success(await services.withdrawalReads.listPending(context));
+      if(id==="managed")return success(await services.withdrawalReads.listManaged(context));
+      return success(await services.withdrawalReads.getDetail(context,id,at));
     }
     const attachmentReservePath = request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/attachment-uploads$/);
     if (attachmentReservePath !== null && request.method === "POST") {
@@ -343,7 +393,7 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if (!services.financeAttachments) throw new Error("FINANCE_ATTACHMENT_SERVICE_UNAVAILABLE");
       if (Object.keys(body).some(key=>!["sessionId","purpose","originalFilename","declaredMediaType","declaredSizeBytes","expectedSha256","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
       const purpose=requiredString(body,"purpose"),declaredMediaType=requiredString(body,"declaredMediaType"),declaredSizeBytes=body.declaredSizeBytes;
-      if ((purpose!=="SUPPORTING_DOCUMENT"&&purpose!=="APPLICATION_SCREENSHOT"&&purpose!=="INVOICE")
+      if ((purpose!=="SUPPORTING_DOCUMENT"&&purpose!=="APPLICATION_SCREENSHOT"&&purpose!=="INVOICE"&&purpose!=="PAYMENT_RECEIPT")
         || (declaredMediaType!=="application/pdf"&&declaredMediaType!=="image/png"&&declaredMediaType!=="image/jpeg")
         || typeof declaredSizeBytes!=="number"||!Number.isSafeInteger(declaredSizeBytes)) throw new Error("INVALID_INPUT");
       return success(await services.financeAttachments.reserve(context,attachmentReservePath[1]!,{
@@ -356,7 +406,7 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
       if(!services.financeAttachments)throw new Error("FINANCE_ATTACHMENT_SERVICE_UNAVAILABLE");
-      return success(await services.financeAttachments.getOwnVersion(context,attachmentMetadataPath[1]!));
+      return success(await services.financeAttachments.getOwnVersion(context,attachmentMetadataPath[1]!,at));
     }
     const copyPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/copy$/);
     if (request.method === "POST" && copyPath !== null) {
