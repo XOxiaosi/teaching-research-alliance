@@ -1,0 +1,1 @@
+apps/web/tsconfig.json(5,5): error TS6379: Composite projects may not disable incremental compilation.

@@ -1,0 +1,18 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test
+
+
+Running 7 tests using 1 worker
+
+(node:94759) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/self-purchase.spec.mjs:20:1 › 管理员业务账户、真实版本冲突、财务本人采买原键恢复与报销收入 (18.7s)
+  ✓  2 e2e/self-purchase.spec.mjs:130:1 › 已显示入口的财务资格失效时明确提示并清理申请 (7.1s)
+  ✓  3 e2e/self-purchase.spec.mjs:143:1 › 刷新任职后采买资格消失时返回录费首屏 (4.0s)
+  ✓  4 e2e/weekly-fee.spec.mjs:27:1 › 首屏录费、累计更正、故障安全重试、推荐回归与手机操作 (17.4s)
+  ✓  5 e2e/weekly-fee.spec.mjs:173:1 › 读取失败不伪装空记录，真正无期间时明确提示 (3.3s)
+  ✓  6 e2e/withdrawal.spec.mjs:29:1 › 真实原件、草稿恢复、提现扣豆、未知结果同键重试、总部回执与撤回返还 (27.1s)
+  ✓  7 e2e/withdrawal.spec.mjs:154:1 › 原件下载权限失效时清除已展开的银行卡详情 (6.0s)
+
+  7 passed (1.5m)

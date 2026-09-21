@@ -1,13 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-const evidence = resolve(import.meta.dirname,'../../../product-log/evidence/DEV-010-withdrawal');
+const evidence = process.env.ALLIANCE_EVIDENCE_DIR ?? resolve(import.meta.dirname,'../../../product-log/evidence/DEV-010-withdrawal');
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4AWP8DwQMQMDEAAUAPfgEADYYS7QAAAAASUVORK5CYII=','base64');
 const login = async(page,phone='13800000001') => {
   await page.getByLabel('手机号',{exact:true}).fill(phone);
   await page.getByLabel('密码',{exact:true}).fill('Local-demo-only-2026');
   await page.getByRole('button',{name:'登录',exact:true}).click();
   await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  if(phone==='13800000003'){
+    await page.getByLabel('当前身份',{exact:true}).selectOption('HEADQUARTERS_FINANCE');
+    await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  }
 };
 const nav = (page,label) => page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:label,exact:true});
 const upload = async(page,label,name) => {
@@ -110,7 +114,7 @@ test('真实原件、草稿恢复、提现扣豆、未知结果同键重试、�
   await page.getByRole('button',{name:'退出登录',exact:true}).click(); await login(page,'13800000003');
   await expect(page.getByRole('heading',{name:'提现办理',level:1})).toBeVisible();
   await expect(page.locator('.finance-list-item')).toHaveCount(2);
-  await expect(page.locator('.finance-list')).not.toContainText('0000123400005678');
+  await expect(page.getByRole('region',{name:'提现办理',exact:true}).locator('.finance-list')).not.toContainText('0000123400005678');
   await page.locator('.finance-list-item').filter({hasText:'100.00 欢乐豆'}).getByRole('button').click();
   await expect(page.locator('.finance-account')).toHaveText('0000123400005678');
   const download=page.waitForEvent('download'); await page.locator('div.finance-detail .finance-attachments > div').filter({hasText:'synthetic-document.png'}).getByRole('button',{name:'下载原件',exact:true}).click();

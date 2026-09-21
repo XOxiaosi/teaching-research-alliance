@@ -1,0 +1,12 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test self-purchase.spec.mjs --grep 管理员业务账户
+
+
+Running 1 test using 1 worker
+
+(node:2773) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/self-purchase.spec.mjs:20:1 › 管理员业务账户、真实版本冲突、财务本人采买原键恢复与报销收入 (36.7s)
+
+  1 passed (56.6s)

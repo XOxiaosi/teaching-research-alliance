@@ -11,6 +11,8 @@ import {
   type SentReferral,
   type SessionSnapshot
 } from "@teaching-research-alliance/client";
+import { SelfPurchasePanel } from "./self-purchase-panel.js";
+import { CompanyFundPanel } from "./company-fund-panel.js";
 import { PersonalWithdrawalPanel } from "./personal-withdrawal-panel.js";
 import { FinanceWithdrawalPanel } from "./finance-withdrawal-panel.js";
 import { WeeklyFeePanel } from "./weekly-fee-panel.js";
@@ -86,7 +88,8 @@ const incomeLabels: Readonly<Record<string, string>> = {
   groupLeader: "教研组长收入",
   teachingMentor: "指导导师收入",
   platformFinance: "平台财务收入",
-  regionFinance: "分区财务收入"
+  regionFinance: "分区财务收入",
+  reimbursementIncome: "报销收入"
 };
 
 const statusLabels: Readonly<Record<string, string>> = {
@@ -97,6 +100,7 @@ const statusLabels: Readonly<Record<string, string>> = {
 };
 
 const clientMessages: Readonly<Record<string, string>> = {
+  HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED: "当前本人没有有效总部财务任职，不能使用本人采买自动划拨。请重新选择已授权身份。",
   UNAUTHENTICATED: "手机号或密码不正确，或登录已失效，请重新登录。",
   VERSION_CONFLICT: "这笔费用已有新版本，请刷新后重新填写。",
   PERIOD_LOCKED: "该期间已关闭，暂时不能修改。",
@@ -112,7 +116,7 @@ const canCreateReferral = (session: SessionSnapshot | null): boolean => {
 
 const hasOwnOverview = (session: SessionSnapshot | null): boolean => {
   const role = session?.currentRoleContext?.subject;
-  return role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER";
+  return role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
 };
 
 function App(): ReactNode {
@@ -129,8 +133,11 @@ function App(): ReactNode {
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance">("fees");
-  const [financeUnconfirmed, setFinanceUnconfirmed] = useState(false);
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds">("fees");
+  const [withdrawalUnconfirmed, setWithdrawalUnconfirmed] = useState(false);
+  const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
+  const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
+  const financeUnconfirmed = withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -150,7 +157,9 @@ function App(): ReactNode {
     setVenues([]);
     setReceivingTeachers([]);
     setFeeUnconfirmed(false);
-    setFinanceUnconfirmed(false);
+    setWithdrawalUnconfirmed(false);
+    setPurchaseUnconfirmed(false);
+    setFundUnconfirmed(false);
     setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
@@ -204,7 +213,7 @@ function App(): ReactNode {
     } catch (error) {
       if (error instanceof StaleResponseError) return;
       if (error instanceof RoleSelectionRequiredError) {
-        setMessage("当前身份需要重新选择。");
+        setMessage(clientMessages[error.code] ?? "当前身份需要重新选择。");
       } else if (error instanceof ApiClientError) {
         setMessage(clientMessages[error.code] ?? "操作未完成，请检查当前身份后重试。");
         if (error.status === 409) {
@@ -250,8 +259,16 @@ function App(): ReactNode {
   const currentRole = session?.currentRoleContext?.subject ?? "";
   const canWithdraw = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentRole);
   const canProcessWithdrawal = currentRole === "HEADQUARTERS_FINANCE" && session?.currentRoleContext?.scope === "GLOBAL";
-  const page = currentRole === "TEACHING_TEACHER" ? activePage : canProcessWithdrawal ? "finance" : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals") : "overview";
-  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理" }[page];
+  const globalScope = session?.currentRoleContext?.scope === "GLOBAL";
+  const canConfigureFunds = globalScope && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
+  const canReadPurchases = canProcessWithdrawal || canConfigureFunds;
+  const canSelfPurchase = canWithdraw && session?.roleContexts.some((role) => role.subject === "HEADQUARTERS_FINANCE" && role.scope === "GLOBAL");
+  const page = activePage === "purchase" && canSelfPurchase ? "purchase"
+    : activePage === "purchase-history" && canReadPurchases ? "purchase-history"
+    : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals"].includes(activePage) ? activePage : "fees")
+    : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance"
+    : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals") : "overview";
+  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -263,7 +280,10 @@ function App(): ReactNode {
     </>}
     {canCreateReferral(session) && <button disabled={busy} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
     {canWithdraw && <button disabled={busy} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
-    {canProcessWithdrawal && <button disabled={busy} aria-current="page" onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
+    {canProcessWithdrawal && <button disabled={busy} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
+    {canSelfPurchase && <button disabled={busy} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
+    {canConfigureFunds && <button disabled={busy} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
+    {canReadPurchases && <button disabled={busy} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
   </>;
   return (
     <div className="shell">
@@ -276,7 +296,7 @@ function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : "核对申请资料，登记线下转账结果。"}</p></div>
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
           {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
@@ -327,7 +347,7 @@ function App(): ReactNode {
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}
             {overview !== null && overviewFresh && <div className="overview">
               <section className="balance"><span>个人可用余额 / 欢乐豆</span><strong>{formatCentsAsBeans(overview.balanceCents)}</strong><small>个人账户余额</small></section>
-              <section className="panel income"><h2>当前财年课时分润</h2>
+              <section className="panel income"><h2>当前财年收入</h2>
                 {incomeEntries.map(([category, value]) => <div key={category}><span>{incomeLabels[category] ?? "其他课时收入"}</span><b>{formatCentsAsBeans(value)}</b></div>)}
                 {incomeEntries.length === 0 && <p>暂无收入记录</p>}
               </section>
@@ -341,8 +361,11 @@ function App(): ReactNode {
               </article>)}</div>}
             </section>}
             </div>
-            {canWithdraw && <PersonalWithdrawalPanel key={`personal:${financeKey}`} client={client} busy={busy} active={page === "withdrawals"} run={run} onUnconfirmedChange={setFinanceUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
-            {canProcessWithdrawal && <FinanceWithdrawalPanel key={`hq:${financeKey}`} client={client} busy={busy} active={page === "finance"} run={run} onUnconfirmedChange={setFinanceUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canWithdraw && <PersonalWithdrawalPanel key={`personal:${financeKey}`} client={client} busy={busy} active={page === "withdrawals"} run={run} onUnconfirmedChange={setWithdrawalUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canProcessWithdrawal && <FinanceWithdrawalPanel key={`hq:${financeKey}`} client={client} busy={busy} active={page === "finance"} run={run} onUnconfirmedChange={setWithdrawalUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canSelfPurchase && <SelfPurchasePanel key={`purchase:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "purchase"} run={run} onUnconfirmedChange={setPurchaseUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canReadPurchases && <SelfPurchasePanel key={`purchase-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "purchase-history"} run={run} onUnconfirmedChange={setPurchaseUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canConfigureFunds && <CompanyFundPanel key={`funds:${financeKey}`} client={client} busy={busy} active={page === "funds"} run={run} onUnconfirmedChange={setFundUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canCreateReferral(session) && <div hidden={page !== "referrals"}>
               <section className="panel referral-form">
                 <div className="section-title"><h2>推荐学生</h2><span>提交后由接收老师处理</span></div>
@@ -373,7 +396,7 @@ function App(): ReactNode {
             </div>}
 
 
-            {currentRole !== "" && !hasOwnOverview(session) && !canCreateReferral(session) && !canProcessWithdrawal && <section className="panel"><h2>{roleLabels[currentRole] ?? "职务工作台"}</h2><p>此职务的业务页面尚未接通。请切换至已开放的个人身份办理业务。</p></section>}
+            {currentRole !== "" && !hasOwnOverview(session) && !canCreateReferral(session) && !canProcessWithdrawal && !canConfigureFunds && <section className="panel"><h2>{roleLabels[currentRole] ?? "职务工作台"}</h2><p>此职务的业务页面尚未接通。请切换至已开放的个人身份办理业务。</p></section>}
           </>
         )}
         <footer>教研联盟 · 教学与费用记录</footer>
