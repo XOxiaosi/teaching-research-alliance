@@ -81,3 +81,4 @@ export * from "./weekly-fee.js";
 export * from "./settlement.js";
 export * from "./ledger.js";
 export * from "./ledger-transaction.js";
+export * from "./rate-policy.js";
