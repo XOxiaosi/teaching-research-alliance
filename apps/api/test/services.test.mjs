@@ -278,3 +278,15 @@ test("管理员费率预览与发布通过HTTP边界保留版本", async () => {
   assert.equal(published.status, 200);
   assert.equal(published.body.data?.version, 1);
 });
+
+test("个人读取使用稳定404错误码，未装配服务返回500且不泄露内部原因", async () => {
+  const context = { subject: "TEACHING_TEACHER", personId: "teacher-read" };
+  const services = { sessions: { get: () => ({ currentRoleContext: context }) }, weeklyFees: {}, now: () => new Date() };
+  const request = { method: "GET", path: "/v1/me", body: {}, sessionId: "read-session" };
+  const unavailable = await handleRequest(request, services);
+  assert.equal(unavailable.status, 500);
+  assert.deepEqual(unavailable.body.error, { code: "INTERNAL_ERROR", message: "INTERNAL_ERROR" });
+  const missing = await handleRequest(request, { ...services, personal: { getOwnOverview: () => { throw new Error("PERSONAL_ACCOUNT_NOT_FOUND"); } } });
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error.code, "PERSONAL_ACCOUNT_NOT_FOUND");
+});

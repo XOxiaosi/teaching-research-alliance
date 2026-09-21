@@ -58,7 +58,14 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
         });
         return;
       }
-      const result = await handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes) }, services);
+      const authorization = request.headers.authorization;
+      const bearer = authorization?.match(/^Bearer ([^\s]+)$/i);
+      if (authorization !== undefined && !bearer) {
+        writeJson(response, 401, { version: API_CONTRACT_VERSION, error: { code: "UNAUTHENTICATED", message: "UNAUTHENTICATED" } });
+        return;
+      }
+      const result = await handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes),
+        ...(bearer?.[1] === undefined ? {} : { sessionId: bearer[1] }) }, services);
       writeJson(response, result.status, result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "INVALID_INPUT";

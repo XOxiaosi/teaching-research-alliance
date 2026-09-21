@@ -12,6 +12,7 @@ export type ApiRequest = Readonly<{
   method: HttpMethod;
   path: string;
   body: unknown;
+  sessionId?: string;
 }>;
 
 export type ApiResponse = Readonly<{
@@ -36,6 +37,10 @@ export type ApiServices = Readonly<{
   sessions: SessionService;
   weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
+  personal?: Readonly<{
+    getOwnOverview: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    listAvailableVenues: (context: RoleContext) => unknown | Promise<unknown>;
+  }>;
   now: () => Date;
 }>;
 
@@ -53,6 +58,7 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
+  if (code === "INTERNAL_ERROR") return 500;
   if (code === "UNAUTHENTICATED") return 401;
   if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;
@@ -67,6 +73,9 @@ const success = (data: unknown): ApiResponse => ({
 
 const failure = (error: unknown): ApiResponse => {
   const message = error instanceof Error ? error.message : "INVALID_INPUT";
+  if (["PERSONAL_SERVICE_UNAVAILABLE", "PERSON_AMBIGUOUS", "PERSONAL_ACCOUNT_AMBIGUOUS"].includes(message)) {
+    return { status: 500, body: { version: API_CONTRACT_VERSION, error: { code: "INTERNAL_ERROR", message: "INTERNAL_ERROR" } } };
+  }
   const [code] = message.split(":", 1);
   return {
     status: errorStatus(code ?? "INVALID_INPUT"),
@@ -176,7 +185,17 @@ const ratePolicyDraft = (body: Record<string, unknown>): RatePolicyDraft => {
 
 export const handleRequest = async (request: ApiRequest, services: ApiServices): Promise<ApiResponse> => {
   try {
-    const body = objectBody(request.body);
+    const parsedBody = objectBody(request.body);
+    const body = request.sessionId === undefined ? parsedBody : { ...parsedBody, sessionId: request.sessionId };
+    if (request.method === "GET" && (request.path === "/v1/me" || request.path === "/v1/venues/available")) {
+      if (typeof body.sessionId !== "string" || body.sessionId.trim() === "") throw new Error("UNAUTHENTICATED");
+      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const context = currentContext(session);
+      if (services.personal === undefined) throw new Error("PERSONAL_SERVICE_UNAVAILABLE");
+      return success(request.path === "/v1/me"
+        ? await services.personal.getOwnOverview(context, services.now())
+        : await services.personal.listAvailableVenues(context));
+    }
     if (request.method === "POST" && request.path === "/v1/session") {
       const view = services.sessions.login(
         requiredString(body, "phoneNormalized"),

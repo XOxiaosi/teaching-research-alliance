@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { DEFAULT_RATE_POLICY_VALUES } from "@teaching-research-alliance/domain";
+import { DEFAULT_RATE_POLICY_VALUES, postLedgerEvent } from "@teaching-research-alliance/domain";
 import { PostgresWeeklySettlementService } from "../../dist/postgres-weekly-settlement-service.js";
-import { createApiServer, SessionService, PostgresWeeklyFeeService } from "../../dist/main.js";
+import { createApiServer, SessionService, PostgresWeeklyFeeService, PostgresPersonalReadService, PostgresLedgerRepository } from "../../dist/main.js";
 import { createTestDatabase } from "./postgres-test-database.mjs";
 
 const connectionString = process.env.DATABASE_URL;
@@ -441,7 +441,8 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
       assignments: [{ personId: ids.teacherB, subject: "TEACHING_TEACHER", scope: "SELF", validFrom: new Date(validFrom) }],
       sessionIdFactory: () => "http-test-session"
     });
-    const server = createApiServer({ sessions, weeklyFees: new PostgresWeeklyFeeService(pool), now: () => new Date("2026-09-28T00:00:00Z") });
+    const personal = new PostgresPersonalReadService(pool);
+    const server = createApiServer({ personal, sessions, weeklyFees: new PostgresWeeklyFeeService(pool), now: () => new Date("2026-09-28T00:00:00Z") });
     await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
     try {
       const url = `http://127.0.0.1:${server.address().port}`;
@@ -465,6 +466,36 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
       assert.equal(afterOutputChange.context.monthlyNet.netCents, "590100");
       assert.equal(Object.fromEntries(afterOutputChange.snapshot.lines.map(line => [line.key, line.cents])).referrer, "10400");
       assert.deepEqual(await snapshotRows(pool, zero.fee.id), octoberBefore);
+      const own = await fetch(`${url}/v1/me?personId=${ids.teacher}`, { headers: { authorization: "Bearer http-test-session" } });
+      assert.equal(own.status, 200);
+      const overview = (await own.json()).data;
+      assert.equal(overview.personId, ids.teacherB);
+      assert.equal(overview.balanceCents, "13400");
+      assert.deepEqual(overview.currentYearIncomeByCategory, { teachingTeacher: "13400" });
+      assert.deepEqual(Object.keys(overview).sort(), ["balanceCents", "currentYearIncomeByCategory", "nickname", "personId"]);
+      const laterYear = await personal.getOwnOverview({ subject: "TEACHING_TEACHER", personId: ids.teacherB }, new Date("2027-09-01T00:00:00Z"));
+      assert.equal(laterYear.balanceCents, 13400n);
+      assert.deepEqual(laterYear.currentYearIncomeByCategory, {});
+      const plannerOverview = await personal.getOwnOverview({ subject: "ACADEMIC_PLANNER", personId: ids.planner }, new Date("2026-09-28T00:00:00Z"));
+      assert.deepEqual(Object.keys(plannerOverview.currentYearIncomeByCategory), ["referrer"]);
+      await assert.rejects(personal.getOwnOverview({ subject: "REGION_FINANCE", personId: ids.teacherB }, new Date()), /FORBIDDEN_SCOPE/);
+      await assert.rejects(personal.listAvailableVenues({ subject: "ACADEMIC_PLANNER", personId: ids.planner }), /FORBIDDEN_SCOPE/);
+      await assert.rejects(personal.getOwnOverview({ subject: "TEACHING_TEACHER", personId: ids.admin }, new Date()), /PERSONAL_ACCOUNT_NOT_FOUND/);
+      // Synthetic adjustment proves cumulative balance is distinct from lesson income.
+      const bAccount = await pool.query("SELECT account_code FROM settlement_account WHERE owner_type = 'PERSON' AND owner_id = $1", [ids.teacherB]);
+      await postLedgerEvent(new PostgresLedgerRepository(pool), { eventKey: `test-wage:${suffix}`, eventType: "SYNTHETIC_ADJUSTMENT", payloadHash: "synthetic", deltas: [{ accountKey: bAccount.rows[0].account_code, categoryKey: "cashWageDeduction", amountCents: -20000n }] }, randomUUID);
+      const afterDeduction = await personal.getOwnOverview({ subject: "TEACHING_TEACHER", personId: ids.teacherB }, new Date("2026-09-28T00:00:00Z"));
+      assert.equal(afterDeduction.balanceCents, -6600n);
+      assert.deepEqual(afterDeduction.currentYearIncomeByCategory, { teachingTeacher: 13400n });
+      const ownVenueId = randomUUID();
+      await pool.query("INSERT INTO venue(id, owner_person_id, name, status) VALUES ($1, $2, 'Visible own venue', 'ACTIVE'), ($3, $2, 'Hidden venue', 'INACTIVE')", [ownVenueId, ids.teacherB, randomUUID()]);
+      const directoryResponse = await fetch(`${url}/v1/venues/available`, { headers: { authorization: "Bearer http-test-session" } });
+      assert.equal(directoryResponse.status, 200);
+      const directory = (await directoryResponse.json()).data;
+      assert.equal(directory.length, 2);
+      assert.equal(directory.find(venue => venue.id === ids.venue).isOwn, false);
+      assert.equal(directory.find(venue => venue.id === ownVenueId).isOwn, true);
+      for (const venue of directory) assert.deepEqual(Object.keys(venue).sort(), ["id", "isOwn", "name"]);
       sessions.revokeAccount("http-teacher-b");
       assert.equal((await post(`/v1/referrals/${recommendationReferralId}/weekly-fees`, { sessionId: "http-test-session" })).status, 401);
     } finally {

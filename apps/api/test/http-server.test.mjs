@@ -28,7 +28,11 @@ const createServices = () => {
       teachingWeeks: [{ id: "week-server", settlementMonth: "2026-09-01", status: "OPEN" }],
       venues: [{ id: "venue-server", status: "ACTIVE" }]
     }),
-    now: () => now
+    now: () => now,
+    personal: {
+      getOwnOverview: async context => ({ personId: context.personId, balanceCents: -100n }),
+      listAvailableVenues: async () => [{ id: "venue-server", name: "合成场地", isOwn: true }]
+    }
   };
 };
 
@@ -62,6 +66,14 @@ test("真实HTTP监听器提供健康检查并序列化周费用金额", async (
       body: JSON.stringify({ sessionId: "session-server", subject: "TEACHING_TEACHER" })
     });
     assert.equal(switchRole.status, 200);
+    const own = await fetch(`${baseUrl}/v1/me?personId=another-teacher`, { headers: { authorization: "Bearer session-server" } });
+    assert.equal(own.status, 200);
+    assert.deepEqual((await own.json()).data, { personId: "teacher-server", balanceCents: "-100" });
+    const venues = await fetch(`${baseUrl}/v1/venues/available`, { headers: { authorization: "Bearer session-server" } });
+    assert.equal(venues.status, 200);
+    assert.equal((await venues.json()).data[0].id, "venue-server");
+    assert.equal((await fetch(`${baseUrl}/v1/me`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/v1/me`, { headers: { authorization: "Basic forged" } })).status, 401);
 
     const accepted = await fetch(`${baseUrl}/v1/referrals/ref-server/accept`, {
       method: "POST",
