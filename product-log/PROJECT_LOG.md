@@ -583,3 +583,9 @@
 - `apps/api/src/postgres-pool.ts`接入 `pg` 连接池，连接字符串只从 `DATABASE_URL` 或调用方注入；API 导出该工厂，未把凭据写入源码。新增 `apps/api/test/integration/postgres-live.test.mjs` 作为需要隔离数据库的显式集成检查，不并入默认无数据库测试套件。
 - 使用本地合成库运行 `DATABASE_URL=... npm run test:postgres --workspace @teaching-research-alliance/api`：首次账本事件写入 72,000 分，重复同载荷返回 `REPLAY`，事件/分录保持各 1 条，余额仍为 72,000 分；随后清理容器中的合成资料，事件、人员和账户计数均回到 0。
 - 实际验证：`npm run check` 37 项通过，真实 PostgreSQL 集成 1 项通过，`npm run db:check` 4 个迁移通过，`git diff --check`通过。仍未完成 HTTP 监听器、周费用与身份的 PostgreSQL 仓储、并发锁竞争、备份恢复及三端业务验收。
+
+## 2026-09-20 · DEV-003/004 HTTP 基础监听器
+
+- `apps/api/src/http-server.ts`接入 Node HTTP 监听器：健康检查、JSON 请求体大小限制、无效 JSON/不支持方法错误、统一 API 响应和 BigInt 金额字符串序列化；业务校验继续复用既有 `handleRequest`，不在传输层复制权限规则。
+- 新增真实本机回环测试：启动随机端口，完成健康检查、登录、职责切换、推荐接收、周费用登记及金额序列化，并验证不支持的 `PUT` 返回405。该测试使用内存业务服务，不宣称已接 PostgreSQL 周费/身份仓储。
+- `npm run check`现为38项通过，`npm run db:check`和`git diff --check`通过。下一项为把身份、生源、周费用写入服务与迁移仓储并接入第一条结算演示；网页/小程序仍未完成。

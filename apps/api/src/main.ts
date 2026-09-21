@@ -10,3 +10,4 @@ export { WeeklyFeeService } from "./weekly-fee-service.js";
 export { handleRequest } from "./http-handler.js";
 export { PostgresLedgerRepository } from "./postgres-ledger-repository.js";
 export { createPostgresPool } from "./postgres-pool.js";
+export { createApiServer } from "./http-server.js";
