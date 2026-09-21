@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const evidence=resolve(import.meta.dirname,'../../../product-log/evidence/DEV-010-weekly-first');
+const evidence=process.env.ALLIANCE_EVIDENCE_DIR ?? resolve(import.meta.dirname,'../../../product-log/evidence/DEV-010-weekly-first');
 const feePath='**/v1/referrals/*/weekly-fees';
 const login=async(page,phone='13800000001')=>{
   await page.getByLabel('手机号',{exact:true}).fill(phone);

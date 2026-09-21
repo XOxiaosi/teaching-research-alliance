@@ -1,0 +1,15 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test
+
+
+Running 4 tests using 1 worker
+
+(node:68093) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/weekly-fee.spec.mjs:27:1 › 首屏录费、累计更正、故障安全重试、推荐回归与手机操作 (20.4s)
+  ✓  2 e2e/weekly-fee.spec.mjs:173:1 › 读取失败不伪装空记录，真正无期间时明确提示 (4.0s)
+  ✓  3 e2e/withdrawal.spec.mjs:25:1 › 真实原件、草稿恢复、提现扣豆、未知结果同键重试、总部回执与撤回返还 (23.3s)
+  ✓  4 e2e/withdrawal.spec.mjs:150:1 › 原件下载权限失效时清除已展开的银行卡详情 (3.4s)
+
+  4 passed (55.7s)
