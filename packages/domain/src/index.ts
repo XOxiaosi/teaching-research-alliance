@@ -80,3 +80,4 @@ export * from "./identity.js";
 export * from "./weekly-fee.js";
 export * from "./settlement.js";
 export * from "./ledger.js";
+export * from "./ledger-transaction.js";
