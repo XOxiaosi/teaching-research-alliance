@@ -148,6 +148,33 @@ export type ReferralLifecycleResult = Readonly<{
   replay: boolean;
 }>;
 
+export const FINANCE_DRAFT_KINDS = [
+  "WITHDRAWAL",
+  "REIMBURSEMENT",
+  "EXTERNAL_PAYMENT",
+  "REFUND",
+  "SELF_PURCHASE"
+] as const;
+
+export type FinanceDraftKind = (typeof FINANCE_DRAFT_KINDS)[number];
+
+/** Financial drafts contain workflow metadata only. They do not contain money, bank, or ledger data. */
+export type FinanceDraftMetadata = Readonly<{
+  id: string;
+  kind: FinanceDraftKind;
+  status: "DRAFT";
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type FinanceDraftSubmission = Readonly<{
+  draft: Readonly<{ kind: FinanceDraftKind }>;
+  idempotencyKey: string;
+}>;
+
+export type FinanceDraftCreateResult = FinanceDraftMetadata & Readonly<{ replay: boolean }>;
+
 export type SentReferralWeeklyFee = Readonly<{
   entryId: string;
   teachingWeekId: string;
@@ -217,7 +244,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -318,6 +345,13 @@ const validateReferralLifecycleDraft = (draft: ReferralLifecycleDraft): void => 
   if (draft.command !== "ARCHIVE" && draft.command !== "REACTIVATE") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:command");
   }
+};
+
+const validateFinanceDraftKind = (kind: string): kind is FinanceDraftKind => {
+  if (!(FINANCE_DRAFT_KINDS as readonly string[]).includes(kind)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:kind");
+  }
+  return true;
 };
 
 const sameRoleContext = (left: RoleContext | null, right: RoleContext | null): boolean =>
@@ -434,6 +468,15 @@ export class TeacherApiClient {
     return this.authenticatedRequest<readonly SentReferral[]>("GET", "/v1/referrals/sent");
   }
 
+  public async listOwnFinanceDrafts(): Promise<readonly FinanceDraftMetadata[]> {
+    return this.authenticatedRequest<readonly FinanceDraftMetadata[]>("GET", "/v1/finance/drafts/mine");
+  }
+
+  public async getOwnFinanceDraft(documentId: string): Promise<FinanceDraftMetadata> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<FinanceDraftMetadata>("GET", `/v1/finance/drafts/${encodeURIComponent(documentId)}`);
+  }
+
   /**
    * A submission is immutable. Retry the same object after an uncertain network failure;
    * create a new object after editing any field so the old idempotency key is never reused.
@@ -505,6 +548,19 @@ export class TeacherApiClient {
     const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** A financial draft starts as metadata only; later financial details require a separate contract. */
+  public createFinanceDraftSubmission(draft: Readonly<{ kind: FinanceDraftKind }>): FinanceDraftSubmission {
+    validateFinanceDraftKind(draft.kind);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({ kind: draft.kind });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -619,6 +675,25 @@ export class TeacherApiClient {
           idempotencyKey: submission.idempotencyKey
         }
       );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async createFinanceDraft(submission: FinanceDraftSubmission): Promise<FinanceDraftCreateResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<FinanceDraftCreateResult>("POST", "/v1/finance/drafts", {
+        kind: submission.draft.kind,
+        idempotencyKey: submission.idempotencyKey
+      });
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;

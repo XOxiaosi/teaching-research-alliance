@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PostgresFinanceDraftService } from "../../dist/postgres-finance-draft-service.js";
 import { createTestDatabase } from "./postgres-test-database.mjs";
-import {createApiServer,SessionService} from '../../dist/main.js';
+import {createApiServer,SessionService,PostgresFinanceAttachmentService} from '../../dist/main.js';
 
 const at = new Date("2026-09-21T04:00:00.000Z");
 const contextFor = (personId, subject = "TEACHING_TEACHER") => ({ personId, subject });
@@ -98,7 +98,7 @@ test('财务草稿真实HTTP拒绝伪造身份与金额，仅本人可读且创�
   let counter=0;
   const sessions=new SessionService({accounts:[owner,other].map((id,index)=>({accountId:id,personId:id,phoneNormalized:`1380000000${index}`,credentialDigest:'synthetic-draft',status:'ACTIVE'})),assignments:[owner,other].flatMap(personId=>[{personId,subject:'TEACHING_TEACHER',scope:'SELF',validFrom:new Date('2026-01-01')},{personId,subject:'HEADQUARTERS_FINANCE',scope:'GLOBAL',validFrom:new Date('2026-01-01')}]),sessionIdFactory:()=>`draft-token-${++counter}`});
   for(let i=0;i<2;i++){sessions.login(`1380000000${i}`,'synthetic-draft',at);sessions.switchRole(`draft-token-${i+1}`,'TEACHING_TEACHER',at);}
-  server=createApiServer({sessions,weeklyFees:{},financeDrafts:new PostgresFinanceDraftService(db.pool),now:()=>at});
+  server=createApiServer({sessions,weeklyFees:{},financeDrafts:new PostgresFinanceDraftService(db.pool),financeAttachments:new PostgresFinanceAttachmentService(db.pool),now:()=>at});
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   const url=`http://127.0.0.1:${server.address().port}/v1/finance/drafts`;
   const request=(path='',body,token='draft-token-1')=>fetch(url+path,{method:body===undefined?'GET':'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -115,9 +115,23 @@ test('财务草稿真实HTTP拒绝伪造身份与金额，仅本人可读且创�
   assert.equal(mine.length,1);assert.equal(mine[0].id,created.id);
   assert.deepEqual(Object.keys(mine[0]).sort(),['createdAt','id','kind','status','updatedAt','version']);
   assert.equal((await fetch(`${url}/mine`)).status,401);
+  const uploadPath=`/${created.id}/attachment-uploads`;
+  const upload={purpose:'APPLICATION_SCREENSHOT',originalFilename:'synthetic.png',declaredMediaType:'image/png',declaredSizeBytes:100,idempotencyKey:'http-upload-reservation'};
+  for(const field of ['storagePath','status','uploadedBy','actorPersonId','sha256'])assert.equal((await request(uploadPath,{...upload,[field]:other})).status,400);
+  assert.equal((await request(uploadPath,upload,'draft-token-2')).status,404);
+  const reservedResponse=await request(uploadPath,upload);assert.equal(reservedResponse.status,200);
+  const reserved=(await reservedResponse.json()).data;assert.equal(reserved.status,'UPLOADING');
+  assert.equal((await (await request(uploadPath,upload)).json()).data.replay,true);
+  const attachmentUrl=url.replace(/\/drafts$/,'')+`/attachment-uploads/${reserved.versionId}`;
+  const metadataResponse=await fetch(attachmentUrl,{headers:{authorization:'Bearer draft-token-1'}});assert.equal(metadataResponse.status,200);
+  const metadata=(await metadataResponse.json()).data;assert.equal(metadata.versionId,reserved.versionId);
+  assert.equal(metadata.status,'UPLOADING');assert.equal(metadata.storagePath,undefined);
+  assert.equal((await fetch(attachmentUrl,{headers:{authorization:'Bearer draft-token-2'}})).status,404);
+  assert.equal((await fetch(attachmentUrl)).status,401);
   sessions.switchRole('draft-token-1','HEADQUARTERS_FINANCE',at);
   assert.equal((await request('/mine')).status,403);
   assert.equal((await request(`/${created.id}`)).status,403);
+  assert.equal((await fetch(attachmentUrl,{headers:{authorization:'Bearer draft-token-1'}})).status,403);
   assert.equal((await request('',{...command,idempotencyKey:'hq-draft'})).status,403);
   assert.equal((await db.pool.query('SELECT count(*)::int n FROM ledger_event')).rows[0].n,0);
  }finally{if(server)await new Promise(resolve=>server.close(resolve));await db.close();}

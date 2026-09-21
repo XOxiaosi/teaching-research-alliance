@@ -78,7 +78,7 @@ export class LocalAttachmentStore {
     if (!UUID.test(id)) throw new Error("ATTACHMENT_VERSION_INVALID");
   }
 
-  public async put(upload: AttachmentUpload, chunks: AsyncIterable<Uint8Array>): Promise<StoredAttachment> {
+  public async put(upload: AttachmentUpload, chunks: AsyncIterable<Uint8Array>, validateContent?: (bytes: Buffer) => Promise<void>): Promise<StoredAttachment> {
     this.validateId(upload.versionId);
     if (!upload.originalFilename.trim() || Buffer.byteLength(upload.originalFilename, "utf8") > 255
       || /[\x00-\x1f\x7f/\\]/.test(upload.originalFilename)
@@ -127,6 +127,8 @@ export class LocalAttachmentStore {
     }
     if (failure === undefined) {
       try {
+        // Business callers validate parseability before an object becomes permanent.
+        if (validateContent) await validateContent(await this.readPathVerified(temporary, result!));
         // Atomic no-replace publication: unlike rename, link cannot overwrite an existing version.
         await link(temporary, destination);
         published = true;
@@ -151,8 +153,37 @@ export class LocalAttachmentStore {
     if (!SHA256.test(expected.sha256) || !Number.isSafeInteger(expected.sizeBytes)
       || expected.sizeBytes < 1 || expected.sizeBytes > this.maxFileBytes) throw new Error("ATTACHMENT_METADATA_INVALID");
     const objects = await this.directory("objects");
+    return this.readPathVerified(join(objects, expected.versionId), expected);
+  }
+
+  /** Recover a published object after a database failure; never overwrite it with retry bytes. */
+  public async reconcilePublished(upload: AttachmentUpload, validateContent: (bytes: Buffer) => Promise<void>): Promise<StoredAttachment> {
+    this.validateId(upload.versionId);
+    if(!Number.isSafeInteger(upload.declaredSizeBytes)||upload.declaredSizeBytes<1||upload.declaredSizeBytes>this.maxFileBytes)throw new Error("ATTACHMENT_METADATA_INVALID");
+    const objects=await this.directory("objects");
+    const path=join(objects,upload.versionId);
     let file;
-    try { file = await this.openFile(join(objects, expected.versionId), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+    try{file=await this.openFile(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}
+    catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")throw new Error("ATTACHMENT_OBJECT_NOT_FOUND");throw new Error("ATTACHMENT_UNAVAILABLE");}
+    let bytes:Buffer;
+    try{
+      const info=await file.stat();
+      if(!info.isFile()||info.size!==upload.declaredSizeBytes)throw new Error("ATTACHMENT_INTEGRITY_FAILED");
+      bytes=Buffer.alloc(info.size);let offset=0;
+      while(offset<bytes.length){const read=await file.read(bytes,offset,bytes.length-offset,offset);if(!read.bytesRead)throw new Error("ATTACHMENT_INTEGRITY_FAILED");offset+=read.bytesRead;}
+      if((await file.read(Buffer.alloc(1),0,1,offset)).bytesRead)throw new Error("ATTACHMENT_INTEGRITY_FAILED");
+    }finally{await file.close();}
+    const mediaType=detect(bytes),sha256=createHash("sha256").update(bytes).digest("hex");
+    if(mediaType!==upload.declaredMediaType||(upload.expectedSha256!==undefined&&sha256!==upload.expectedSha256))throw new Error("ATTACHMENT_INTEGRITY_FAILED");
+    await validateContent(bytes);
+    const directory=await this.openFile(objects,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try{await directory.sync();}finally{await directory.close();}
+    return {versionId:upload.versionId,mediaType,sizeBytes:bytes.length,sha256};
+  }
+
+  private async readPathVerified(path: string, expected: StoredAttachment): Promise<Buffer> {
+    let file;
+    try { file = await this.openFile(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
     catch { throw new Error("ATTACHMENT_UNAVAILABLE"); }
     try {
       const info = await file.stat();

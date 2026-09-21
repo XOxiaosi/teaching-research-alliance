@@ -3,6 +3,7 @@ import { PostgresSentReferralReadService } from "./postgres-sent-referral-read-s
 import { PostgresReferralAcceptanceService } from "./postgres-referral-acceptance-service.js";
 import { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";
 import { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
+import { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-service.js";
 import { createApiServer } from "./http-server.js";
 import { createPostgresPool } from "./postgres-pool.js";
 import { PostgresSessionService } from "./postgres-session-service.js";
@@ -23,6 +24,7 @@ const server = createApiServer({
   referralAcceptance: new PostgresReferralAcceptanceService(pool),
   referralLifecycle: new PostgresReferralLifecycleService(pool),
   financeDrafts: new PostgresFinanceDraftService(pool),
+  financeAttachments: new PostgresFinanceAttachmentService(pool),
   now: () => new Date()
 });
 server.listen(port, "127.0.0.1", () => {

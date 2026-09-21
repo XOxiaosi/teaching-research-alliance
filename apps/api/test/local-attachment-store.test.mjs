@@ -23,6 +23,7 @@ test('凭证按不可覆盖版本存放，流式校验内容且读取还原原�
    const saved=await store.put({...input,expectedSha256},parts(bytes));
    assert.deepEqual(saved,{versionId:input.versionId,mediaType:type,sizeBytes:bytes.length,sha256:expectedSha256});
    assert.deepEqual(await store.readVerified(saved),bytes);
+   assert.deepEqual(await store.reconcilePublished({...input,expectedSha256},async content=>{assert.deepEqual(content,bytes);}),saved);
    await assert.rejects(store.put(input,parts(bytes)),/ATTACHMENT_VERSION_EXISTS/);
    assert.deepEqual(await readFile(join(root,'objects',saved.versionId)),bytes);
   }
@@ -35,6 +36,7 @@ test('凭证拒绝伪装格式、越界大小、路径名字、断流和摘要�
  const root=await mkdtemp(join(tmpdir(),'alliance-attachment-'));
  try{
   const store=await LocalAttachmentStore.create(root,source,100);
+  await assert.rejects(store.reconcilePublished(draft(),async()=>{}),/OBJECT_NOT_FOUND/);
   await assert.rejects(store.put({...draft(),originalFilename:'../receipt.pdf'},parts(pdf)),/METADATA_INVALID/);
   await assert.rejects(store.put({...draft(),versionId:'../escape'},parts(pdf)),/VERSION_INVALID/);
   await assert.rejects(store.put({...draft(),expectedSha256:'0'.repeat(64)},parts(pdf)),/HASH_MISMATCH/);

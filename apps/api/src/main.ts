@@ -26,3 +26,4 @@ export { PostgresReferralAcceptanceService } from "./postgres-referral-acceptanc
 export { PostgresReferralExpiryService } from "./postgres-referral-expiry-service.js";
 export { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";
 export { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
+export { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-service.js";

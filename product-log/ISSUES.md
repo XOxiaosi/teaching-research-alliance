@@ -74,3 +74,5 @@
 ## P07：小程序依赖安全检查
 
 2026-09-21接入Taro 4.2.1后，npm audit报告42项（21 moderate、17 high、4 critical），兼容范围内npm audit fix未消除。关键链包括swiper原型污染（GHSA-hmx5-qpq5-p643）与decompress归档路径写入（GHSA-mp2f-45pm-3cg9）；部分来自构建/H5依赖，但尚未证明微信端产物不受影响，不能宣称生产可用。暂不执行会降级框架主版本的强制修复；本地合成开发继续，生产门禁须完成依赖替换/修复及实际暴露面验证。
+
+同日新增API附件解析依赖后，根目录完整npm audit仍为42项（21中、17高、4严重）；新增pdf-lib/pngjs/jpeg-js及其新依赖未列入该次告警。API workspace安装输出的“0 vulnerabilities”不代表全仓无告警，P07保持未关闭。

@@ -462,6 +462,64 @@ test("复制推荐冻结草稿、同键重试、可选字段白名单并拒绝�
   assert.throws(() => client.createReferralCopySubmission({ sourceReferralId: "source-1", receiverPersonId: "", classType: "UNKNOWN" }), ApiClientError);
 });
 
+test("财务草稿只提交冻结元数据，同键重试、读取与跨会话保护", async () => {
+  const createBodies = [];
+  let createAttempts = 0;
+  let loginRequests = 0;
+  const metadata = {
+    id: "draft-1", kind: "REIMBURSEMENT", status: "DRAFT", version: 1,
+    createdAt: "2026-09-21T00:00:00.000Z", updatedAt: "2026-09-21T00:00:00.000Z"
+  };
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => {
+      let index = 0;
+      return () => `finance-key-${++index}`;
+    })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        loginRequests += 1;
+        return success({ ...teacherSession("ACADEMIC_PLANNER"), sessionId: `session-${loginRequests}` });
+      }
+      if (request.path === "/v1/finance/drafts" && request.method === "POST") {
+        createBodies.push(request.body);
+        createAttempts += 1;
+        if (createAttempts === 1) throw new Error("network uncertain");
+        return success({ ...metadata, replay: true });
+      }
+      if (request.path === "/v1/finance/drafts/mine") return success([metadata]);
+      if (request.path === "/v1/finance/drafts/draft-1") return success(metadata);
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createFinanceDraftSubmission({
+    kind: "REIMBURSEMENT", amountCents: "100", bankAccountId: "forged", status: "APPROVED", actorPersonId: "forged"
+  });
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.throws(() => { submission.draft.kind = "WITHDRAWAL"; }, TypeError);
+  await assert.rejects(client.createFinanceDraft(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.equal((await client.createFinanceDraft(submission)).replay, true);
+  assert.equal(client.submissionStatus(submission), "SUCCEEDED");
+  assert.deepEqual(createBodies.map((body) => body.idempotencyKey), ["finance-key-1", "finance-key-1"]);
+  assert.deepEqual(Object.keys(createBodies[0]).sort(), ["idempotencyKey", "kind"]);
+  assert.equal(createBodies[0].amountCents, undefined);
+  assert.equal(createBodies[0].bankAccountId, undefined);
+  assert.equal(createBodies[0].status, undefined);
+  assert.equal(createBodies[0].actorPersonId, undefined);
+  assert.deepEqual(await client.listOwnFinanceDrafts(), [metadata]);
+  assert.deepEqual(await client.getOwnFinanceDraft("draft-1"), metadata);
+
+  const stale = client.createFinanceDraftSubmission({ kind: "WITHDRAWAL" });
+  client.logout();
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.createFinanceDraft(stale), StaleResponseError);
+  assert.equal(createBodies.length, 2);
+  assert.equal(client.submissionStatus(stale), "FAILED");
+  assert.throws(() => client.createFinanceDraftSubmission({ kind: "APPROVED" }), ApiClientError);
+});
+
 test("退出后在途推荐创建不能写回当前会话", async () => {
   const creating = deferred();
   const client = new TeacherApiClient({

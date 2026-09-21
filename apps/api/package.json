@@ -10,7 +10,10 @@
   "dependencies": {
     "@teaching-research-alliance/contracts": "0.1.0",
     "@teaching-research-alliance/domain": "0.1.0",
-    "pg": "^8.23.0"
+    "jpeg-js": "0.4.4",
+    "pdf-lib": "1.17.1",
+    "pg": "^8.23.0",
+    "pngjs": "7.0.0"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1"

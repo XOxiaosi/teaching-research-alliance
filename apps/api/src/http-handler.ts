@@ -6,6 +6,7 @@ import {
   type RoleContext
 } from "@teaching-research-alliance/contracts";
 import type { ReferralCreationDraft } from "./postgres-referral-creation-service.js";
+import type { FinanceAttachmentReservationDraft } from "./postgres-finance-attachment-service.js";
 import type { RatePolicyDraft, WeeklyFeeDraft } from "@teaching-research-alliance/domain";
 import { RatePolicyService } from "@teaching-research-alliance/domain";
 import { type SessionView } from "./session-service.js";
@@ -71,6 +72,13 @@ export type ApiServices = Readonly<{
     listOwn: (context: RoleContext) => unknown | Promise<unknown>;
     getOwn: (context: RoleContext, id: string) => unknown | Promise<unknown>;
   }>;
+  financeAttachments?: Readonly<{
+    reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
+    getOwnVersion: (context: RoleContext, versionId: string) => unknown | Promise<unknown>;
+  }>;
+  financeAttachmentUploads?: Readonly<{
+    upload: (context: RoleContext, versionId: string, chunks: AsyncIterable<Uint8Array>, at: Date) => unknown | Promise<unknown>;
+  }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -106,7 +114,7 @@ const success = (data: unknown): ApiResponse => ({
   body: { version: API_CONTRACT_VERSION, data }
 });
 
-const failure = (error: unknown): ApiResponse => {
+export const failure = (error: unknown): ApiResponse => {
   const rawCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
   const inputErrors = ["INVALID_WEEKLY_FEE", "PERIOD_MONTH_MISMATCH", "VENUE_NOT_ACTIVE", "REFERRAL_NOT_ACCEPTABLE"];
   const code = rawCode && (API_ERROR_CODES as readonly string[]).includes(rawCode)
@@ -321,6 +329,28 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.financeDrafts) throw new Error("FINANCE_DRAFT_SERVICE_UNAVAILABLE");
       return success(await services.financeDrafts.getOwn(context,financeDraftPath[1]!));
+    }
+    const attachmentReservePath = request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/attachment-uploads$/);
+    if (attachmentReservePath !== null && request.method === "POST") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.financeAttachments) throw new Error("FINANCE_ATTACHMENT_SERVICE_UNAVAILABLE");
+      if (Object.keys(body).some(key=>!["sessionId","purpose","originalFilename","declaredMediaType","declaredSizeBytes","expectedSha256","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      const purpose=requiredString(body,"purpose"),declaredMediaType=requiredString(body,"declaredMediaType"),declaredSizeBytes=body.declaredSizeBytes;
+      if ((purpose!=="SUPPORTING_DOCUMENT"&&purpose!=="APPLICATION_SCREENSHOT"&&purpose!=="INVOICE")
+        || (declaredMediaType!=="application/pdf"&&declaredMediaType!=="image/png"&&declaredMediaType!=="image/jpeg")
+        || typeof declaredSizeBytes!=="number"||!Number.isSafeInteger(declaredSizeBytes)) throw new Error("INVALID_INPUT");
+      return success(await services.financeAttachments.reserve(context,attachmentReservePath[1]!,{
+        purpose,originalFilename:requiredString(body,"originalFilename"),declaredMediaType,declaredSizeBytes,
+        ...(body.expectedSha256===undefined?{}:{expectedSha256:requiredString(body,"expectedSha256")})
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const attachmentMetadataPath=request.path.match(/^\/v1\/finance\/attachment-uploads\/([^/]+)$/);
+    if(attachmentMetadataPath!==null&&request.method==="GET"){
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.financeAttachments)throw new Error("FINANCE_ATTACHMENT_SERVICE_UNAVAILABLE");
+      return success(await services.financeAttachments.getOwnVersion(context,attachmentMetadataPath[1]!));
     }
     const copyPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/copy$/);
     if (request.method === "POST" && copyPath !== null) {
