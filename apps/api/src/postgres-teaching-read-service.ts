@@ -116,7 +116,10 @@ export class PostgresTeachingReadService {
                 fee.is_self_use_snapshot
            FROM referral_case referral
            JOIN teacher_student_record student ON student.id = referral.teacher_student_record_id
-           LEFT JOIN referral_acceptance_snapshot acceptance ON acceptance.referral_case_id=referral.id
+           LEFT JOIN LATERAL (
+             SELECT venue_id FROM referral_acceptance_snapshot
+              WHERE referral_case_id=referral.id ORDER BY accepted_referral_version DESC LIMIT 1
+           ) acceptance ON true
            LEFT JOIN weekly_fee_entry fee
              ON fee.referral_case_id = referral.id
             AND EXISTS (

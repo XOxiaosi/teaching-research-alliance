@@ -61,6 +61,10 @@ export type ApiServices = Readonly<{
   referralAcceptance?: Readonly<{
     accept: (context: RoleContext, referralId: string, draft: {venueId?: string; expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
   }>;
+  referralLifecycle?: Readonly<{
+    archive: (context: RoleContext, referralId: string, draft: {expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+    reactivate: (context: RoleContext, referralId: string, draft: {expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+  }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -87,7 +91,7 @@ const errorStatus = (code: string): number => {
   if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED" || code === "ROLE_CONTEXT_NOT_ASSIGNED" || code === "ROLE_CONTEXT_AMBIGUOUS") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;
   if (code === "PERIOD_LOCKED" || code === "IDEMPOTENCY_REPLAY" || code === "VERSION_CONFLICT") return 409;
-  if (code === "VENUE_CHANGE_REQUIRED" || code === "REFERRAL_ALREADY_ACCEPTED") return 409;
+  if (code === "VENUE_CHANGE_REQUIRED" || code === "REFERRAL_ALREADY_ACCEPTED" || code === "REFERRAL_STATE_CONFLICT") return 409;
   return 400;
 };
 
@@ -289,6 +293,17 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         studentDisplayName: requiredString(body,"studentDisplayName"),
         courseContextId: requiredString(body,"courseContextId"), classType
       }, requiredString(body,"idempotencyKey"), at));
+    }
+    const lifecyclePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/(archive|reactivate)$/);
+    if (request.method === "POST" && lifecyclePath !== null) {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.referralLifecycle) throw new Error("REFERRAL_LIFECYCLE_UNAVAILABLE");
+      const allowedFields = ["sessionId","expectedVersion","idempotencyKey"];
+      if (Object.keys(body).some(key => !allowedFields.includes(key))) throw new Error("INVALID_INPUT");
+      const expectedVersion=body.expectedVersion;
+      if (typeof expectedVersion!=="number" || !Number.isSafeInteger(expectedVersion) || expectedVersion<1) throw new Error("INVALID_INPUT");
+      const method=lifecyclePath[2]==="archive" ? "archive" : "reactivate";
+      return success(await services.referralLifecycle[method](context,lifecyclePath[1]!,{expectedVersion},requiredString(body,"idempotencyKey"),at));
     }
     const acceptPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/accept$/);
     if (request.method === "POST" && acceptPath !== null) {

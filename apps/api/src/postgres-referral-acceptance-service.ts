@@ -71,7 +71,7 @@ const one = <Row>(rows: readonly Row[], errorCode: string): Row => {
 export class PostgresReferralAcceptanceService {
   public constructor(private readonly pool: PostgresPool) {}
 
-  private async selectSnapshot(client: PostgresClient, referralId: string): Promise<SnapshotRow> {
+  private async selectSnapshot(client: PostgresClient, referralId: string, version: string): Promise<SnapshotRow> {
     return one((await client.query<SnapshotRow>(
       `SELECT venue_id::text AS venue_id,
               venue_owner_person_id::text AS venue_owner_person_id,
@@ -79,8 +79,8 @@ export class PostgresReferralAcceptanceService {
               accepted_referral_version::text AS accepted_referral_version,
               to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS accepted_at
          FROM referral_acceptance_snapshot
-        WHERE referral_case_id = $1::uuid`,
-      [referralId]
+        WHERE referral_case_id = $1::uuid AND accepted_referral_version=$2::bigint`,
+      [referralId, version]
     )).rows, "REFERRAL_ACCEPTANCE_INVALID");
   }
 
@@ -131,9 +131,10 @@ export class PostgresReferralAcceptanceService {
         `referral-accept:${context.personId}:${idempotencyKey}`
       ]);
 
-      const previous = await client.query<{ request_hash: string; referral_case_id: string }>(
+      const previous = await client.query<{ request_hash: string; referral_case_id: string; accepted_referral_version: string }>(
         `SELECT command.request_hash,
-                command.referral_case_id::text AS referral_case_id
+                command.referral_case_id::text AS referral_case_id,
+                command.accepted_referral_version::text AS accepted_referral_version
            FROM referral_acceptance_idempotency command
           WHERE command.actor_person_id = $1::uuid
             AND command.idempotency_key = $2
@@ -143,7 +144,7 @@ export class PostgresReferralAcceptanceService {
       const previousRow = previous.rows[0];
       if (previousRow !== undefined) {
         if (previousRow.request_hash !== hash) throw new Error("IDEMPOTENCY_REPLAY");
-        const snapshot = await this.selectSnapshot(client, previousRow.referral_case_id);
+        const snapshot = await this.selectSnapshot(client, previousRow.referral_case_id, previousRow.accepted_referral_version);
         await client.query("COMMIT");
         return mapResult(previousRow.referral_case_id, snapshot, true);
       }
@@ -169,6 +170,10 @@ export class PostgresReferralAcceptanceService {
       if (Number(referral.version) !== draft.expectedVersion) throw new Error("VERSION_CONFLICT");
 
       const venue = await this.resolveVenue(client, context.personId, draft.venueId);
+      const previousAcceptance = await client.query<{venue_id:string}>(
+        `SELECT venue_id::text AS venue_id FROM referral_acceptance_snapshot
+          WHERE referral_case_id=$1::uuid ORDER BY accepted_referral_version DESC LIMIT 1`,[referralId]);
+      if (previousAcceptance.rows[0] && previousAcceptance.rows[0].venue_id !== venue.id) throw new Error("VENUE_CHANGE_REQUIRED");
       const venueAccount = await client.query<{ id: string }>(
         `SELECT id::text AS id
            FROM settlement_account
@@ -207,17 +212,17 @@ export class PostgresReferralAcceptanceService {
         [referralId, venue.id, venue.owner_person_id, isSelfUse, venue.selection_source, updated.version, context.personId, at.toISOString()]
       );
       await client.query(
-        `INSERT INTO referral_case_event(referral_case_id, event_type, actor_person_id, reason, created_at)
-         VALUES ($1::uuid, 'ACCEPTED', $2::uuid, 'INITIAL_VENUE_LOCKED', $3::timestamptz)`,
-        [referralId, context.personId, at.toISOString()]
+        `INSERT INTO referral_case_event(referral_case_id, event_type, actor_person_id, reason, created_at, result_referral_version)
+         VALUES ($1::uuid, 'ACCEPTED', $2::uuid, 'ACCEPTANCE_VENUE_SNAPSHOT', $3::timestamptz, $4::bigint)`,
+        [referralId, context.personId, at.toISOString(), updated.version]
       );
       await client.query(
         `INSERT INTO referral_acceptance_idempotency(
-           actor_person_id, idempotency_key, request_hash, referral_case_id, created_at
-         ) VALUES ($1::uuid, $2, $3, $4::uuid, $5::timestamptz)`,
-        [context.personId, idempotencyKey, hash, referralId, at.toISOString()]
+           actor_person_id, idempotency_key, request_hash, referral_case_id, created_at, accepted_referral_version
+         ) VALUES ($1::uuid, $2, $3, $4::uuid, $5::timestamptz, $6::bigint)`,
+        [context.personId, idempotencyKey, hash, referralId, at.toISOString(), updated.version]
       );
-      const snapshot = await this.selectSnapshot(client, referralId);
+      const snapshot = await this.selectSnapshot(client, referralId, updated.version);
       await client.query("COMMIT");
       return mapResult(referralId, snapshot, false);
     } catch (error) {

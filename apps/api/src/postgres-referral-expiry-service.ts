@@ -32,19 +32,19 @@ export class PostgresReferralExpiryService {
       );
       const archivedReferralIds: string[] = [];
       for (const row of due.rows) {
-        const archived = await client.query<{ id: string }>(
+        const archived = await client.query<{ id: string; version:string }>(
           `UPDATE referral_case
               SET status = 'ARCHIVED', version = version + 1, updated_at = $2::timestamptz
             WHERE id = $1::uuid
-          RETURNING id::text AS id`,
+          RETURNING id::text AS id, version::text AS version`,
           [row.id, at.toISOString()]
         );
         if (archived.rows.length !== 1) throw new Error("REFERRAL_EXPIRY_UPDATE_FAILED");
         await client.query(
           `INSERT INTO referral_case_event(
-             referral_case_id, event_type, actor_person_id, actor_type, reason, created_at
-           ) VALUES ($1::uuid, 'ARCHIVED', NULL, 'SYSTEM', 'UNACCEPTED_EXPIRED', $2::timestamptz)`,
-          [row.id, at.toISOString()]
+             referral_case_id, event_type, actor_person_id, actor_type, reason, created_at, result_referral_version
+           ) VALUES ($1::uuid, 'ARCHIVED', NULL, 'SYSTEM', 'UNACCEPTED_EXPIRED', $2::timestamptz, $3::bigint)`,
+          [row.id, at.toISOString(),archived.rows[0]!.version]
         );
         archivedReferralIds.push(row.id);
       }

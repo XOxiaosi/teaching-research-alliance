@@ -12,10 +12,11 @@ const quoteIdentifier = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
  * 返回的 pool 默认将该 schema 放在 search_path 首位；close() 只删除该 schema，
  * 不会触碰同一个数据库中的其他 schema、表或测试数据。
  */
-export const createTestDatabase = async (connectionString) => {
+export const createTestDatabase = async (connectionString, {throughMigration} = {}) => {
   if (connectionString === undefined || connectionString.trim() === "") {
     throw new Error("DATABASE_URL_REQUIRED_FOR_POSTGRES_INTEGRATION");
   }
+  if (throughMigration !== undefined && (!Number.isSafeInteger(throughMigration) || throughMigration < 1)) throw new Error("INVALID_TEST_MIGRATION_LIMIT");
 
   const schemaName = `integration_${randomUUID().replaceAll("-", "")}`;
   const pool = new Pool({
@@ -41,6 +42,7 @@ export const createTestDatabase = async (connectionString) => {
     await pool.query(`CREATE SCHEMA ${quoteIdentifier(schemaName)}`);
     const files = (await readdir(migrationsDirectory))
       .filter((file) => /^\d+_.+\.sql$/.test(file))
+      .filter((file) => throughMigration === undefined || Number(file.split('_')[0]) <= throughMigration)
       .sort();
     if (files.length === 0) throw new Error("NO_MIGRATIONS");
     for (const file of files) {

@@ -1,0 +1,58 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID,createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {createTestDatabase} from './postgres-test-database.mjs';
+import {PostgresReferralAcceptanceService} from '../../dist/postgres-referral-acceptance-service.js';
+import {PostgresReferralLifecycleService} from '../../dist/postgres-referral-lifecycle-service.js';
+import {PostgresTeachingReadService} from '../../dist/postgres-teaching-read-service.js';
+import {PostgresReferralExpiryService} from '../../dist/postgres-referral-expiry-service.js';
+
+test('已有接收快照升级后完整保留，删除再激活再次接收各版本独立重放',async()=>{
+ const db=await createTestDatabase(process.env.DATABASE_URL,{throughMigration:10});
+ const {pool}=db;
+ const person=randomUUID(),student=randomUUID(),referral=randomUUID(),venue=randomUUID();
+ const at=new Date('2026-09-21T04:00:00Z');
+ const context={personId:person,subject:'TEACHING_TEACHER'};
+ const draft={venueId:venue,expectedVersion:1};
+ const hash=createHash('sha256').update(JSON.stringify({referralId:referral,venueId:venue,expectedVersion:1})).digest('hex');
+ try{
+  await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1,'接收升级合成人员','合成','ACTIVE')",[person]);
+  await pool.query("INSERT INTO venue(id,owner_person_id,name,status) VALUES ($1,$2,'升级自有场地','ACTIVE')",[venue,person]);
+  await pool.query("INSERT INTO settlement_account(owner_type,owner_id,account_code,status) VALUES ('VENUE',$1,$2,'ACTIVE')",[venue,`venue:${venue}`]);
+  await pool.query("INSERT INTO teacher_student_record(id,owner_teacher_id,course_context_id,display_name) VALUES ($1,$2,'合成课程','升级学生')",[student,person]);
+  await pool.query("INSERT INTO referral_case(id,teacher_student_record_id,referrer_person_id,receiver_person_id,referrer_identity,status,version,submitted_at,unaccepted_expires_at) VALUES ($1,$2,$3,$3,'TEACHING_TEACHER','ACCEPTED',2,$4,$5)",[referral,student,person,at,new Date(at.getTime()+21*86400000)]);
+  await pool.query("INSERT INTO referral_acceptance_snapshot(referral_case_id,venue_id,venue_owner_person_id,is_self_use,selection_source,accepted_referral_version,accepted_by_person_id,accepted_at) VALUES ($1,$2,$3,true,'EXPLICIT',2,$3,$4)",[referral,venue,person,at]);
+  await pool.query("INSERT INTO referral_acceptance_idempotency(actor_person_id,idempotency_key,request_hash,referral_case_id,created_at) VALUES ($1,'old-accept',$2,$3,$4)",[person,hash,referral,at]);
+  const before=(await pool.query('SELECT * FROM referral_acceptance_snapshot')).rows;
+  await pool.query(await readFile(new URL('../../../../database/migrations/0011_referral_lifecycle.sql',import.meta.url),'utf8'));
+  assert.deepEqual((await pool.query('SELECT * FROM referral_acceptance_snapshot')).rows,before);
+  assert.equal((await pool.query('SELECT accepted_referral_version::text AS version FROM referral_acceptance_idempotency')).rows[0].version,'2');
+  const acceptance=new PostgresReferralAcceptanceService(pool);
+  assert.equal((await acceptance.accept(context,referral,draft,'old-accept',at)).version,2);
+  const lifecycle=new PostgresReferralLifecycleService(pool);
+  assert.equal((await lifecycle.archive(context,referral,{expectedVersion:2},'archive',at)).version,3);
+  assert.equal((await lifecycle.reactivate(context,referral,{expectedVersion:3},'reactivate',at)).version,4);
+  assert.equal((await acceptance.accept(context,referral,{...draft,expectedVersion:4},'new-accept',at)).version,5);
+  assert.equal((await acceptance.accept(context,referral,draft,'old-accept',at)).version,2);
+  assert.equal((await acceptance.accept(context,referral,{...draft,expectedVersion:4},'new-accept',at)).version,5);
+  assert.equal((await lifecycle.archive(context,referral,{expectedVersion:2},'archive',at)).version,3);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM referral_acceptance_snapshot')).rows[0].n,2);
+  const list=await new PostgresTeachingReadService(pool).listReceivedReferrals(context,at);
+  assert.equal(list.length,1);
+  assert.equal(list[0].initialVenueId,venue);
+  assert.equal(list[0].version,5);
+  assert.deepEqual((await pool.query('SELECT * FROM referral_acceptance_snapshot WHERE accepted_referral_version=2')).rows,before);
+  await assert.rejects(pool.query("UPDATE referral_acceptance_idempotency SET request_hash='changed'"),/REFERRAL_ACCEPTANCE_IMMUTABLE/);
+  await assert.rejects(pool.query("UPDATE referral_acceptance_snapshot SET is_self_use=false"),/REFERRAL_ACCEPTANCE_IMMUTABLE/);
+  await lifecycle.archive(context,referral,{expectedVersion:5},'archive-5',at);
+  await lifecycle.reactivate(context,referral,{expectedVersion:6},'reactivate-6',at);
+  const expiry=new PostgresReferralExpiryService(pool);
+  const later=new Date(at.getTime()+21*86400000);
+  assert.deepEqual((await expiry.run(later)).archivedReferralIds,[referral]);
+  await lifecycle.reactivate(context,referral,{expectedVersion:8},'reactivate-8',later);
+  assert.deepEqual((await expiry.run(new Date(later.getTime()+21*86400000))).archivedReferralIds,[referral]);
+  const expiryVersions=(await pool.query("SELECT result_referral_version::text AS version FROM referral_case_event WHERE actor_type='SYSTEM' AND referral_case_id=$1 ORDER BY result_referral_version",[referral])).rows.map(row=>row.version);
+  assert.deepEqual(expiryVersions,['8','10']);
+ }finally{await db.close();}
+});

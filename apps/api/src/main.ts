@@ -24,3 +24,4 @@ export { PostgresReferralCreationService } from "./postgres-referral-creation-se
 export { PostgresSentReferralReadService } from "./postgres-sent-referral-read-service.js";
 export { PostgresReferralAcceptanceService } from "./postgres-referral-acceptance-service.js";
 export { PostgresReferralExpiryService } from "./postgres-referral-expiry-service.js";
+export { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";

@@ -102,6 +102,28 @@ export type ReferralAcceptanceResult = Readonly<{
   replay: boolean;
 }>;
 
+export type ReferralLifecycleCommand = "ARCHIVE" | "REACTIVATE";
+
+/** A referrer can only change the lifecycle of a record they originally sent. */
+export type ReferralLifecycleDraft = Readonly<{
+  referralId: string;
+  expectedVersion: number;
+  command: ReferralLifecycleCommand;
+}>;
+
+export type ReferralLifecycleSubmission = Readonly<{
+  draft: ReferralLifecycleDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReferralLifecycleResult = Readonly<{
+  referralId: string;
+  status: "ARCHIVED" | "REACTIVATED";
+  version: number;
+  unacceptedExpiresAt: string | null;
+  replay: boolean;
+}>;
+
 export type SentReferralWeeklyFee = Readonly<{
   entryId: string;
   teachingWeekId: string;
@@ -113,6 +135,7 @@ export type SentReferralWeeklyFee = Readonly<{
 export type SentReferral = Readonly<{
   referralId: string;
   studentRecordId: string;
+  version: number;
   studentDisplayName: string;
   courseContextId: string;
   receiverPersonId: string;
@@ -170,7 +193,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralAcceptanceSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -251,6 +274,16 @@ const validateReferralAcceptanceDraft = (draft: ReferralAcceptanceDraft): void =
   if (draft.venueId !== undefined) requireNonBlank(draft.venueId, "venueId");
   if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 1) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  }
+};
+
+const validateReferralLifecycleDraft = (draft: ReferralLifecycleDraft): void => {
+  requireNonBlank(draft.referralId, "referralId");
+  if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 1) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  }
+  if (draft.command !== "ARCHIVE" && draft.command !== "REACTIVATE") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:command");
   }
 };
 
@@ -416,6 +449,22 @@ export class TeacherApiClient {
     return submission;
   }
 
+  /**
+   * Lifecycle changes are immutable commands. An uncertain result must retry this
+   * object, not create a fresh command or idempotency key.
+   */
+  public createReferralLifecycleSubmission(draft: ReferralLifecycleDraft): ReferralLifecycleSubmission {
+    validateReferralLifecycleDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({ ...draft });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   public submissionStatus(submission: Submission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
   }
@@ -474,6 +523,30 @@ export class TeacherApiClient {
         "POST",
         `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/accept`,
         body
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async changeReferralLifecycle(submission: ReferralLifecycleSubmission): Promise<ReferralLifecycleResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const operation = submission.draft.command === "ARCHIVE" ? "archive" : "reactivate";
+      const result = await this.authenticatedRequest<ReferralLifecycleResult>(
+        "POST",
+        `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/${operation}`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          idempotencyKey: submission.idempotencyKey
+        }
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();

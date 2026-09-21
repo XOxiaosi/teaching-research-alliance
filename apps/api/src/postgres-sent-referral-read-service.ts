@@ -4,7 +4,7 @@ import type { PostgresPool } from "./postgres-ledger-repository.js";
 type SentRow = {
   referral_id: string; student_record_id: string; student_name: string;
   course: string; receiver_id: string; receiver_name: string; status: string;
-  submitted_at: string; source_subject: string | null; class_type: string | null;
+  submitted_at: string; version:string; source_subject: string | null; class_type: string | null;
   fee_id: string | null; week_id: string | null; starts_on: string | null;
   ends_on: string | null; amount: string | null;
 };
@@ -21,7 +21,7 @@ export class PostgresSentReferralReadService {
         `SELECT referral.id::text AS referral_id, student.id::text AS student_record_id,
                 student.display_name AS student_name, student.course_context_id AS course,
                 receiver.id::text AS receiver_id, receiver.nickname AS receiver_name,
-                referral.status, to_char(referral.submitted_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS submitted_at,
+                referral.status, referral.version::text AS version, to_char(referral.submitted_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS submitted_at,
                 snapshot.source_subject, snapshot.class_type,
                 fee.id::text AS fee_id, week.id::text AS week_id,
                 week.starts_on::text, week.ends_on::text, fee.gross_amount_cents::text AS amount
@@ -49,16 +49,18 @@ export class PostgresSentReferralReadService {
       const records = new Map<string, {
         referralId: string; studentRecordId: string; studentDisplayName: string;
         courseContextId: string; receiverPersonId: string; receiverNickname: string;
-        referralStatus: string; submittedAt: string; sourceSubject: string | null; classType: string | null;
+        referralStatus: string; version:number; submittedAt: string; sourceSubject: string | null; classType: string | null;
         weeklyFees: { entryId: string; teachingWeekId: string; weekStartsOn: string; weekEndsOn: string; grossAmountCents: bigint }[];
       }>();
       for (const row of result.rows) {
         let record = records.get(row.referral_id);
         if (!record) {
+          const version=Number(row.version);
+          if(!Number.isSafeInteger(version)||version<1)throw new Error("SENT_REFERRAL_READ_MODEL_CORRUPT");
           record = { referralId: row.referral_id, studentRecordId: row.student_record_id,
             studentDisplayName: row.student_name, courseContextId: row.course,
             receiverPersonId: row.receiver_id, receiverNickname: row.receiver_name,
-            referralStatus: row.status, submittedAt: row.submitted_at,
+            referralStatus: row.status, version, submittedAt: row.submitted_at,
             sourceSubject: row.source_subject, classType: row.class_type, weeklyFees: [] };
           records.set(row.referral_id, record);
         }

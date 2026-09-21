@@ -152,6 +152,59 @@ test("接收推荐冻结草稿并以同一幂等键重试，提交体不允许�
   assert.throws(() => client.createReferralAcceptanceSubmission({ referralId: "ref-1", expectedVersion: 0 }), ApiClientError);
 });
 
+test("推荐归档与重新推送冻结命令、同键重试且不发送伪造字段", async () => {
+  const requests = [];
+  let archiveAttempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => {
+      let index = 0;
+      return () => `lifecycle-key-${++index}`;
+    })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/referrals/ref-1/archive") {
+        requests.push(request);
+        archiveAttempts += 1;
+        if (archiveAttempts === 1) throw new Error("network uncertain");
+        return success({ referralId: "ref-1", status: "ARCHIVED", version: 2, unacceptedExpiresAt: "2026-10-12T00:00:00.000Z", replay: true });
+      }
+      if (request.path === "/v1/referrals/ref-1/reactivate") {
+        requests.push(request);
+        return success({ referralId: "ref-1", status: "REACTIVATED", version: 3, unacceptedExpiresAt: "2026-10-21T00:00:00.000Z", replay: false });
+      }
+      if (request.path === "/v1/role-contexts/switch") return success(teacherSession("PLANNING_MENTOR"));
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const archive = client.createReferralLifecycleSubmission({
+    referralId: "ref-1", expectedVersion: 1, command: "ARCHIVE", actorPersonId: "forged", status: "ACCEPTED", unacceptedExpiresAt: null
+  });
+  assert.equal(Object.isFrozen(archive), true);
+  assert.equal(Object.isFrozen(archive.draft), true);
+  assert.throws(() => { archive.draft.command = "REACTIVATE"; }, TypeError);
+  await assert.rejects(client.changeReferralLifecycle(archive), /network uncertain/);
+  assert.equal(client.submissionStatus(archive), "FAILED");
+  assert.equal((await client.changeReferralLifecycle(archive)).replay, true);
+  assert.deepEqual(requests.slice(0, 2).map((request) => request.body.idempotencyKey), ["lifecycle-key-1", "lifecycle-key-1"]);
+  assert.deepEqual(Object.keys(requests[0].body).sort(), ["expectedVersion", "idempotencyKey"]);
+  assert.equal(requests[0].body.actorPersonId, undefined);
+  assert.equal(requests[0].body.status, undefined);
+  assert.equal(requests[0].body.unacceptedExpiresAt, undefined);
+
+  const reactivate = client.createReferralLifecycleSubmission({ referralId: "ref-1", expectedVersion: 2, command: "REACTIVATE" });
+  assert.equal((await client.changeReferralLifecycle(reactivate)).status, "REACTIVATED");
+  assert.equal(requests[2].path, "/v1/referrals/ref-1/reactivate");
+  assert.notEqual(reactivate.idempotencyKey, archive.idempotencyKey);
+
+  const stale = client.createReferralLifecycleSubmission({ referralId: "ref-1", expectedVersion: 3, command: "ARCHIVE" });
+  await client.switchRole("PLANNING_MENTOR");
+  await assert.rejects(client.changeReferralLifecycle(stale), StaleResponseError);
+  assert.equal(requests.length, 3);
+  assert.equal(client.submissionStatus(stale), "FAILED");
+  assert.throws(() => client.createReferralLifecycleSubmission({ referralId: "ref-1", expectedVersion: 0, command: "ARCHIVE" }), ApiClientError);
+});
+
 test("身份或角色变化拒绝重用旧接收、推荐和周费用提交", async () => {
   let acceptRequests = 0;
   let referralRequests = 0;
@@ -318,6 +371,7 @@ test("推荐创建以冻结提交对象安全重试，同名再次提交使用�
       if (request.path === "/v1/referrals/sent") {
         return success([{
           referralId: "sent-1", studentRecordId: "student-1", studentDisplayName: "已推荐学生",
+          version: 1,
           courseContextId: "数学", receiverPersonId: "teacher-1", receiverNickname: "接收老师",
           referralStatus: "PENDING", submittedAt: "2026-09-21T00:00:00Z",
           sourceSubject: null, classType: "ONE_TO_ONE", weeklyFees: []

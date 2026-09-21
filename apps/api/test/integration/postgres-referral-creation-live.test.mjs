@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {createTestDatabase} from './postgres-test-database.mjs';
-import {PostgresReferralCreationService,PostgresSentReferralReadService,PostgresReferralAcceptanceService,createApiServer,SessionService} from '../../dist/main.js';
+import {PostgresReferralCreationService,PostgresSentReferralReadService,PostgresReferralAcceptanceService,PostgresReferralLifecycleService,createApiServer,SessionService} from '../../dist/main.js';
 const at=new Date('2026-09-21T04:00:00Z');
 
 test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无效接收人',async()=>{
@@ -46,7 +46,7 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
   const sessions=new SessionService({accounts:[{accountId:'synthetic',personId:planner,phoneNormalized:'13800000000',credentialDigest:'synthetic',status:'ACTIVE'},{accountId:'synthetic-teacher',personId:teacher,phoneNormalized:'13800000001',credentialDigest:'synthetic',status:'ACTIVE'}],assignments:[{personId:planner,subject:'ACADEMIC_PLANNER',scope:'SELF',validFrom:new Date('2026-01-01')},{personId:teacher,subject:'TEACHING_TEACHER',scope:'SELF',validFrom:new Date('2026-01-01')}],sessionIdFactory:()=> ++sessionNumber===1?'synthetic-referral-token':'synthetic-teacher-token'});
   sessions.login('13800000000','synthetic',at);
   sessions.switchRole('synthetic-referral-token','ACADEMIC_PLANNER',at);
-  const server=createApiServer({sessions,weeklyFees:{},referrals:service,sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),now:()=>at});
+  const server=createApiServer({sessions,weeklyFees:{},referrals:service,sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),now:()=>at});
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   try {
     const url=`http://127.0.0.1:${server.address().port}/v1/referrals`;
@@ -80,6 +80,22 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
     assert.equal((await accepted.json()).data.isSelfUse,true);
     assert.equal((await (await accept(acceptance)).json()).data.replay,true);
     assert.equal((await accept({...acceptance,idempotencyKey:'another-command'})).status,409);
+    const lifecycle=(operation,body,token='synthetic-referral-token')=>fetch(`${url}/${result.referralId}/${operation}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)});
+    const archiveCommand={expectedVersion:2,idempotencyKey:'http-archive'};
+    assert.equal((await lifecycle('archive',archiveCommand,'synthetic-teacher-token')).status,403);
+    for(const field of ['status','actor','expiresAt','receiverPersonId','venueId'])assert.equal((await lifecycle('archive',{...archiveCommand,[field]:'forged'})).status,400);
+    const archived=await lifecycle('archive',archiveCommand);
+    assert.equal(archived.status,200);
+    assert.equal((await archived.json()).data.version,3);
+    const restored=await lifecycle('reactivate',{expectedVersion:3,idempotencyKey:'http-reactivate'});
+    assert.equal(restored.status,200);
+    assert.equal((await restored.json()).data.status,'REACTIVATED');
+    const oldArchive=(await (await lifecycle('archive',archiveCommand)).json()).data;
+    assert.equal(oldArchive.status,'ARCHIVED');
+    assert.equal(oldArchive.version,3);
+    assert.equal(oldArchive.replay,true);
+    assert.equal((await (await accept(acceptance)).json()).data.version,2);
+    assert.equal((await (await accept({...acceptance,expectedVersion:4,idempotencyKey:'accept-again'})).json()).data.version,5);
   }finally{await new Promise(resolve=>server.close(resolve));}
  }finally{await db.close();}
 });
