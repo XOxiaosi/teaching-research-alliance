@@ -1,0 +1,21 @@
+{
+  "name": "teaching-research-alliance",
+  "private": true,
+  "version": "0.1.0",
+  "description": "教研联盟管理平台 monorepo",
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "npm run build && node --test packages/*/test/*.test.mjs",
+    "check": "npm run typecheck && npm test",
+    "db:check": "node scripts/check-migrations.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
