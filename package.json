@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
-    "test": "npm run build && node --test packages/*/test/*.test.mjs",
+    "test": "npm run build && node --test packages/*/test/*.test.mjs apps/*/test/*.test.mjs",
     "check": "npm run typecheck && npm test",
     "db:check": "node scripts/check-migrations.mjs"
   },

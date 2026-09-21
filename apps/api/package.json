@@ -2,5 +2,9 @@
   "name": "@teaching-research-alliance/api",
   "private": true,
   "version": "0.1.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@teaching-research-alliance/contracts": "0.1.0",
+    "@teaching-research-alliance/domain": "0.1.0"
+  }
 }
