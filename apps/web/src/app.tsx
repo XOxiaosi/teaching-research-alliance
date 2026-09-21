@@ -3,16 +3,16 @@ import { createRoot } from "react-dom/client";
 import {
   ApiClientError,
   formatCentsAsBeans,
-  parseBeanAmountToCents,
   RoleSelectionRequiredError,
   StaleResponseError,
   TeacherApiClient,
   type ReceivingTeacher,
   type ReferralCreationSubmission,
   type SentReferral,
-  type SessionSnapshot,
-  type WeeklyFeeSubmission
+  type SessionSnapshot
 } from "@teaching-research-alliance/client";
+import { WeeklyFeePanel } from "./weekly-fee-panel.js";
+import { Button } from "./components/ui/button.js";
 import "./style.css";
 
 const client = new TeacherApiClient({
@@ -45,6 +45,7 @@ type ReceivedReferral = Readonly<{
   courseContextId: string;
   referralStatus: string;
   version: number;
+  initialVenueId?: string | null;
   weeklyFees: readonly Fee[];
 }>;
 
@@ -114,6 +115,8 @@ const hasOwnOverview = (session: SessionSnapshot | null): boolean => {
 
 function App(): ReactNode {
   const [session, setSession] = useState<SessionSnapshot | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [overviewFresh, setOverviewFresh] = useState(false);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [receivedReferrals, setReceivedReferrals] = useState<readonly ReceivedReferral[]>([]);
   const [sentReferrals, setSentReferrals] = useState<readonly SentReferral[]>([]);
@@ -124,31 +127,27 @@ function App(): ReactNode {
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedReferralId, setSelectedReferralId] = useState("");
-  const [weekId, setWeekId] = useState("");
-  const [venueId, setVenueId] = useState("");
-  const [amount, setAmount] = useState("");
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals">("fees");
+  const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
   const [courseContextId, setCourseContextId] = useState("");
   const [classType, setClassType] = useState<"ONE_TO_ONE" | "SMALL_GROUP">("ONE_TO_ONE");
   const [pendingReferralCount, setPendingReferralCount] = useState(0);
-  const pendingWeeklyFee = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingReferrals = useRef(new Map<string, ReferralCreationSubmission>());
 
   const clear = (options: Readonly<{ discardReferral?: boolean }> = {}): void => {
     const discardReferral = options.discardReferral ?? true;
+    setDataLoaded(false);
     setOverview(null);
+    setOverviewFresh(false);
     setReceivedReferrals([]);
     setSentReferrals([]);
     setWeeks([]);
     setVenues([]);
     setReceivingTeachers([]);
-    setSelectedReferralId("");
-    setWeekId("");
-    setVenueId("");
-    setAmount("");
-    pendingWeeklyFee.current = null;
+    setFeeUnconfirmed(false);
+    setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
       setStudentDisplayName("");
@@ -160,6 +159,7 @@ function App(): ReactNode {
   };
 
   const confirmDiscardPendingReferral = (): boolean => {
+    if (feeUnconfirmed) return window.confirm("有一笔费用尚未确认保存结果。建议先安全重试；离开后需重新核对服务器记录。确定切换身份或退出吗？");
     if (pendingReferrals.current.size === 0) return true;
     return window.confirm("有尚未确认的推荐。切换身份或退出会丢失其安全重试信息，确定继续吗？");
   };
@@ -180,7 +180,9 @@ function App(): ReactNode {
       loadReferrals ? client.listReceivingTeachers() : Promise.resolve([]),
       loadReferrals ? client.listSentReferrals() : Promise.resolve([])
     ]);
+    setDataLoaded(true);
     setOverview(nextOverview);
+    setOverviewFresh(true);
     setReceivedReferrals(nextReceived);
     setWeeks(nextWeeks);
     setVenues(nextVenues);
@@ -201,8 +203,6 @@ function App(): ReactNode {
       } else if (error instanceof ApiClientError) {
         setMessage(clientMessages[error.code] ?? "操作未完成，请检查当前身份后重试。");
         if (error.status === 409) {
-          pendingWeeklyFee.current = null;
-          setSelectedReferralId("");
           try {
             await load();
           } catch {
@@ -221,40 +221,6 @@ function App(): ReactNode {
       setSession(client.currentSession);
       setBusy(false);
     }
-  };
-
-  const chooseWeeklyFee = (referralId: string, chosenWeekId: string): void => {
-    setSelectedReferralId(referralId);
-    setWeekId(chosenWeekId);
-    pendingWeeklyFee.current = null;
-    const fee = receivedReferrals
-      .find((referral) => referral.referralId === referralId)
-      ?.weeklyFees.find((item) => item.teachingWeekId === chosenWeekId);
-    setAmount(fee === undefined ? "" : formatCentsAsBeans(fee.grossAmountCents));
-    setVenueId(fee?.venueId ?? venues.find((venue) => venue.isOwn)?.id ?? "");
-  };
-
-  const saveWeeklyFee = async (): Promise<void> => {
-    const week = weeks.find((item) => item.weekId === weekId);
-    if (week === undefined || selectedReferralId === "" || venueId === "") throw new Error("WEEKLY_FEE_REQUIRED");
-    const fee = receivedReferrals
-      .find((referral) => referral.referralId === selectedReferralId)
-      ?.weeklyFees.find((item) => item.teachingWeekId === weekId);
-    let grossAmountCents: string;
-    try {
-      grossAmountCents = parseBeanAmountToCents(amount);
-    } catch {
-      throw new Error("WEEKLY_FEE_REQUIRED");
-    }
-    const draft = { referralCaseId: selectedReferralId, teachingWeekId: weekId, venueId, settlementMonth: week.settlementMonth, grossAmountCents, expectedVersion: fee?.version ?? 0 };
-    const signature = JSON.stringify(draft);
-    if (pendingWeeklyFee.current?.signature !== signature) {
-      pendingWeeklyFee.current = { signature, submission: client.createWeeklyFeeSubmission(draft) };
-    }
-    await client.recordWeeklyFee(pendingWeeklyFee.current.submission);
-    await load();
-    pendingWeeklyFee.current = null;
-    setMessage("已保存，本周累计费用和个人余额已更新。");
   };
 
   const saveReferral = async (): Promise<void> => {
@@ -277,31 +243,39 @@ function App(): ReactNode {
   };
 
   const currentRole = session?.currentRoleContext?.subject ?? "";
-  const selectedReceivedReferral = receivedReferrals.find((referral) => referral.referralId === selectedReferralId);
+  const page = currentRole === "TEACHING_TEACHER" ? activePage : canCreateReferral(session) ? "referrals" : "overview";
+  const pageTitle = page === "fees" ? "周费用录入" : page === "overview" ? "教师工作台" : "学生推荐";
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
+  const goPage = (next: "fees" | "overview" | "referrals"): void => { setActivePage(next); setMessage(""); window.scrollTo({top:0}); };
+  const navigation = <>
+    {currentRole === "TEACHING_TEACHER" && <>
+      <button disabled={busy} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><span aria-hidden="true" className="nav-icon">▤</span>周费用录入</button>
+      <button disabled={busy} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>
+    </>}
+    {canCreateReferral(session) && <button disabled={busy} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
+  </>;
   return (
     <div className="shell">
       <aside>
-        <div className="brand">研<span>教研联盟</span></div>
-        <p>让每一份教学付出<br />都有清楚的记录。</p>
-        <div className="nav">我的教学</div>
-        <small>个人账户 · 推荐与费用记录</small>
+        <div className="brand"><span className="brand-mark">研</span>教研联盟</div>
+        <div className="brand-subtitle">TEACHING ALLIANCE</div>
+        <div className="nav-label">个人工作空间</div>
+        <nav aria-label="主要导航" className="workspace-nav">{navigation}</nav>
+        <div className="aside-note">让每一份教学付出<br />都有清楚的记录。</div>
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">TEACHING ALLIANCE</span><h1>{session === null ? "欢迎回来" : "我的教学"}</h1></div>
-          {session !== null && <button className="quiet" disabled={busy} onClick={() => {
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : "推荐合适的老师，关注学生接收进展。"}</p></div>
+          {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
               clear();
               try { await client.endSession(); } catch { setMessage("已清除此页面的登录状态，服务器注销未确认。"); }
             });
-          }}>退出登录</button>}
+          }}>退出登录</Button>}
         </header>
-
         {message !== "" && <p role="status" className="message">{message}</p>}
-
         {session === null ? (
           <form className="panel login" onSubmit={(event) => {
             event.preventDefault();
@@ -312,39 +286,36 @@ function App(): ReactNode {
               await load();
             });
           }}>
-            <h2>登录你的账户</h2>
-            <p>使用手机号与密码，进入你的个人工作台。</p>
+            <h2>登录你的账户</h2><p>使用手机号与密码，进入你的个人工作台。</p>
             <label>手机号<input autoComplete="username" value={phone} onChange={(event) => setPhone(event.target.value)} required /></label>
             <label>密码<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-            <button disabled={busy}>{busy ? "正在登录…" : "登录"}</button>
+            <Button disabled={busy}>{busy ? "正在登录…" : "登录"}</Button>
           </form>
         ) : (
           <>
             <section className="rolebar">
-              <span>{overview?.nickname ?? "我的账户"}</span>
-              <label>当前身份<select disabled={busy} value={currentRole} onChange={(event) => {
+              <span title={overview?.nickname}>{overview?.nickname ?? "我的账户"}</span>
+              <label>当前身份<select aria-label="当前身份" disabled={busy} value={currentRole} onChange={(event) => {
                 if (!confirmDiscardPendingReferral()) return;
                 clear();
-                void run(async () => {
-                  await client.switchRole(event.target.value as Parameters<typeof client.switchRole>[0]);
-                  await load();
-                });
+                void run(async () => { await client.switchRole(event.target.value as Parameters<typeof client.switchRole>[0]); await load(); });
               }}>
                 <option value="" disabled>请选择身份</option>
                 {session.roleContexts.map((role) => <option key={role.subject} value={role.subject}>{roleLabels[role.subject] ?? role.subject}</option>)}
               </select></label>
-              <button className="quiet" disabled={busy} onClick={() => {
-                clear({ discardReferral: false });
-                void run(async () => {
-                  await client.refreshSession();
-                  await load();
-                });
-              }}>刷新</button>
+              <Button variant="outline" disabled={busy || feeUnconfirmed} onClick={() => {
+                void run(async () => { await client.refreshSession(); await load(); });
+              }}>刷新</Button>
             </section>
-
+            <nav aria-label="手机导航" className="mobile-nav">{navigation}</nav>
             {currentRole === "" && <section className="panel"><p>请选择已授权身份后查看工作台。</p></section>}
-
-            {overview !== null && <div className="overview">
+            {currentRole === "TEACHING_TEACHER" && <div hidden={page !== "fees"}>
+              <WeeklyFeePanel key={`${session.accountId}:${currentRole}`} client={client} referrals={receivedReferrals} weeks={weeks} venues={venues} busy={busy} loaded={dataLoaded} run={run} reload={load} onUnconfirmedChange={setFeeUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />
+              <div className="recording-guide"><span className="guide-mark" aria-hidden="true">i</span><div><h3>填写累计值，不是本次新增金额</h3><p>例如：已录入 1000 豆，后来又产生 200 豆费用，本次应填写 1200 豆。不同课程分别记录，已有费用更正后自动更新结算。</p></div></div>
+            </div>}
+            <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
+            {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>费用可能已保存，最新余额尚未确认。请先在周费用页面确认保存结果并重新读取数据。</p></section>}
+            {overview !== null && overviewFresh && <div className="overview">
               <section className="balance"><span>个人可用余额 / 欢乐豆</span><strong>{formatCentsAsBeans(overview.balanceCents)}</strong><small>个人账户余额</small></section>
               <section className="panel income"><h2>当前财年课时分润</h2>
                 {incomeEntries.map(([category, value]) => <div key={category}><span>{incomeLabels[category] ?? "其他课时收入"}</span><b>{formatCentsAsBeans(value)}</b></div>)}
@@ -352,18 +323,26 @@ function App(): ReactNode {
               </section>
             </div>}
 
-            {canCreateReferral(session) && <>
+
+            {currentRole === "TEACHING_TEACHER" && <section className="panel"><div className="section-title"><h2>我的生源库</h2><span>{receivedReferrals.length} 条学生课程记录</span></div>
+              {receivedReferrals.length === 0 ? <p>暂无学生记录</p> : <div className="students">{receivedReferrals.map((referral) => <article key={referral.referralId}>
+                <div><h3>{referral.studentDisplayName}</h3><p>{referral.courseContextId} · {statusLabels[referral.referralStatus] ?? referral.referralStatus}</p></div>
+                <Button variant="outline" disabled={busy} onClick={() => { setActivePage("fees"); window.scrollTo({top:0}); }}>前往录费</Button>
+              </article>)}</div>}
+            </section>}
+            </div>
+            {canCreateReferral(session) && <div hidden={page !== "referrals"}>
               <section className="panel referral-form">
                 <div className="section-title"><h2>推荐学生</h2><span>提交后由接收老师处理</span></div>
                 <p>选择接收老师，填写学生和课程。推荐身份由当前登录身份确定。</p>
                 <div className="fields referral-fields">
-                  <label>接收老师<select value={receiverPersonId} disabled={busy || receivingTeachers.length === 0} onChange={(event) => setReceiverPersonId(event.target.value)} required>
+                  <label>接收老师<select aria-label="接收老师" value={receiverPersonId} disabled={busy || receivingTeachers.length === 0} onChange={(event) => setReceiverPersonId(event.target.value)} required>
                     <option value="">请选择接收老师</option>
                     {receivingTeachers.map((teacher) => <option key={teacher.personId} value={teacher.personId}>{teacher.nickname}</option>)}
                   </select></label>
                   <label>学生名字<input value={studentDisplayName} disabled={busy} onChange={(event) => setStudentDisplayName(event.target.value)} required /></label>
                   <label>课程<input value={courseContextId} disabled={busy} onChange={(event) => setCourseContextId(event.target.value)} required /></label>
-                  <label>班型<select value={classType} disabled={busy} onChange={(event) => setClassType(event.target.value as "ONE_TO_ONE" | "SMALL_GROUP")}>
+                  <label>班型<select aria-label="班型" value={classType} disabled={busy} onChange={(event) => setClassType(event.target.value as "ONE_TO_ONE" | "SMALL_GROUP")}>
                     <option value="ONE_TO_ONE">一对一</option><option value="SMALL_GROUP">小班课</option>
                   </select></label>
                 </div>
@@ -379,28 +358,13 @@ function App(): ReactNode {
                   <div className="sent-fees">{referral.weeklyFees.length === 0 ? <small>暂无周费用</small> : referral.weeklyFees.map((fee) => <span key={fee.entryId}>{fee.weekStartsOn}：{formatCentsAsBeans(fee.grossAmountCents)} 豆</span>)}</div>
                 </article>)}
               </section>
-            </>}
+            </div>}
 
-            {currentRole === "TEACHING_TEACHER" && <>
-              <section className="panel"><div className="section-title"><h2>我的生源库</h2><span>{receivedReferrals.length} 位学生</span></div>
-                {receivedReferrals.length === 0 ? <p>暂无学生记录</p> : <div className="students">{receivedReferrals.map((referral) => <article key={referral.referralId}>
-                  <div><h3>{referral.studentDisplayName}</h3><p>{referral.courseContextId} · {statusLabels[referral.referralStatus] ?? referral.referralStatus}</p></div>
-                  <button className="quiet" disabled={busy || weeks.length === 0} onClick={() => chooseWeeklyFee(referral.referralId, weeks[0]?.weekId ?? "")}>登记周费用</button>
-                </article>)}</div>}
-              </section>
-              {selectedReceivedReferral !== undefined && <form className="panel" onSubmit={(event) => { event.preventDefault(); void run(saveWeeklyFee); }}>
-                <h2>{selectedReceivedReferral.studentDisplayName} · 周累计费用</h2><p>填写本周所有课程的累计金额。修改后，系统按新旧金额的差额更新账户。</p>
-                <div className="fields">
-                  <label>教学周<select disabled={busy} value={weekId} onChange={(event) => chooseWeeklyFee(selectedReferralId, event.target.value)}>{weeks.map((week) => <option key={week.weekId} value={week.weekId}>{week.startsOn} 至 {week.endsOn}</option>)}</select></label>
-                  <label>授课场地<select disabled={busy} value={venueId} onChange={(event) => setVenueId(event.target.value)}><option value="">请选择场地</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}{venue.isOwn ? "（本人场地，免费）" : ""}</option>)}</select></label>
-                  <label>本周累计 / 欢乐豆<input disabled={busy} inputMode="decimal" value={amount} placeholder="例如 1000.00" onChange={(event) => setAmount(event.target.value)} required /></label>
-                </div>
-                <button disabled={busy}>{busy ? "正在保存…" : "保存周累计费用"}</button>
-              </form>}
-            </>}
+
+            {currentRole !== "" && !hasOwnOverview(session) && !canCreateReferral(session) && <section className="panel"><h2>{roleLabels[currentRole] ?? "职务工作台"}</h2><p>此职务的业务页面尚未接通。请切换至已开放的个人身份办理业务。</p></section>}
           </>
         )}
-        <footer>本地开发预览 · 当前提供推荐、教师录费与个人概览，完整业务仍在开发。</footer>
+        <footer>教研联盟 · 教学与费用记录</footer>
       </main>
     </div>
   );

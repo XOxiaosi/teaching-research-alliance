@@ -1,0 +1,5 @@
+
+> teaching-research-alliance@0.1.0 db:check
+> node scripts/check-migrations.mjs
+
+checked 10 migration(s)

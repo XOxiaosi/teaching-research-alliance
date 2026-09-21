@@ -1,0 +1,13 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test
+
+
+Running 2 tests using 1 worker
+
+(node:23213) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/weekly-fee.spec.mjs:27:1 › 首屏录费、累计更正、故障安全重试、推荐回归与手机操作 (11.4s)
+  ✓  2 e2e/weekly-fee.spec.mjs:173:1 › 读取失败不伪装空记录，真正无期间时明确提示 (2.6s)
+
+  2 passed (17.0s)

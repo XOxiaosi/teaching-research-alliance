@@ -1,0 +1,386 @@
+
+> teaching-research-alliance@0.1.0 check
+> npm run typecheck && npm test
+
+
+> teaching-research-alliance@0.1.0 typecheck
+> tsc -b --pretty false
+
+
+> teaching-research-alliance@0.1.0 test
+> npm run build && node --test packages/*/test/*.test.mjs apps/*/test/*.test.mjs
+
+
+> teaching-research-alliance@0.1.0 build
+> tsc -b
+
+TAP version 13
+# Subtest: 真实HTTP监听器提供健康检查并序列化周费用金额
+ok 1 - 真实HTTP监听器提供健康检查并序列化周费用金额
+  ---
+  duration_ms: 263.740138
+  type: 'test'
+  ...
+# Subtest: PostgreSQL身份仓储读取账号、岗位历史并保留密码哈希边界
+ok 2 - PostgreSQL身份仓储读取账号、岗位历史并保留密码哈希边界
+  ---
+  duration_ms: 3.639244
+  type: 'test'
+  ...
+# Subtest: 身份仓储拒绝数据库中未登记的岗位编码
+ok 3 - 身份仓储拒绝数据库中未登记的岗位编码
+  ---
+  duration_ms: 0.718325
+  type: 'test'
+  ...
+# Subtest: PostgreSQL账本适配器使用参数化SQL并在成功后提交
+ok 4 - PostgreSQL账本适配器使用参数化SQL并在成功后提交
+  ---
+  duration_ms: 5.767559
+  type: 'test'
+  ...
+# Subtest: PostgreSQL账户映射缺失时回滚事务
+ok 5 - PostgreSQL账户映射缺失时回滚事务
+  ---
+  duration_ms: 0.889992
+  type: 'test'
+  ...
+# Subtest: 账本可绑定外层事务，读取多类别按规范排序且不自行提交
+ok 6 - 账本可绑定外层事务，读取多类别按规范排序且不自行提交
+  ---
+  duration_ms: 69.138988
+  type: 'test'
+  ...
+# Subtest: 登录只返回当前有效职责，切换职责不合并权限
+ok 7 - 登录只返回当前有效职责，切换职责不合并权限
+  ---
+  duration_ms: 6.140865
+  type: 'test'
+  ...
+# Subtest: 教师接收推荐后可在正常场地登记周累计费用，并按版本保留历史
+ok 8 - 教师接收推荐后可在正常场地登记周累计费用，并按版本保留历史
+  ---
+  duration_ms: 1.070142
+  type: 'test'
+  ...
+# Subtest: HTTP请求处理器复用服务层并统一返回版本和错误码
+ok 9 - HTTP请求处理器复用服务层并统一返回版本和错误码
+  ---
+  duration_ms: 3.042094
+  type: 'test'
+  ...
+# Subtest: 管理员费率预览与发布通过HTTP边界保留版本
+ok 10 - 管理员费率预览与发布通过HTTP边界保留版本
+  ---
+  duration_ms: 1.949297
+  type: 'test'
+  ...
+# Subtest: 个人读取使用稳定404错误码，未装配服务返回500且不泄露内部原因
+ok 11 - 个人读取使用稳定404错误码，未装配服务返回500且不泄露内部原因
+  ---
+  duration_ms: 0.444351
+  type: 'test'
+  ...
+# Subtest: unexpected database errors never expose internal details
+ok 12 - unexpected database errors never expose internal details
+  ---
+  duration_ms: 0.256978
+  type: 'test'
+  ...
+# Subtest: teaching reads and session restore use authenticated actor and trusted clock
+ok 13 - teaching reads and session restore use authenticated actor and trusted clock
+  ---
+  duration_ms: 0.885305
+  type: 'test'
+  ...
+# Subtest: 周费用结算服务只提交新旧分配差额并支持事件重放
+ok 14 - 周费用结算服务只提交新旧分配差额并支持事件重放
+  ---
+  duration_ms: 63.620745
+  type: 'test'
+  ...
+# Subtest: 结算收款人变化时同时冲旧账户并增加新账户
+ok 15 - 结算收款人变化时同时冲旧账户并增加新账户
+  ---
+  duration_ms: 13.561325
+  type: 'test'
+  ...
+# Subtest: 欢乐豆金额以BigInt精确解析和格式化
+ok 16 - 欢乐豆金额以BigInt精确解析和格式化
+  ---
+  duration_ms: 2.210464
+  type: 'test'
+  ...
+# Subtest: 角色切换作废在途响应且不把旧角色数据写入缓存
+ok 17 - 角色切换作废在途响应且不把旧角色数据写入缓存
+  ---
+  duration_ms: 4.425062
+  type: 'test'
+  ...
+# Subtest: 本地退出作废在途响应并清除会话
+ok 18 - 本地退出作废在途响应并清除会话
+  ---
+  duration_ms: 0.493632
+  type: 'test'
+  ...
+# Subtest: 读取每次向服务端刷新，成功写入作废更早读取
+ok 19 - 读取每次向服务端刷新，成功写入作废更早读取
+  ---
+  duration_ms: 8.04834
+  type: 'test'
+  ...
+# Subtest: 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+ok 20 - 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+  ---
+  duration_ms: 1.298659
+  type: 'test'
+  ...
+# Subtest: 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+ok 21 - 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+  ---
+  duration_ms: 0.870284
+  type: 'test'
+  ...
+# Subtest: 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+ok 22 - 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+  ---
+  duration_ms: 0.688571
+  type: 'test'
+  ...
+# Subtest: 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+ok 23 - 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+  ---
+  duration_ms: 0.419106
+  type: 'test'
+  ...
+# Subtest: 周费用失败后重试保持同一幂等键，修改参数建立新提交
+ok 24 - 周费用失败后重试保持同一幂等键，修改参数建立新提交
+  ---
+  duration_ms: 1.095818
+  type: 'test'
+  ...
+# Subtest: 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+ok 25 - 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+  ---
+  duration_ms: 2.3127
+  type: 'test'
+  ...
+# Subtest: 退出后在途推荐创建不能写回当前会话
+ok 26 - 退出后在途推荐创建不能写回当前会话
+  ---
+  duration_ms: 0.539915
+  type: 'test'
+  ...
+# Subtest: 金额和版本在客户端校验，401清会话，403返回角色选择
+ok 27 - 金额和版本在客户端校验，401清会话，403返回角色选择
+  ---
+  duration_ms: 0.522459
+  type: 'test'
+  ...
+# Subtest: server sign-out clears local state even if the logout request fails
+ok 28 - server sign-out clears local state even if the logout request fails
+  ---
+  duration_ms: 0.269021
+  type: 'test'
+  ...
+# Subtest: 权限契约覆盖开发者、管理员和基础教师能力
+ok 29 - 权限契约覆盖开发者、管理员和基础教师能力
+  ---
+  duration_ms: 5.857871
+  type: 'test'
+  ...
+# Subtest: 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+ok 30 - 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+  ---
+  duration_ms: 12.346699
+  type: 'test'
+  ...
+# Subtest: 场地选用与共享查看/提现是独立能力
+ok 31 - 场地选用与共享查看/提现是独立能力
+  ---
+  duration_ms: 0.298861
+  type: 'test'
+  ...
+# Subtest: 契约规则没有重复动作定义
+ok 32 - 契约规则没有重复动作定义
+  ---
+  duration_ms: 0.612518
+  type: 'test'
+  ...
+# Subtest: 端点契约包含分区汇总、关系预览和全正常场地目录
+ok 33 - 端点契约包含分区汇总、关系预览和全正常场地目录
+  ---
+  duration_ms: 0.628732
+  type: 'test'
+  ...
+# Subtest: teaching directory reads have independent actions from fee writes
+ok 34 - teaching directory reads have independent actions from fee writes
+  ---
+  duration_ms: 0.243936
+  type: 'test'
+  ...
+# Subtest: 最大余数分币守恒并按稳定顺序处理尾差
+ok 35 - 最大余数分币守恒并按稳定顺序处理尾差
+  ---
+  duration_ms: 2.282453
+  type: 'test'
+  ...
+# Subtest: 零金额保留零分配
+ok 36 - 零金额保留零分配
+  ---
+  duration_ms: 8.312844
+  type: 'test'
+  ...
+# Subtest: 非法比例或负金额被拒绝
+ok 37 - 非法比例或负金额被拒绝
+  ---
+  duration_ms: 0.667078
+  type: 'test'
+  ...
+# Subtest: 角色上下文按有效期筛选，不合并未来职责
+ok 38 - 角色上下文按有效期筛选，不合并未来职责
+  ---
+  duration_ms: 1.936323
+  type: 'test'
+  ...
+# Subtest: 只有系统所有者能管理管理员身份
+ok 39 - 只有系统所有者能管理管理员身份
+  ---
+  duration_ms: 0.524837
+  type: 'test'
+  ...
+# Subtest: 账本事务首次发布更新余额，重复同载荷只重放
+ok 40 - 账本事务首次发布更新余额，重复同载荷只重放
+  ---
+  duration_ms: 22.898864
+  type: 'test'
+  ...
+# Subtest: 事件载荷或类别变化拒绝重放，余额保持原值
+ok 41 - 事件载荷或类别变化拒绝重放，余额保持原值
+  ---
+  duration_ms: 0.985081
+  type: 'test'
+  ...
+# Subtest: 事务失败时回滚已写入的事件和余额
+ok 42 - 事务失败时回滚已写入的事件和余额
+  ---
+  duration_ms: 0.351235
+  type: 'test'
+  ...
+# Subtest: 空分录、缺类别和缺账户映射直接拒绝
+ok 43 - 空分录、缺类别和缺账户映射直接拒绝
+  ---
+  duration_ms: 0.770709
+  type: 'test'
+  ...
+# Subtest: 周费用更正只产生新旧分配差额
+ok 44 - 周费用更正只产生新旧分配差额
+  ---
+  duration_ms: 2.632411
+  type: 'test'
+  ...
+# Subtest: 同一类别换收款人时同时冲旧账户并增加新账户
+ok 45 - 同一类别换收款人时同时冲旧账户并增加新账户
+  ---
+  duration_ms: 0.458665
+  type: 'test'
+  ...
+# Subtest: 缺少账户映射拒绝生成分录
+ok 46 - 缺少账户映射拒绝生成分录
+  ---
+  duration_ms: 1.849211
+  type: 'test'
+  ...
+# Subtest: 重复事件不重复追加账本
+ok 47 - 重复事件不重复追加账本
+  ---
+  duration_ms: 0.392648
+  type: 'test'
+  ...
+# Subtest: 默认费率配置可通过校验，管理员可预览并发布版本
+ok 48 - 默认费率配置可通过校验，管理员可预览并发布版本
+  ---
+  duration_ms: 2.442403
+  type: 'test'
+  ...
+# Subtest: 非管理员不能预览、发布或读取完整配置
+ok 49 - 非管理员不能预览、发布或读取完整配置
+  ---
+  duration_ms: 38.303778
+  type: 'test'
+  ...
+# Subtest: 配置发布校验区间连续性和总比例，错误版本不能发布
+ok 50 - 配置发布校验区间连续性和总比例，错误版本不能发布
+  ---
+  duration_ms: 2.752656
+  type: 'test'
+  ...
+# Subtest: 制度费率发布保留历史，个人职责只能看到对应比例
+ok 51 - 制度费率发布保留历史，个人职责只能看到对应比例
+  ---
+  duration_ms: 0.373669
+  type: 'test'
+  ...
+# Subtest: 发布的自定义动态档位可被纯计算读取
+ok 52 - 发布的自定义动态档位可被纯计算读取
+  ---
+  duration_ms: 0.323145
+  type: 'test'
+  ...
+# Subtest: 15档动态费率的边界按左开右闭命中
+ok 53 - 15档动态费率的边界按左开右闭命中
+  ---
+  duration_ms: 3.61374
+  type: 'test'
+  ...
+# Subtest: 规划师介绍费负动态按池内权重缩放
+ok 54 - 规划师介绍费负动态按池内权重缩放
+  ---
+  duration_ms: 1.649233
+  type: 'test'
+  ...
+# Subtest: 非整数基点权重保留分子，不提前舍入
+ok 55 - 非整数基点权重保留分子，不提前舍入
+  ---
+  duration_ms: 0.251599
+  type: 'test'
+  ...
+# Subtest: 零动态、本人场地的1000豆九项分配守恒
+ok 56 - 零动态、本人场地的1000豆九项分配守恒
+  ---
+  duration_ms: 23.813802
+  type: 'test'
+  ...
+# Subtest: 修改为1200豆只改变分配结果总差额200豆
+ok 57 - 修改为1200豆只改变分配结果总差额200豆
+  ---
+  duration_ms: 0.30629
+  type: 'test'
+  ...
+# Subtest: 负动态和他人场地按计划算例分配
+ok 58 - 负动态和他人场地按计划算例分配
+  ---
+  duration_ms: 0.383305
+  type: 'test'
+  ...
+# Subtest: 0豆周费用合法保存，空白月份和空场地不转成默认值
+ok 59 - 0豆周费用合法保存，空白月份和空场地不转成默认值
+  ---
+  duration_ms: 2.007212
+  type: 'test'
+  ...
+# Subtest: 周费用拒绝负数并保留字段级错误
+ok 60 - 周费用拒绝负数并保留字段级错误
+  ---
+  duration_ms: 0.640432
+  type: 'test'
+  ...
+1..60
+# tests 60
+# suites 0
+# pass 60
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1343.292642

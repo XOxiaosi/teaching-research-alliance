@@ -1,0 +1,5 @@
+> teaching-research-alliance@0.1.0 build:miniapp:dev
+> npm run build:weapp:dev --workspace @teaching-research-alliance/miniapp
+> @teaching-research-alliance/miniapp@0.1.0 build:weapp:dev
+> TARO_APP_ENV=development taro build --type weapp
+  Compiled successfully in 6.86s
