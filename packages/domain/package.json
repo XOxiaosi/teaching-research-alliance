@@ -9,5 +9,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "@teaching-research-alliance/contracts": "0.1.0"
   }
 }
