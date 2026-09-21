@@ -55,6 +55,12 @@ export type ApiServices = Readonly<{
     create: (context: RoleContext, draft: ReferralCreationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     listReceivingTeachers: (context: RoleContext) => unknown | Promise<unknown>;
   }>;
+  sentReferrals?: Readonly<{
+    list: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+  }>;
+  referralAcceptance?: Readonly<{
+    accept: (context: RoleContext, referralId: string, draft: {venueId?: string; expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+  }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -81,6 +87,7 @@ const errorStatus = (code: string): number => {
   if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED" || code === "ROLE_CONTEXT_NOT_ASSIGNED" || code === "ROLE_CONTEXT_AMBIGUOUS") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;
   if (code === "PERIOD_LOCKED" || code === "IDEMPOTENCY_REPLAY" || code === "VERSION_CONFLICT") return 409;
+  if (code === "VENUE_CHANGE_REQUIRED" || code === "REFERRAL_ALREADY_ACCEPTED") return 409;
   return 400;
 };
 
@@ -258,6 +265,11 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       const session = await services.sessions.get(sessionIdFrom(body), at);
       return success(services.ratePolicies.publish(currentContext(session).subject, requiredString(body, "previewId")));
     }
+    if (request.method === "GET" && request.path === "/v1/referrals/sent") {
+      const session = await services.sessions.get(request.sessionId ?? "", at);
+      if (!services.sentReferrals) throw new Error("REFERRAL_SERVICE_UNAVAILABLE");
+      return success(await services.sentReferrals.list(currentContext(session), at));
+    }
     if (request.method === "GET" && request.path === "/v1/referrals/receiving-teachers") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
@@ -283,7 +295,15 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       const referralId = acceptPath[1];
       if (referralId === undefined || referralId.trim() === "") throw new Error("INVALID_INPUT:referralId");
       const session = await services.sessions.get(sessionIdFrom(body), at);
-      return success(await services.weeklyFees.acceptReferral(currentContext(session), referralId));
+      if (!services.referralAcceptance) throw new Error("REFERRAL_ACCEPTANCE_UNAVAILABLE");
+      for (const key of ["personId", "receiverPersonId", "venueOwnerPersonId", "isSelfUse", "acceptedBy"]) {
+        if (key in body) throw new Error("INVALID_INPUT");
+      }
+      const expectedVersion = body.expectedVersion;
+      if (typeof expectedVersion !== "number" || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error("INVALID_INPUT");
+      return success(await services.referralAcceptance.accept(currentContext(session), referralId, {
+        expectedVersion, ...(body.venueId === undefined ? {} : {venueId: requiredString(body, "venueId")})
+      }, requiredString(body, "idempotencyKey"), at));
     }
     const weeklyFeePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/weekly-fees$/);
     if (request.method === "POST" && weeklyFeePath !== null) {

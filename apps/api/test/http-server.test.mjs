@@ -23,6 +23,12 @@ const createServices = () => {
   });
   return {
     sessions,
+    referralAcceptance: { accept: async (context, referralId, draft, key) => {
+      assert.equal(context.personId, "teacher-server");
+      assert.deepEqual(draft, {expectedVersion: 1, venueId: "venue-server"});
+      assert.equal(key, "accept-server");
+      return {referralId, version: 2, venueId: draft.venueId, replay: false};
+    } },
     weeklyFees: new WeeklyFeeService({
       referrals: [{ id: "ref-server", receiverPersonId: "teacher-server", status: "PENDING" }],
       teachingWeeks: [{ id: "week-server", settlementMonth: "2026-09-01", status: "OPEN" }],
@@ -78,7 +84,7 @@ test("真实HTTP监听器提供健康检查并序列化周费用金额", async (
     const accepted = await fetch(`${baseUrl}/v1/referrals/ref-server/accept`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: "session-server" })
+      body: JSON.stringify({ sessionId: "session-server", expectedVersion: 1, venueId: "venue-server", idempotencyKey: "accept-server" })
     });
     assert.equal(accepted.status, 200);
 

@@ -117,6 +117,11 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", asyn
   });
   const services = {
     sessions,
+    referralAcceptance: { accept: async (context, referralId, draft, key) => {
+      assert.deepEqual(draft, {expectedVersion: 1, venueId: "venue-http"});
+      assert.equal(key, "accept-http");
+      return weeklyFees.acceptReferral(context, referralId);
+    } },
     weeklyFees: {
       acceptReferral: async (context, referralId) => weeklyFees.acceptReferral(context, referralId),
       recordWeeklyFee: async (context, draft, idempotencyKey) => weeklyFees.recordWeeklyFee(context, draft, idempotencyKey)
@@ -140,7 +145,7 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", asyn
   const accepted = await handleRequest({
     method: "POST",
     path: "/v1/referrals/ref-http/accept",
-    body: { sessionId: "session-http", personId: "attacker-cannot-override-session" }
+    body: { sessionId: "session-http", expectedVersion: 1, venueId: "venue-http", idempotencyKey: "accept-http" }
   }, services);
   assert.equal(accepted.status, 200);
   const missingVersion = await handleRequest({

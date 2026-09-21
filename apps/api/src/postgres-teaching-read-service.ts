@@ -11,6 +11,8 @@ type ReferralFeeRow = Readonly<{
   student_display_name: string;
   course_context_id: string;
   referral_status: ReferralStatus;
+  referral_version: string;
+  initial_venue_id: string | null;
   submitted_at: string;
   unaccepted_expires_at: string | null;
   referrer_identity: ReferrerIdentity;
@@ -56,6 +58,8 @@ export type ReceivedReferralView = Readonly<{
   studentDisplayName: string;
   courseContextId: string;
   referralStatus: ReferralStatus;
+  version: number;
+  initialVenueId: string | null;
   submittedAt: string;
   unacceptedExpiresAt: string | null;
   referrerIdentity: ReferrerIdentity;
@@ -95,6 +99,8 @@ export class PostgresTeachingReadService {
                 student.display_name AS student_display_name,
                 student.course_context_id,
                 referral.status AS referral_status,
+                referral.version::text AS referral_version,
+                acceptance.venue_id::text AS initial_venue_id,
                 to_char(referral.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS submitted_at,
                 to_char(referral.unaccepted_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS unaccepted_expires_at,
                 referral.referrer_identity,
@@ -110,6 +116,7 @@ export class PostgresTeachingReadService {
                 fee.is_self_use_snapshot
            FROM referral_case referral
            JOIN teacher_student_record student ON student.id = referral.teacher_student_record_id
+           LEFT JOIN referral_acceptance_snapshot acceptance ON acceptance.referral_case_id=referral.id
            LEFT JOIN weekly_fee_entry fee
              ON fee.referral_case_id = referral.id
             AND EXISTS (
@@ -126,6 +133,7 @@ export class PostgresTeachingReadService {
           WHERE referral.receiver_person_id = $1::uuid
             AND (
               referral.status IN ('PENDING', 'ACCEPTED', 'REACTIVATED')
+              OR fee.id IS NOT NULL
               OR EXISTS (
                 SELECT 1
                   FROM academic_year_plan current_year
@@ -142,12 +150,16 @@ export class PostgresTeachingReadService {
       for (const row of result.rows) {
         let referral = referrals.get(row.referral_id);
         if (referral === undefined) {
+          const version = Number(row.referral_version);
+          if (!Number.isSafeInteger(version) || version < 1) throw new Error("REFERRAL_READ_MODEL_CORRUPT");
           referral = {
             referralId: row.referral_id,
             studentRecordId: row.student_record_id,
             studentDisplayName: row.student_display_name,
             courseContextId: row.course_context_id,
             referralStatus: row.referral_status,
+            version,
+            initialVenueId: row.initial_venue_id,
             submittedAt: row.submitted_at,
             unacceptedExpiresAt: row.unaccepted_expires_at,
             referrerIdentity: row.referrer_identity,

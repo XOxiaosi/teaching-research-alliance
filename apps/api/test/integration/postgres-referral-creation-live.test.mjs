@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {createTestDatabase} from './postgres-test-database.mjs';
-import {PostgresReferralCreationService,createApiServer,SessionService} from '../../dist/main.js';
+import {PostgresReferralCreationService,PostgresSentReferralReadService,PostgresReferralAcceptanceService,createApiServer,SessionService} from '../../dist/main.js';
 const at=new Date('2026-09-21T04:00:00Z');
 
 test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无效接收人',async()=>{
@@ -42,10 +42,11 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
   assert.ok(directory.every(r=>Object.keys(r).sort().join(',')==='nickname,personId'));
   await assert.rejects(service.create({personId:teacher,subject:'REGION_FINANCE'},draft,'forbidden',at),/FORBIDDEN_SCOPE/);
 
-  const sessions=new SessionService({accounts:[{accountId:'synthetic',personId:planner,phoneNormalized:'13800000000',credentialDigest:'synthetic',status:'ACTIVE'}],assignments:[{personId:planner,subject:'ACADEMIC_PLANNER',scope:'SELF',validFrom:new Date('2026-01-01')}],sessionIdFactory:()=> 'synthetic-referral-token'});
+  let sessionNumber=0;
+  const sessions=new SessionService({accounts:[{accountId:'synthetic',personId:planner,phoneNormalized:'13800000000',credentialDigest:'synthetic',status:'ACTIVE'},{accountId:'synthetic-teacher',personId:teacher,phoneNormalized:'13800000001',credentialDigest:'synthetic',status:'ACTIVE'}],assignments:[{personId:planner,subject:'ACADEMIC_PLANNER',scope:'SELF',validFrom:new Date('2026-01-01')},{personId:teacher,subject:'TEACHING_TEACHER',scope:'SELF',validFrom:new Date('2026-01-01')}],sessionIdFactory:()=> ++sessionNumber===1?'synthetic-referral-token':'synthetic-teacher-token'});
   sessions.login('13800000000','synthetic',at);
   sessions.switchRole('synthetic-referral-token','ACADEMIC_PLANNER',at);
-  const server=createApiServer({sessions,weeklyFees:{},referrals:service,now:()=>at});
+  const server=createApiServer({sessions,weeklyFees:{},referrals:service,sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),now:()=>at});
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   try {
     const url=`http://127.0.0.1:${server.address().port}/v1/referrals`;
@@ -58,6 +59,27 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
     const result=(await response.json()).data;
     const saved=(await pool.query('SELECT referrer_person_id FROM referral_case WHERE id=$1',[result.referralId])).rows[0];
     assert.equal(saved.referrer_person_id,planner);
+    const sentResponse=await fetch(`${url}/sent?personId=${mentor}`,{headers:{authorization:'Bearer synthetic-referral-token'}});
+    assert.equal(sentResponse.status,200);
+    const sent=(await sentResponse.json()).data;
+    assert.equal(sent.length,3);
+    assert.ok(sent.every(item=>item.sourceSubject==='ACADEMIC_PLANNER'));
+    assert.equal(sent.some(item=>item.referralId===direct.referralId),false);
+    assert.equal((await fetch(`${url}/sent`)).status,401);
+    const venueId=randomUUID();
+    await pool.query("INSERT INTO venue(id,owner_person_id,name,status) VALUES ($1,$2,'HTTP合成场地','ACTIVE')",[venueId,teacher]);
+    await pool.query("INSERT INTO settlement_account(owner_type,owner_id,account_code,status) VALUES ('VENUE',$1,$2,'ACTIVE')",[venueId,`venue:${venueId}`]);
+    sessions.login('13800000001','synthetic',at);
+    sessions.switchRole('synthetic-teacher-token','TEACHING_TEACHER',at);
+    const accept=body=>fetch(`${url}/${result.referralId}/accept`,{method:'POST',headers:{authorization:'Bearer synthetic-teacher-token','content-type':'application/json'},body:JSON.stringify(body)});
+    const acceptance={venueId,expectedVersion:1,idempotencyKey:'http-accept'};
+    assert.equal((await accept({venueId,idempotencyKey:'missing-version'})).status,400);
+    for(const field of ['personId','receiverPersonId','venueOwnerPersonId','isSelfUse','acceptedBy'])assert.equal((await accept({...acceptance,[field]:planner})).status,400);
+    const accepted=await accept(acceptance);
+    assert.equal(accepted.status,200);
+    assert.equal((await accepted.json()).data.isSelfUse,true);
+    assert.equal((await (await accept(acceptance)).json()).data.replay,true);
+    assert.equal((await accept({...acceptance,idempotencyKey:'another-command'})).status,409);
   }finally{await new Promise(resolve=>server.close(resolve));}
  }finally{await db.close();}
 });

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PostgresTeachingReadService } from "../../dist/postgres-teaching-read-service.js";
+import { PostgresSentReferralReadService } from "../../dist/postgres-sent-referral-read-service.js";
 import { createTestDatabase } from "./postgres-test-database.mjs";
 
 test("教师只读取本人接收生源的当前周费用和开放教学周", async () => {
@@ -104,6 +105,8 @@ test("教师只读取本人接收生源的当前周费用和开放教学周", as
       studentDisplayName: "学生甲",
       courseContextId: "math-one-to-one",
       referralStatus: "ACCEPTED",
+      version: 1,
+      initialVenueId: null,
       submittedAt: "2026-08-20T00:00:00Z",
       unacceptedExpiresAt: null,
       referrerIdentity: "ACADEMIC_PLANNER",
@@ -160,6 +163,25 @@ test("教师只读取本人接收生源的当前周费用和开放教学周", as
       settlementMonth: "2026-08-01"
     }]);
     const plannerContext = { subject: "ACADEMIC_PLANNER", personId: plannerId };
+    const sentService = new PostgresSentReferralReadService(pool);
+    const sent = await sentService.list(plannerContext, atYearBoundary);
+    assert.equal(sent.length, 2);
+    const sentActive = sent.find(item => item.referralId === referralId);
+    assert.equal(sentActive.receiverPersonId, teacherId);
+    assert.equal(sentActive.receiverNickname, "读取教师");
+    assert.equal(sentActive.sourceSubject, null);
+    assert.equal(sentActive.classType, null);
+    assert.deepEqual(sentActive.weeklyFees, [{ entryId: feeId, teachingWeekId: openWeekId,
+      weekStartsOn: "2026-09-21", weekEndsOn: "2026-09-27", grossAmountCents: 123456n }]);
+    assert.equal(sent.some(item => item.referralId === archivedReferralId), false);
+    assert.deepEqual(await sentService.list(teacherContext, atYearBoundary), []);
+    await assert.rejects(sentService.list({ ...plannerContext, subject: "REGION_FINANCE" }, atYearBoundary), /FORBIDDEN_SCOPE/);
+    const oldSent = await sentService.list(plannerContext, beforeYearBoundary);
+    assert.equal(oldSent.find(item => item.referralId === referralId).weeklyFees[0].entryId, previousFeeId);
+    assert.ok(sent.every(item => !('balanceCents' in item) && !('bankAccount' in item)));
+    await pool.query("UPDATE referral_case SET status='ARCHIVED' WHERE id=$1", [referralId]);
+    assert.ok((await service.listReceivedReferrals(teacherContext, atYearBoundary)).some(item => item.referralId === referralId));
+    assert.ok((await sentService.list(plannerContext, atYearBoundary)).some(item => item.referralId === referralId));
     await assert.rejects(service.listReceivedReferrals(plannerContext, atYearBoundary), /FORBIDDEN_SCOPE/);
     await assert.rejects(service.listOpenTeachingWeeks(plannerContext, atYearBoundary), /FORBIDDEN_SCOPE/);
   } finally {
