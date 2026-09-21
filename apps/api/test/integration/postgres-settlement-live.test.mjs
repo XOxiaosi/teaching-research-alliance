@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_RATE_POLICY_VALUES, postLedgerEvent } from "@teaching-research-alliance/domain";
 import { PostgresWeeklySettlementService } from "../../dist/postgres-weekly-settlement-service.js";
-import { createApiServer, SessionService, PostgresWeeklyFeeService, PostgresPersonalReadService, PostgresLedgerRepository } from "../../dist/main.js";
+import { PostgresReferralCreationService, createApiServer, SessionService, PostgresWeeklyFeeService, PostgresPersonalReadService, PostgresLedgerRepository } from "../../dist/main.js";
+import { resolveSettlementContext } from "../../dist/postgres-settlement-context.js";
 import { createTestDatabase } from "./postgres-test-database.mjs";
 
 const connectionString = process.env.DATABASE_URL;
@@ -503,6 +504,27 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
     } finally {
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
+
+
+    const legacyBefore = await resolveSettlementContext(pool, first.fee.id);
+    await pool.query("INSERT INTO role_assignment(person_id,subject_code,scope_type,valid_from,created_by) VALUES ($1,'PLANNING_MENTOR','SELF','2026-01-01',$1)",[ids.planner]);
+    const legacyAfter = await resolveSettlementContext(pool, first.fee.id);
+    assert.equal(legacyBefore.contextJson.relationships.referrerIsPlanningMentor,false);
+    assert.deepEqual(legacyAfter.contextJson.resolvedRates,legacyBefore.contextJson.resolvedRates);
+    assert.equal(legacyAfter.contextJson.sourceProvenance,"LEGACY_IDENTITY_ONLY");
+    // A newly created direct mentor referral keeps its source after the duty ends.
+    await pool.query("INSERT INTO teacher_profile(person_id,business_identity,employment_status) VALUES ($1,'TEACHING_TEACHER','ACTIVE')", [ids.planningMentor]);
+    await pool.query("INSERT INTO person_campus_assignment(person_id,campus_id,region_id,valid_from,created_by) VALUES ($1,$2,$3,'2026-01-01',$4)", [ids.planningMentor,ids.campus,ids.region,ids.admin]);
+    const created = await new PostgresReferralCreationService(pool).create(
+      {personId:ids.planningMentor,subject:"PLANNING_MENTOR"},
+      {receiverPersonId:ids.teacher,studentDisplayName:"Direct mentor student",courseContextId:"direct",classType:"ONE_TO_ONE"},
+      "direct-mentor-create",new Date("2026-09-01T04:00:00Z"));
+    await pool.query("UPDATE role_assignment SET valid_to='2026-09-02' WHERE person_id=$1 AND subject_code='PLANNING_MENTOR'",[ids.planningMentor]);
+    const directFee = await service.recordAndSettle(ids.teacher,{referralCaseId:created.referralId,teachingWeekId:ids.week,venueId:ids.venue,settlementMonth:effectiveFrom,grossAmountCents:100000n,expectedVersion:0},"direct-mentor-fee");
+    const directSnapshot = await latestSnapshot(pool,directFee.fee.id);
+    assert.equal(directSnapshot.context.relationships.referrerIsPlanningMentor,true);
+    assert.equal(directSnapshot.context.resolvedRates.baseIntroRateBasisPoints,"1000");
+    assert.equal(directSnapshot.context.resolvedRates.planningMentorWeightBasisPoints,"0");
 
   } finally {
     await database.close();

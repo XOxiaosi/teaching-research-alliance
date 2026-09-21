@@ -22,6 +22,9 @@ export const ACTIONS = [
   "CREATE_REFERRAL",
   "ACCEPT_REFERRAL",
   "CREATE_WEEKLY_FEE",
+  "READ_RECEIVED_REFERRALS",
+  "LIST_OPEN_TEACHING_WEEKS",
+  "LIST_AVAILABLE_VENUES",
   "CREATE_PERSONAL_WITHDRAWAL",
   "CREATE_FINANCE_DOCUMENT",
   "APPROVE_FINANCE_DOCUMENT",
@@ -75,6 +78,9 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("TEACHING_TEACHER", "CREATE_REFERRAL", "SELF"),
   rule("TEACHING_TEACHER", "ACCEPT_REFERRAL", "SELF"),
   rule("TEACHING_TEACHER", "CREATE_WEEKLY_FEE", "SELF"),
+  rule("TEACHING_TEACHER", "READ_RECEIVED_REFERRALS", "SELF"),
+  rule("TEACHING_TEACHER", "LIST_OPEN_TEACHING_WEEKS", "SELF"),
+  rule("TEACHING_TEACHER", "LIST_AVAILABLE_VENUES", "GLOBAL"),
   rule("TEACHING_TEACHER", "CREATE_PERSONAL_WITHDRAWAL", "SELF"),
   rule("TEACHING_TEACHER", "CREATE_FINANCE_DOCUMENT", "SELF"),
   rule("TEACHING_TEACHER", "CREATE_VENUE", "SELF"),
@@ -84,6 +90,7 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("ACADEMIC_PLANNER", "VIEW_OWN_PROFILE", "SELF"),
   rule("ACADEMIC_PLANNER", "VIEW_OWN_BALANCE", "SELF"),
   rule("ACADEMIC_PLANNER", "VIEW_OWN_CURRENT_YEAR_SETTLEMENT", "SELF"),
+  rule("PLANNING_MENTOR", "CREATE_REFERRAL", "SELF"),
   rule("PLANNING_MENTOR", "MANAGE_OWN_PLANNING_RELATIONSHIPS", "SELF"),
   rule("PLANNING_MENTOR", "VIEW_MENTEE_SCOPE_SETTLEMENT", "MENTEES"),
   rule("HEADQUARTERS_FINANCE", "APPROVE_FINANCE_DOCUMENT", "GLOBAL"),
@@ -123,6 +130,9 @@ export const API_ERROR_CODES = [
   "PERSON_NOT_FOUND",
   "REFERRAL_NOT_FOUND",
   "REFERRAL_ARCHIVED",
+  "REFERRER_NOT_ACTIVE",
+  "RECEIVER_NOT_ACTIVE",
+  "REFERRER_CAMPUS_REQUIRED",
   "TEACHING_WEEK_NOT_FOUND",
   "WEEKLY_FEE_NOT_FOUND",
   "RATE_PREVIEW_NOT_FOUND",
@@ -153,10 +163,11 @@ export type EndpointContract = Readonly<{
 }>;
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
+  { method: "GET", path: "/v1/referrals/receiving-teachers", action: "CREATE_REFERRAL", responseVersion: "receiving-teachers.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/session/logout", action: "VIEW_OWN_PROFILE", responseVersion: "session-logout.v1", requiresRoleContext: false },
   { method: "GET", path: "/v1/session", action: "VIEW_OWN_PROFILE", responseVersion: "session.v1", requiresRoleContext: false },
-  { method: "GET", path: "/v1/teaching/referrals", action: "CREATE_WEEKLY_FEE", responseVersion: "received-referrals.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/teaching/weeks", action: "CREATE_WEEKLY_FEE", responseVersion: "teaching-weeks.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/teaching/referrals", action: "READ_RECEIVED_REFERRALS", responseVersion: "received-referrals.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/teaching/weeks", action: "LIST_OPEN_TEACHING_WEEKS", responseVersion: "teaching-weeks.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/session", action: "VIEW_OWN_PROFILE", responseVersion: "session.v1", requiresRoleContext: false },
   { method: "GET", path: "/v1/me", action: "VIEW_OWN_PROFILE", responseVersion: "me.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/role-contexts/switch", action: "VIEW_OWN_PROFILE", responseVersion: "role-context.v1", requiresRoleContext: false },
@@ -172,7 +183,7 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "POST", path: "/v1/admin/person-relationships/preview", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-preview.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/admin/person-relationships", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-change.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/venues", action: "CREATE_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/available", action: "CREATE_WEEKLY_FEE", responseVersion: "venue-directory.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/venues/available", action: "LIST_AVAILABLE_VENUES", responseVersion: "venue-directory.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/exports/full-backup", action: "EXPORT_FULL_BACKUP", responseVersion: "export-job.v1", requiresRoleContext: true }
 ];
 

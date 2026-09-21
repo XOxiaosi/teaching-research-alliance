@@ -1,3 +1,4 @@
+import { PostgresReferralCreationService } from "./postgres-referral-creation-service.js";
 import { createApiServer } from "./http-server.js";
 import { createPostgresPool } from "./postgres-pool.js";
 import { PostgresSessionService } from "./postgres-session-service.js";
@@ -13,6 +14,7 @@ const server = createApiServer({
   weeklyFees: new PostgresWeeklyFeeService(pool),
   personal: new PostgresPersonalReadService(pool),
   teaching: new PostgresTeachingReadService(pool),
+  referrals: new PostgresReferralCreationService(pool),
   now: () => new Date()
 });
 server.listen(port, "127.0.0.1", () => {

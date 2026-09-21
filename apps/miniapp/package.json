@@ -2,5 +2,31 @@
   "name": "@teaching-research-alliance/miniapp",
   "private": true,
   "version": "0.1.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@babel/runtime": "^7.0.0",
+    "@tarojs/components": "4.2.1",
+    "@tarojs/react": "4.2.1",
+    "@tarojs/runtime": "4.2.1",
+    "@tarojs/taro": "4.2.1",
+    "@teaching-research-alliance/client": "0.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.0.0",
+    "@babel/preset-react": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
+    "@tarojs/cli": "4.2.1",
+    "@tarojs/plugin-framework-react": "4.2.1",
+    "@tarojs/plugin-platform-weapp": "4.2.1",
+    "@tarojs/webpack5-runner": "4.2.1",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "babel-preset-taro": "4.2.1"
+  },
+  "scripts": {
+    "build:weapp": "taro build --type weapp",
+    "build:weapp:dev": "TARO_APP_ENV=development taro build --type weapp"
+  }
 }

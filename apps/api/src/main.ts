@@ -20,3 +20,4 @@ export { PostgresPersonalReadService } from "./postgres-personal-read-service.js
 export { PostgresSessionService } from "./postgres-session-service.js";
 export { hashPassword, verifyPassword } from "./password.js";
 export { PostgresTeachingReadService } from "./postgres-teaching-read-service.js";
+export { PostgresReferralCreationService } from "./postgres-referral-creation-service.js";

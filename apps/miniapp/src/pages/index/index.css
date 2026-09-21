@@ -1,0 +1,188 @@
+page {
+  background: #f4f6f3;
+  color: #243a37;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14rpx;
+  margin: 20rpx 0 34rpx;
+}
+
+.eyebrow,
+.balance-caption,
+.balance-note,
+.role-hint,
+.panel-description,
+.student-meta,
+.section-count,
+.page-footer {
+  color: #778780;
+  font-size: 24rpx;
+  line-height: 1.7;
+}
+
+.eyebrow {
+  width: 100%;
+  letter-spacing: 4rpx;
+}
+
+.page-title {
+  flex: 1;
+  color: #173f35;
+  font-size: 48rpx;
+  font-weight: 700;
+}
+
+.panel,
+.balance-card,
+.notice {
+  margin-bottom: 24rpx;
+  padding: 32rpx;
+  border-radius: 20rpx;
+  box-sizing: border-box;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1rpx solid #e3e9e3;
+}
+
+.notice {
+  background: #fff3d9;
+  border: 1rpx solid #e9d4a1;
+  color: #775f2d;
+  font-size: 26rpx;
+}
+
+.panel-title,
+.account-name,
+.student-name {
+  display: block;
+  color: #243a37;
+  font-weight: 700;
+}
+
+.panel-title {
+  font-size: 34rpx;
+  margin-bottom: 12rpx;
+}
+
+.account-name,
+.student-name {
+  font-size: 30rpx;
+}
+
+.field-label {
+  display: block;
+  margin: 28rpx 0 10rpx;
+  color: #3e554e;
+  font-size: 25rpx;
+}
+
+.text-input,
+.picker-value {
+  min-height: 82rpx;
+  padding: 18rpx 22rpx;
+  border: 1rpx solid #cfdad3;
+  border-radius: 12rpx;
+  background: #ffffff;
+  box-sizing: border-box;
+  color: #243a37;
+  font-size: 28rpx;
+}
+
+.picker-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.primary-button,
+.quiet-button {
+  margin: 24rpx 0 0;
+  border: 0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.primary-button {
+  background: #22644f;
+  color: #ffffff;
+}
+
+.quiet-button {
+  background: #edf3ef;
+  color: #23624e;
+}
+
+.page-header .quiet-button {
+  margin: 0;
+}
+
+.role-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.balance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  background: #dfebdf;
+  border: 1rpx solid #cedfce;
+}
+
+.balance-value {
+  color: #173f35;
+  font-size: 64rpx;
+  font-weight: 500;
+}
+
+.income-row,
+.section-heading,
+.student-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.income-row {
+  padding: 22rpx 0;
+  border-top: 1rpx solid #eef2ed;
+  font-size: 28rpx;
+}
+
+.student-row {
+  gap: 18rpx;
+  padding: 24rpx 0;
+  border-top: 1rpx solid #eef2ed;
+}
+
+.student-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.student-button {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 24rpx;
+}
+
+.page-footer {
+  padding: 24rpx 8rpx 48rpx;
+  text-align: center;
+}

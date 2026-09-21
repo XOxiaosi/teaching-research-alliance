@@ -151,7 +151,9 @@ let fallbackIdSequence = 0;
 const defaultIdempotencyKeyFactory = (): string => {
   if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
   fallbackIdSequence += 1;
-  return `client-${Date.now()}-${fallbackIdSequence}`;
+  // This identifies a retry, not an authentication secret. Entropy avoids collisions
+  // between devices that start their local sequence during the same millisecond.
+  return `client-${Date.now()}-${fallbackIdSequence}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 };
 
 /**
@@ -204,7 +206,7 @@ export class TeacherApiClient {
     return next;
   }
 
-  /** Local-only sign-out. The current server contract has no logout endpoint, so it does not revoke a server session. */
+  /** Clear local state immediately, then revoke the server session; transport failure remains visible. */
   public async endSession(): Promise<void> {
     const token = this.session?.sessionId;
     this.clearSessionState();

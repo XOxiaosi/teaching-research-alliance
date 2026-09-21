@@ -5,6 +5,7 @@ import {
   type PermissionSubject,
   type RoleContext
 } from "@teaching-research-alliance/contracts";
+import type { ReferralCreationDraft } from "./postgres-referral-creation-service.js";
 import type { RatePolicyDraft, WeeklyFeeDraft } from "@teaching-research-alliance/domain";
 import { RatePolicyService } from "@teaching-research-alliance/domain";
 import { type SessionView } from "./session-service.js";
@@ -49,6 +50,10 @@ export type ApiServices = Readonly<{
   personal?: Readonly<{
     getOwnOverview: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listAvailableVenues: (context: RoleContext) => unknown | Promise<unknown>;
+  }>;
+  referrals?: Readonly<{
+    create: (context: RoleContext, draft: ReferralCreationDraft, key: string, at: Date) => unknown | Promise<unknown>;
+    listReceivingTeachers: (context: RoleContext) => unknown | Promise<unknown>;
   }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -252,6 +257,26 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if (services.ratePolicies === undefined) throw new Error("RATE_POLICY_SERVICE_UNAVAILABLE");
       const session = await services.sessions.get(sessionIdFrom(body), at);
       return success(services.ratePolicies.publish(currentContext(session).subject, requiredString(body, "previewId")));
+    }
+    if (request.method === "GET" && request.path === "/v1/referrals/receiving-teachers") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.referrals) throw new Error("REFERRAL_SERVICE_UNAVAILABLE");
+      return success(await services.referrals.listReceivingTeachers(context));
+    }
+    if (request.method === "POST" && request.path === "/v1/referrals") {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.referrals) throw new Error("REFERRAL_SERVICE_UNAVAILABLE");
+      for (const key of ["referrerPersonId","referrerIdentity","sourceSubject","campusId","planningMentorPersonId"]) {
+        if (key in body) throw new Error("INVALID_INPUT");
+      }
+      const classType = requiredString(body, "classType");
+      if (classType !== "ONE_TO_ONE" && classType !== "SMALL_GROUP") throw new Error("INVALID_INPUT");
+      return success(await services.referrals.create(context, {
+        receiverPersonId: requiredString(body,"receiverPersonId"),
+        studentDisplayName: requiredString(body,"studentDisplayName"),
+        courseContextId: requiredString(body,"courseContextId"), classType
+      }, requiredString(body,"idempotencyKey"), at));
     }
     const acceptPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/accept$/);
     if (request.method === "POST" && acceptPath !== null) {

@@ -39,3 +39,11 @@ test("端点契约包含分区汇总、关系预览和全正常场地目录", ()
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/admin/person-relationships/preview"), true);
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/venues/available"), true);
 });
+
+ test("teaching directory reads have independent actions from fee writes", () => {
+  for (const [path, action] of [["/v1/teaching/referrals","READ_RECEIVED_REFERRALS"],["/v1/teaching/weeks","LIST_OPEN_TEACHING_WEEKS"],["/v1/venues/available","LIST_AVAILABLE_VENUES"]]) {
+    assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===path).action,action);
+    assert.equal(hasPermission("TEACHING_TEACHER",action),true);
+    assert.equal(hasPermission("ACADEMIC_PLANNER",action),false);
+  }
+ });

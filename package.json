@@ -16,7 +16,8 @@
     "db:check": "node scripts/check-migrations.mjs",
     "dev:demo": "npm run build && node scripts/dev-demo.mjs",
     "dev:web": "npm run dev --workspace @teaching-research-alliance/web",
-    "build:web": "npm run build:web --workspace @teaching-research-alliance/web"
+    "build:web": "npm run build:web --workspace @teaching-research-alliance/web",
+    "build:miniapp:dev": "npm run build:weapp:dev --workspace @teaching-research-alliance/miniapp"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

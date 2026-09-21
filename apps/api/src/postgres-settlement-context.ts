@@ -19,6 +19,7 @@ type EntryRow = Readonly<{
   receiver_person_id: string;
   referrer_identity: "TEACHING_TEACHER" | "ACADEMIC_PLANNER";
   week_starts_on: string;
+  source_subject: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR" | null;
 }>;
 
 type PolicyRow = Readonly<{
@@ -34,7 +35,6 @@ type CampusRow = Readonly<{ id: string; campus_id: string; region_id: string }>;
 type RoleRow = Readonly<{ id: string; person_id: string }>;
 type AccountRow = Readonly<{ id: string; account_code: string }>;
 type MonthlyNetRow = Readonly<{ received_cents: string; referred_cents: string }>;
-type ExistsRow = Readonly<{ assigned: boolean }>;
 
 type ResolvedAccount = Readonly<{ id: string; code: string }>;
 type ResolvedRelationship = Readonly<{ id: string; personId: string }>;
@@ -191,26 +191,6 @@ const resolveRole = async (
   );
 };
 
-const hasEffectiveRole = async (
-  client: PostgresClient,
-  personId: string,
-  subjectCode: "PLANNING_MENTOR",
-  businessAt: string
-): Promise<boolean> => {
-  const result = await client.query<ExistsRow>(
-    `SELECT EXISTS (
-       SELECT 1
-         FROM role_assignment
-        WHERE person_id = $1::uuid
-          AND subject_code = $2
-          AND valid_from <= $3::timestamptz
-          AND (valid_to IS NULL OR valid_to > $3::timestamptz)
-     ) AS assigned`,
-    [personId, subjectCode, businessAt]
-  );
-  return result.rows[0]?.assigned === true;
-};
-
 const resolveAccount = async (
   client: PostgresClient,
   ownerType: "PERSON" | "COMPANY" | "VENUE",
@@ -254,14 +234,18 @@ export const resolveSettlementContext = async (
             referral.referrer_person_id::text AS referrer_person_id,
             referral.receiver_person_id::text AS receiver_person_id,
             referral.referrer_identity,
+            creation.source_subject,
             week.starts_on::text AS week_starts_on
        FROM weekly_fee_entry entry
        JOIN referral_case referral ON referral.id = entry.referral_case_id
+       LEFT JOIN referral_creation_snapshot creation ON creation.referral_case_id = referral.id
        JOIN teaching_week week ON week.id = entry.teaching_week_id
       WHERE entry.id = $1::uuid`,
     [entryId]
   );
   const entry = exactlyOne(entryResult.rows, "WEEKLY_FEE_NOT_FOUND", "WEEKLY_FEE_ENTRY_AMBIGUOUS");
+  const fixedIdentity = entry.source_subject === null ? entry.referrer_identity
+    : entry.source_subject === "TEACHING_TEACHER" ? "TEACHING_TEACHER" : "ACADEMIC_PLANNER";
   const businessAt = `${entry.week_starts_on}T00:00:00+08:00`;
 
   const policyResult = await client.query<PolicyRow>(
@@ -298,16 +282,15 @@ export const resolveSettlementContext = async (
   const monthlyNet = exactlyOne(monthlyNetResult.rows, "MONTHLY_NET_NOT_FOUND", "MONTHLY_NET_AMBIGUOUS");
   const netMonthlyCents = BigInt(monthlyNet.received_cents) - BigInt(monthlyNet.referred_cents);
 
-  const referrerIsPlanningMentor = entry.referrer_identity === "ACADEMIC_PLANNER"
-    && await hasEffectiveRole(client, entry.referrer_person_id, "PLANNING_MENTOR", businessAt);
-  const planningMentor = entry.referrer_identity === "ACADEMIC_PLANNER" && !referrerIsPlanningMentor
+  const referrerIsPlanningMentor = entry.source_subject === "PLANNING_MENTOR";
+  const planningMentor = fixedIdentity === "ACADEMIC_PLANNER" && !referrerIsPlanningMentor
     ? await resolveRelationship(client, entry.referrer_person_id, "PLANNING_MENTOR", businessAt, false)
     : undefined;
   const mentorWeightBasisPoints = planningMentor === undefined ? 0n : policy.planningMentorWeightBasisPoints;
-  const baseIntroRateBasisPoints = entry.referrer_identity === "ACADEMIC_PLANNER"
+  const baseIntroRateBasisPoints = fixedIdentity === "ACADEMIC_PLANNER"
     ? policy.plannerBaseRateBasisPoints
     : policy.teacherBaseRateBasisPoints;
-  const campusConsultationRateBasisPoints = entry.referrer_identity === "ACADEMIC_PLANNER"
+  const campusConsultationRateBasisPoints = fixedIdentity === "ACADEMIC_PLANNER"
     ? policy.campusConsultationForPlannerRateBasisPoints
     : policy.campusConsultationForTeacherRateBasisPoints;
   const venueRateBasisPoints = entry.is_self_use_snapshot ? 0n : policy.venueRateBasisPoints;
@@ -420,7 +403,9 @@ export const resolveSettlementContext = async (
     feeVersion: entry.fee_version,
     referrerPersonId: entry.referrer_person_id,
     receiverPersonId: entry.receiver_person_id,
-    referrerIdentity: entry.referrer_identity,
+    referrerIdentity: fixedIdentity,
+    sourceSubject: entry.source_subject,
+    sourceProvenance: entry.source_subject === null ? "LEGACY_IDENTITY_ONLY" : "CREATION_SNAPSHOT",
     venueId: entry.venue_id,
     venueOwnerPersonId: entry.venue_owner_person_id,
     isSelfUseSnapshot: entry.is_self_use_snapshot,

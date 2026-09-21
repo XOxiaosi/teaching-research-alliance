@@ -1,0 +1,7 @@
+{
+  "description": "教研联盟本地开发；真实AppID与设备验收另行配置",
+  "miniprogramRoot": "build/",
+  "projectname": "teaching-research-alliance",
+  "appid": "",
+  "setting": { "es6": true, "minified": true }
+}

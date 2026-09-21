@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createTestDatabase} from './postgres-test-database.mjs';
+import {PostgresReferralCreationService,createApiServer,SessionService} from '../../dist/main.js';
+const at=new Date('2026-09-21T04:00:00Z');
+
+test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无效接收人',async()=>{
+ const db=await createTestDatabase(process.env.DATABASE_URL);
+ const {pool}=db;
+ const [planner,teacher,mentor,campus,region]=Array.from({length:5},()=>randomUUID());
+ try {
+  for(const id of [planner,teacher,mentor])await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1,$2,'合成人员','ACTIVE')",[id,`synthetic-${id}`]);
+  await pool.query("INSERT INTO organization_unit(id,unit_type,name) VALUES ($1,'REGION','合成分区'),($2,'CAMPUS','合成校区')",[region,campus]);
+  for(const [id,identity] of [[planner,'ACADEMIC_PLANNER'],[teacher,'TEACHING_TEACHER'],[mentor,'TEACHING_TEACHER']]){
+   await pool.query("INSERT INTO teacher_profile(person_id,business_identity,employment_status) VALUES ($1,$2,'ACTIVE')",[id,identity]);
+   await pool.query("INSERT INTO person_campus_assignment(person_id,campus_id,region_id,valid_from,created_by) VALUES ($1,$2,$3,'2026-01-01',$1)",[id,campus,region]);
+  }
+  await pool.query("INSERT INTO role_assignment(person_id,subject_code,scope_type,valid_from,created_by) VALUES ($1,'PLANNING_MENTOR','SELF','2026-01-01',$1)",[mentor]);
+  const service=new PostgresReferralCreationService(pool);
+  const context={personId:planner,subject:'ACADEMIC_PLANNER'};
+  const draft={receiverPersonId:teacher,studentDisplayName:'同名学生',courseContextId:'数学',classType:'ONE_TO_ONE'};
+  const results=await Promise.all(Array.from({length:4},()=>service.create(context,draft,'same-key',at)));
+  assert.equal(new Set(results.map(r=>r.referralId)).size,1);
+  assert.equal(results.filter(r=>!r.replay).length,1);
+  const second=await service.create(context,draft,'another-key',at);
+  assert.notEqual(second.studentRecordId,results[0].studentRecordId);
+  await assert.rejects(service.create(context,{...draft,studentDisplayName:'另一个'},'same-key',at),/IDEMPOTENCY_REPLAY/);
+  await assert.rejects(service.create(context,{...draft,receiverPersonId:planner},'bad-receiver',at),/RECEIVER_NOT_ACTIVE/);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM teacher_student_record')).rows[0].n,2);
+  const direct=await service.create({personId:mentor,subject:'TEACHING_TEACHER'},draft,'mentor-direct',at);
+  const snap=(await pool.query('SELECT * FROM referral_creation_snapshot WHERE referral_case_id=$1',[direct.referralId])).rows[0];
+  assert.equal(snap.source_subject,'PLANNING_MENTOR');
+  assert.equal(snap.collector_person_id,teacher);
+  await pool.query("UPDATE role_assignment SET valid_to=$2 WHERE person_id=$1",[mentor,at]);
+  assert.equal((await pool.query('SELECT source_subject FROM referral_creation_snapshot WHERE referral_case_id=$1',[direct.referralId])).rows[0].source_subject,'PLANNING_MENTOR');
+  await assert.rejects(pool.query("UPDATE referral_creation_snapshot SET source_subject='TEACHING_TEACHER' WHERE referral_case_id=$1",[direct.referralId]),/REFERRAL_CREATION_IMMUTABLE/);
+  const record=(await pool.query('SELECT submitted_at,unaccepted_expires_at FROM referral_case WHERE id=$1',[direct.referralId])).rows[0];
+  assert.equal(record.unaccepted_expires_at.getTime()-record.submitted_at.getTime(),21*86400000);
+  const directory=await service.listReceivingTeachers(context);
+  assert.equal(directory.some(r=>r.personId===planner),false);
+  assert.ok(directory.every(r=>Object.keys(r).sort().join(',')==='nickname,personId'));
+  await assert.rejects(service.create({personId:teacher,subject:'REGION_FINANCE'},draft,'forbidden',at),/FORBIDDEN_SCOPE/);
+
+  const sessions=new SessionService({accounts:[{accountId:'synthetic',personId:planner,phoneNormalized:'13800000000',credentialDigest:'synthetic',status:'ACTIVE'}],assignments:[{personId:planner,subject:'ACADEMIC_PLANNER',scope:'SELF',validFrom:new Date('2026-01-01')}],sessionIdFactory:()=> 'synthetic-referral-token'});
+  sessions.login('13800000000','synthetic',at);
+  sessions.switchRole('synthetic-referral-token','ACADEMIC_PLANNER',at);
+  const server=createApiServer({sessions,weeklyFees:{},referrals:service,now:()=>at});
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  try {
+    const url=`http://127.0.0.1:${server.address().port}/v1/referrals`;
+    const post=body=>fetch(url,{method:'POST',headers:{authorization:'Bearer synthetic-referral-token','content-type':'application/json'},body:JSON.stringify(body)});
+    for(const field of ['referrerPersonId','referrerIdentity','sourceSubject','campusId','planningMentorPersonId']) {
+      assert.equal((await post({...draft,idempotencyKey:'forged', [field]:mentor})).status,400);
+    }
+    const response=await post({...draft,idempotencyKey:'http-created'});
+    assert.equal(response.status,200);
+    const result=(await response.json()).data;
+    const saved=(await pool.query('SELECT referrer_person_id FROM referral_case WHERE id=$1',[result.referralId])).rows[0];
+    assert.equal(saved.referrer_person_id,planner);
+  }finally{await new Promise(resolve=>server.close(resolve));}
+ }finally{await db.close();}
+});
