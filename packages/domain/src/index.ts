@@ -40,3 +40,5 @@ export const allocateCents = (total: Cents, inputs: readonly AllocationInput[]):
 
 export const sumCents = (lines: readonly AllocationLine[]): Cents =>
   lines.reduce((sum, line) => sum + line.cents, 0n);
+
+export * from "./rates.js";
