@@ -1,0 +1,99 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test
+
+
+Running 9 tests using 1 worker
+
+(node:25938) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/self-purchase.spec.mjs:20:1 › 管理员业务账户、真实版本冲突、财务本人采买原键恢复与报销收入 (21.1s)
+  ✓  2 e2e/self-purchase.spec.mjs:134:1 › 已显示入口的财务资格失效时明确提示并清理申请 (5.9s)
+  ✓  3 e2e/self-purchase.spec.mjs:147:1 › 刷新任职后采买资格消失时返回录费首屏 (4.5s)
+  ✓  4 e2e/weekly-fee.spec.mjs:27:1 › 首屏录费、累计更正、故障安全重试、推荐回归与手机操作 (18.8s)
+  ✓  5 e2e/weekly-fee.spec.mjs:173:1 › 读取失败不伪装空记录，真正无期间时明确提示 (4.2s)
+  ✓  6 e2e/withdrawal.spec.mjs:29:1 › 真实原件、草稿恢复、提现扣豆、未知结果同键重试、总部回执与撤回返还 (25.2s)
+  ✓  7 e2e/withdrawal.spec.mjs:154:1 › 原件下载权限失效时清除已展开的银行卡详情 (4.9s)
+  ✘  8 e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 (2.5s)
+(node:26246) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  9 e2e/zz-self-purchase-reversal.spec.mjs:99:1 › 另一办理人已撤销时真实409重读并清除旧确认 (4.0s)
+
+
+  1) e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 ────────────────────────
+
+    Error: /v1/admin/company-funds/caa7e663-0fbc-43dc-9b14-247463e841ab/assignment: 409 {"version":"2026-09-20.dev-001","error":{"code":"COMPANY_FUND_ASSIGNMENT_CONFLICT","message":"COMPANY_FUND_ASSIGNMENT_CONFLICT"}}
+
+    expect(received).toBeTruthy()
+
+    Received: false
+
+      10 | async function request(api,path,token,data){
+      11 |  const response=data===undefined ? await api.get(path,{headers:headers(token)}) : await api.post(path,{headers:headers(token),data});
+    > 12 |  expect(response.ok(),`${path}: ${response.status()} ${await response.text()}`).toBeTruthy();return (await response.json()).data;
+         |                                                                                 ^
+      13 | }
+      14 | async function session(api,phone,subject){
+      15 |  const result=await request(api,'/v1/session',undefined,{phoneNormalized:phone,password:'Local-demo-only-2026'});
+        at request (/Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:12:81)
+        at setup (/Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:36:48)
+        at /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:48:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) e2e/zz-self-purchase-reversal.spec.mjs:99:1 › 另一办理人已撤销时真实409重读并清除旧确认 ──────────────────────────
+
+    Error: /v1/admin/company-funds/caa7e663-0fbc-43dc-9b14-247463e841ab/assignment: 409 {"version":"2026-09-20.dev-001","error":{"code":"COMPANY_FUND_ASSIGNMENT_CONFLICT","message":"COMPANY_FUND_ASSIGNMENT_CONFLICT"}}
+
+    expect(received).toBeTruthy()
+
+    Received: false
+
+      10 | async function request(api,path,token,data){
+      11 |  const response=data===undefined ? await api.get(path,{headers:headers(token)}) : await api.post(path,{headers:headers(token),data});
+    > 12 |  expect(response.ok(),`${path}: ${response.status()} ${await response.text()}`).toBeTruthy();return (await response.json()).data;
+         |                                                                                 ^
+      13 | }
+      14 | async function session(api,phone,subject){
+      15 |  const result=await request(api,'/v1/session',undefined,{phoneNormalized:phone,password:'Local-demo-only-2026'});
+        at request (/Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:12:81)
+        at setup (/Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:36:48)
+        at /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:100:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-另一办理人已撤销时真实409重读并清除旧确认/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/zz-self-purchase-reversal-另一办理人已撤销时真实409重读并清除旧确认/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-另一办理人已撤销时真实409重读并清除旧确认/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/zz-self-purchase-reversal-另一办理人已撤销时真实409重读并清除旧确认/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 ─────────────────────────
+    e2e/zz-self-purchase-reversal.spec.mjs:99:1 › 另一办理人已撤销时真实409重读并清除旧确认 ───────────────────────────
+  7 passed (1.8m)
+npm error Lifecycle script `test:browser` failed with error:
+npm error code 1
+npm error path /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web
+npm error workspace @teaching-research-alliance/web@0.1.0
+npm error location /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web
+npm error command failed
+npm error command sh -c playwright test

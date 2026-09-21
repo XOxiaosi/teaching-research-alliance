@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "readOnlyBusinessData": true,
+  "usesSyntheticAuthSession": true,
+  "sourceFundCode": "WEB_SYNTHETIC_HQ",
+  "sourceBalanceCents": "-8765",
+  "entries": [
+    {
+      "owner_type": "COMPANY",
+      "category_key": "selfPurchaseExpense",
+      "amount_cents": "-8765"
+    },
+    {
+      "owner_type": "PERSON",
+      "category_key": "selfPurchaseIncome",
+      "amount_cents": "8765"
+    }
+  ],
+  "verified": "one exact debit and credit after lost-response retry"
+}

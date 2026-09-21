@@ -1,0 +1,10 @@
+
+> teaching-research-alliance@0.1.0 check
+> npm run typecheck && npm test
+
+
+> teaching-research-alliance@0.1.0 typecheck
+> tsc -b --pretty false
+
+apps/miniapp/src/pages/index/referral-panel.tsx(2,18): error TS2307: Cannot find module '@tarojs/taro' or its corresponding type declarations.
+apps/miniapp/src/services.ts(1,18): error TS2307: Cannot find module '@tarojs/taro' or its corresponding type declarations.

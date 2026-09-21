@@ -1,0 +1,100 @@
+{
+  "synthetic": true,
+  "readOnlyBusinessData": true,
+  "usesSyntheticAuthSession": true,
+  "sourceFundCode": "WEB_REVERSAL_HQ",
+  "sourceBalanceCents": "0",
+  "personalBalanceCents": "-1234",
+  "interveningWithdrawal": [
+    {
+      "status": "PENDING_TRANSFER",
+      "amount_cents": "1234"
+    }
+  ],
+  "verified": [
+    {
+      "reason": "REVERSAL_CONFLICT",
+      "amountCents": "5678",
+      "actor": "SYSTEM_ADMIN",
+      "sourceBeforeCents": "-5678",
+      "sourceAfterCents": "0",
+      "personalBeforeCents": "4444",
+      "personalAfterCents": "-1234",
+      "entries": [
+        {
+          "owner_type": "COMPANY",
+          "category_key": "selfPurchaseExpense",
+          "amount_cents": "-5678"
+        },
+        {
+          "owner_type": "COMPANY",
+          "category_key": "selfPurchaseExpenseReversal",
+          "amount_cents": "5678"
+        },
+        {
+          "owner_type": "PERSON",
+          "category_key": "selfPurchaseIncome",
+          "amount_cents": "5678"
+        },
+        {
+          "owner_type": "PERSON",
+          "category_key": "selfPurchaseIncomeReversal",
+          "amount_cents": "-5678"
+        }
+      ],
+      "commands": [
+        {
+          "operation": "REVERSE",
+          "count": 1
+        },
+        {
+          "operation": "SUBMIT",
+          "count": 1
+        }
+      ],
+      "originalsReady": 2
+    },
+    {
+      "reason": "REVERSAL_UNKNOWN",
+      "amountCents": "1234",
+      "actor": "HEADQUARTERS_FINANCE",
+      "sourceBeforeCents": "-1234",
+      "sourceAfterCents": "0",
+      "personalBeforeCents": "0",
+      "personalAfterCents": "-1234",
+      "entries": [
+        {
+          "owner_type": "COMPANY",
+          "category_key": "selfPurchaseExpense",
+          "amount_cents": "-1234"
+        },
+        {
+          "owner_type": "COMPANY",
+          "category_key": "selfPurchaseExpenseReversal",
+          "amount_cents": "1234"
+        },
+        {
+          "owner_type": "PERSON",
+          "category_key": "selfPurchaseIncome",
+          "amount_cents": "1234"
+        },
+        {
+          "owner_type": "PERSON",
+          "category_key": "selfPurchaseIncomeReversal",
+          "amount_cents": "-1234"
+        }
+      ],
+      "commands": [
+        {
+          "operation": "REVERSE",
+          "count": 1
+        },
+        {
+          "operation": "SUBMIT",
+          "count": 1
+        }
+      ],
+      "originalsReady": 2
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test zz-self-purchase-reversal.spec.mjs
+
+
+Running 2 tests using 1 worker
+
+(node:24504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 (18.4s)
+  ✓  2 e2e/zz-self-purchase-reversal.spec.mjs:99:1 › 另一办理人已撤销时真实409重读并清除旧确认 (12.5s)
+
+  2 passed (36.9s)

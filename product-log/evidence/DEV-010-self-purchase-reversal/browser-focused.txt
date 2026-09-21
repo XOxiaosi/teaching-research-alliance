@@ -1,0 +1,62 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test zz-self-purchase-reversal.spec.mjs
+
+
+Running 2 tests using 1 worker
+
+(node:23326) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 (18.6s)
+(node:23547) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 e2e/zz-self-purchase-reversal.spec.mjs:99:1 › 另一办理人已撤销时真实409重读并清除旧确认 (15.1s)
+
+
+  1) e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 ────────────────────────
+
+    Error: expect(locator).toBeDisabled() failed
+
+    Locator: getByLabel('撤销原因', { exact: true })
+    Expected: disabled
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeDisabled" with timeout 5000ms
+      - waiting for getByLabel('撤销原因', { exact: true })
+
+
+      71 |  await confirm.click();
+      72 |  await expect(managed(page).getByRole('alert')).toContainText('尚不能确认撤销结果');
+    > 73 |  await expect(page.getByLabel('撤销原因',{exact:true})).toBeDisabled();await expect(page.getByLabel(/我已核对.*原业务账户/)).toBeDisabled();
+         |                                                     ^
+      74 |  await expect(page.getByRole('button',{name:'刷新采买记录',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'收起采买详情',exact:true})).toBeDisabled();
+      75 |  await nav(page,'提现办理').click();await nav(page,'采买记录').click();
+      76 |  await page.getByRole('button',{name:'退出登录',exact:true}).click();await expect(page.locator('.message')).toContainText('结果待确认');
+        at /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web/e2e/zz-self-purchase-reversal.spec.mjs:73:53
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/zz-self-purchase-reversal-撤销原划拨未知结果同键恢复、个人负余额与原件保留/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    e2e/zz-self-purchase-reversal.spec.mjs:46:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 ─────────────────────────
+  1 passed (49.8s)
+npm error Lifecycle script `test:browser` failed with error:
+npm error code 1
+npm error path /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web
+npm error workspace @teaching-research-alliance/web@0.1.0
+npm error location /Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/web
+npm error command failed
+npm error command sh -c playwright test zz-self-purchase-reversal.spec.mjs

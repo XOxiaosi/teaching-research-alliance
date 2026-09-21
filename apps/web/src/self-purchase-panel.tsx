@@ -7,6 +7,8 @@ import {
   type FinanceDraftMetadata,
   type FinanceDraftSubmission,
   type SelfPurchaseDetail,
+  type SelfPurchaseReversalResult,
+  type SelfPurchaseReversalSubmission,
   type SelfPurchaseSubmission,
   type SelfPurchaseSummary
 } from "@teaching-research-alliance/client";
@@ -49,12 +51,20 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
   const [reason, setReason] = useState("");
   const [pendingCreate, setPendingCreate] = useState<FinanceDraftSubmission | null>(null);
   const [pendingSubmit, setPendingSubmit] = useState<SelfPurchaseSubmission | null>(null);
+  const [pendingReversal, setPendingReversal] = useState<SelfPurchaseReversalSubmission | null>(null);
+  const [pendingReversalAmountCents, setPendingReversalAmountCents] = useState<string | null>(null);
   const [detail, setDetail] = useState<SelfPurchaseDetail | null>(null);
+  const [reversalReason, setReversalReason] = useState("");
+  const [reversalConfirmed, setReversalConfirmed] = useState(false);
   const [notice, setNotice] = useState("");
-  const [validation, setValidation] = useState<{ field: "amount" | "reason" | "attachments"; message: string } | null>(null);
+  const [validation, setValidation] = useState<{ field: "amount" | "reason" | "attachments" | "reversal"; message: string } | null>(null);
   const [receipt, setReceipt] = useState("");
-  const pending = pendingCreate !== null || pendingSubmit !== null || uploadCount > 0;
-  const locked = busy || pendingCreate !== null || pendingSubmit !== null;
+  const pending = pendingCreate !== null || pendingSubmit !== null || pendingReversal !== null || uploadCount > 0;
+  const locked = busy || pendingCreate !== null || pendingSubmit !== null || pendingReversal !== null;
+  const role = client.currentSession?.currentRoleContext;
+  const canReverse = !personal && role !== null && role !== undefined
+    && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(role.subject)
+    && role.scope === "GLOBAL" && role.regionId === undefined && role.campusId === undefined && role.venueId === undefined;
 
   useEffect(() => { onUnconfirmedChange(pending); }, [pending, onUnconfirmedChange]);
   useEffect(() => {
@@ -76,7 +86,10 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
   };
 
   const refresh = async (): Promise<void> => {
-    setNotice(""); setDetail(null);
+    if (pendingReversal !== null) return;
+    setNotice("");
+    setDetail(null);
+    resetReversalForm();
     try { await load(); }
     catch (error) {
       setNotice(`采买记录刷新失败：${purchaseError(error)}`);
@@ -197,7 +210,8 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
   };
 
   const readDetail = async (documentId: string): Promise<void> => {
-    setNotice(""); setDetail(null);
+    if (pendingReversal !== null) return;
+    setNotice(""); setDetail(null); resetReversalForm();
     try { setDetail(await client.getSelfPurchaseDetail(documentId)); }
     catch (error) {
       setNotice(`采买详情未能读取：${purchaseError(error)}`);
@@ -205,14 +219,115 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
     }
   };
 
+  const resetReversalForm = (): void => {
+    setReversalReason("");
+    setReversalConfirmed(false);
+    setValidation((current) => current?.field === "reversal" ? null : current);
+  };
+
+  const refreshAfterReversalConflict = async (documentId: string, conflict: unknown): Promise<void> => {
+    setDetail(null);
+    let listFailure: unknown;
+    let detailFailure: unknown;
+    try { await load(); }
+    catch (error) { listFailure = error; }
+    try { setDetail(await client.getSelfPurchaseDetail(documentId)); }
+    catch (error) { detailFailure = error; }
+    if (isFinanceAuthError(listFailure)) throw listFailure;
+    if (isFinanceAuthError(detailFailure)) throw detailFailure;
+    if (listFailure !== undefined || detailFailure !== undefined) {
+      const reads = [
+        listFailure !== undefined ? `采买列表未能读取：${purchaseError(listFailure)}` : "",
+        detailFailure !== undefined ? `采买详情未能读取：${purchaseError(detailFailure)}` : ""
+      ].filter(Boolean).join("；");
+      setNotice(`${purchaseError(conflict)}。旧确认与原因已清空；${reads}。请刷新并重新核对，原撤销不会自动改写或重发。`);
+      return;
+    }
+    setNotice("单据状态已发生变化，已重新读取采买列表和详情。旧确认与原因已清空；请核对后重新发起撤销。");
+  };
+
+  const executeReversal = async (submission: SelfPurchaseReversalSubmission, amountCents: string): Promise<void> => {
+    setPendingReversal(submission);
+    setPendingReversalAmountCents(amountCents);
+    setNotice(""); setReceipt(""); setFresh(false);
+    onDataMayChange();
+    let result: SelfPurchaseReversalResult | null = null;
+    try {
+      result = await client.reverseSelfPurchase(submission);
+      if (result.status !== "REVERSED") throw new Error("SELF_PURCHASE_REVERSAL_RESULT_UNCONFIRMED");
+    } catch (error) {
+      if (uncertain(error)) {
+        setNotice("尚不能确认撤销结果，可能已经完成。原单据、撤销原因与确认已锁定；请安全重试原撤销请求，勿新建或改写撤销。 ");
+      } else {
+        setPendingReversal(null);
+        setPendingReversalAmountCents(null);
+        resetReversalForm();
+        if (error instanceof ApiClientError && error.status === 409) {
+          await refreshAfterReversalConflict(submission.draft.documentId, error);
+        } else {
+          setNotice(`撤销未执行：${purchaseError(error)}。请重新读取详情并核对后再操作。`);
+        }
+      }
+      if (isFinanceAuthError(error)) throw error;
+      return;
+    }
+    if (result === null) return;
+    setPendingReversal(null);
+    setPendingReversalAmountCents(null);
+    resetReversalForm();
+    setReceipt(`采买已撤销：原业务账户退回 ${formatCentsAsBeans(amountCents)} 欢乐豆，原申请人个人账户扣回相同金额。原申请与原件继续保留。`);
+    setDetail(null);
+    let listFailure: unknown;
+    let detailFailure: unknown;
+    try { await load(); }
+    catch (error) { listFailure = error; }
+    try { setDetail(await client.getSelfPurchaseDetail(result.id)); }
+    catch (error) { detailFailure = error; }
+    if (isFinanceAuthError(listFailure)) throw listFailure;
+    if (isFinanceAuthError(detailFailure)) throw detailFailure;
+    if (listFailure !== undefined || detailFailure !== undefined) {
+      const reads = [
+        listFailure !== undefined ? `采买列表刷新失败：${purchaseError(listFailure)}` : "",
+        detailFailure !== undefined ? `采买详情刷新失败：${purchaseError(detailFailure)}` : ""
+      ].filter(Boolean).join("；");
+      setNotice(`本次撤销结果已确认，但${reads}。请刷新后核对，勿重复撤销。`);
+    }
+  };
+
+  const reverse = async (): Promise<void> => {
+    if (!canReverse || detail === null || detail.status !== "COMPLETED" || pending || !fresh) return;
+    setNotice(""); setValidation(null);
+    const normalizedReason = reversalReason.trim();
+    if (!normalizedReason || normalizedReason.length > 1000 || /[\x00-\x1f\x7f]/.test(normalizedReason)) {
+      setValidation({ field: "reversal", message: "请填写撤销原因，最多1000字，勿包含换行或控制字符。" }); return;
+    }
+    if (!reversalConfirmed) {
+      setValidation({ field: "reversal", message: "请确认：撤销会将原金额退回原业务账户，并从原申请人个人账户扣回相同金额。" }); return;
+    }
+    let submission: SelfPurchaseReversalSubmission;
+    try {
+      submission = client.createSelfPurchaseReversalSubmission({ documentId: detail.id, expectedVersion: detail.version, reason: normalizedReason });
+    } catch (error) {
+      setNotice(`无法创建撤销请求：${purchaseError(error)}`);
+      if (isFinanceAuthError(error)) throw error;
+      return;
+    }
+    await executeReversal(submission, detail.amountCents);
+  };
+
   return <section className="finance-panel" aria-label={personal ? "本人采买" : "采买管理记录"} hidden={!active}>
     <div className="section-heading"><div><p className="eyebrow">{personal ? "我的账户" : "财务查询"}</p><h2>{personal ? "本人采买" : "采买管理记录"}</h2>
       <p>{personal ? "仅具有有效总部财务任职的本人可申请。提交后自动完成业务账户扣豆、本人账户加豆。" : "查看本人采买、撤销记录、处理结果与原件。"}</p></div>
-      <Button variant="outline" disabled={busy} onClick={() => void run(refresh)}>刷新采买记录</Button>
+      <Button variant="outline" disabled={locked} onClick={() => void run(refresh)}>刷新采买记录</Button>
     </div>
     {receipt && <p className="finance-success" role="status">{receipt}</p>}
     {notice && <p className="finance-notice" role="alert">{notice}</p>}
     {validation && <p className="finance-notice" role="alert">{validation.message}</p>}
+    {pendingReversal !== null && <Card className="finance-warning"><p>撤销结果待确认。原单据、撤销原因和确认已锁定，不能切换详情或发起新操作。</p>
+      <Button disabled={busy || pendingReversalAmountCents === null} onClick={() => {
+        if (pendingReversalAmountCents !== null) void run(() => executeReversal(pendingReversal, pendingReversalAmountCents));
+      }}>安全重试原撤销操作</Button>
+    </Card>}
     {!loaded && <p>{busy ? "正在读取采买记录…" : "暂未读取到采买记录，请点击刷新。"}</p>}
     {loaded && !fresh && <p className="finance-muted">记录尚未刷新，请先核对最新结果再发起新申请。</p>}
     {personal && <Card className="finance-card">
@@ -251,10 +366,10 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
       <div className="finance-list">{records.map((item) => <div className="finance-list-row" key={item.id}>
         <div><strong>{formatCentsAsBeans(item.amountCents)} 欢乐豆 · {statusLabel(item.status)}</strong><p>{item.reason}</p><p>支出：{item.sourceFund.displayName} · 原划拨由系统规则自动处理</p>
           {!personal && <p>申请人：{item.applicantDisplayName}</p>}<p>原划拨时间：{timeLabel(item.completedAt)}</p></div>
-        <Button variant="outline" disabled={busy} onClick={() => void run(() => readDetail(item.id))}>查看采买详情</Button>
+        <Button variant="outline" disabled={locked} onClick={() => void run(() => readDetail(item.id))}>查看采买详情</Button>
       </div>)}</div>
     </Card>
-    {detail !== null && <Card className="finance-card"><div className="section-heading"><h3>采买详情</h3><Button variant="outline" onClick={() => setDetail(null)}>收起采买详情</Button></div>
+    {detail !== null && <Card className="finance-card"><div className="section-heading"><h3>采买详情</h3><Button variant="outline" disabled={locked} onClick={() => { setDetail(null); resetReversalForm(); }}>收起采买详情</Button></div>
       <dl className="finance-detail"><dt>状态</dt><dd>{statusLabel(detail.status)}</dd>
         <dt>原划拨处理</dt><dd>系统规则自动处理</dd>
         <dt>金额</dt><dd>{formatCentsAsBeans(detail.amountCents)} 欢乐豆</dd><dt>原因</dt><dd>{detail.reason}</dd>
@@ -267,6 +382,13 @@ export function SelfPurchasePanel({ client, busy, active, run, onUnconfirmedChan
         : detail.status === "REVERSED"
           ? "原采买已撤销，该笔欢乐豆已退回原业务账户，并从原个人收款账户扣回；原申请与凭证保留。"
           : "暂不能确认当前处理状态，请刷新后核对。"}</p>
+      {canReverse && detail.status === "COMPLETED" && <div className="finance-action-section">
+        <h4>撤销已完成采买</h4>
+        <p>撤销后，原业务账户将退回 {formatCentsAsBeans(detail.amountCents)} 欢乐豆；原申请人个人账户将扣回相同金额。账户允许出现负余额，原申请和原件不删除。</p>
+        <label>撤销原因<textarea value={reversalReason} maxLength={1000} disabled={locked || !fresh} onChange={(event) => { setReversalReason(event.target.value); setValidation((current) => current?.field === "reversal" ? null : current); }} placeholder="说明实际撤销原因" /></label>
+        <label className="finance-confirm"><input type="checkbox" disabled={locked || !fresh} checked={reversalConfirmed} onChange={(event) => { setReversalConfirmed(event.target.checked); setValidation((current) => current?.field === "reversal" ? null : current); }} />我已核对：将退回原业务账户 {formatCentsAsBeans(detail.amountCents)} 欢乐豆，并从原申请人个人账户扣回相同金额。</label>
+        <Button variant="destructive" disabled={locked || !fresh || !reversalConfirmed || reversalReason.trim() === ""} onClick={() => void run(reverse)}>确认撤销采买划拨</Button>
+      </div>}
       {detail.attachments.map((item) => <div className="finance-attachment-row" key={item.versionId}>
         <span>{item.purpose === "APPLICATION_SCREENSHOT" ? "采买申请截图" : item.purpose === "INVOICE" ? "发票" : "采买业务单据"} · {item.originalFilename}</span>
         <AttachmentDownload client={client} versionId={item.versionId} filename={item.originalFilename} disabled={busy} run={run} />

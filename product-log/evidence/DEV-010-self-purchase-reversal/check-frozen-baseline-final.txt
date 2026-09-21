@@ -1,0 +1,626 @@
+
+> teaching-research-alliance@0.1.0 check
+> npm run typecheck && npm test
+
+
+> teaching-research-alliance@0.1.0 typecheck
+> tsc -b --pretty false
+
+
+> teaching-research-alliance@0.1.0 test
+> npm run build && node --test packages/*/test/*.test.mjs apps/*/test/*.test.mjs
+
+
+> teaching-research-alliance@0.1.0 build
+> tsc -b
+
+TAP version 13
+# Subtest: 合成图片完整解码、PDF解析页数，原字节不变
+ok 1 - 合成图片完整解码、PDF解析页数，原字节不变
+  ---
+  duration_ms: 1309.004922
+  type: 'test'
+  ...
+# Subtest: 拒绝截断、伪魔数、加密PDF、坏CRC和过大页面/像素
+ok 2 - 拒绝截断、伪魔数、加密PDF、坏CRC和过大页面/像素
+  ---
+  duration_ms: 4408.280316
+  type: 'test'
+  ...
+# Subtest: 拒绝窄高图与压缩内容远大于扫描线尺寸的PNG
+ok 3 - 拒绝窄高图与压缩内容远大于扫描线尺寸的PNG
+  ---
+  duration_ms: 1037.068673
+  type: 'test'
+  ...
+# Subtest: 工作线程超时/并发限额可恢复，不阻塞后续校验
+ok 4 - 工作线程超时/并发限额可恢复，不阻塞后续校验
+  ---
+  duration_ms: 1287.32521
+  type: 'test'
+  ...
+# Subtest: 格式校验在原件发布前执行，损坏文件不产生永久对象
+ok 5 - 格式校验在原件发布前执行，损坏文件不产生永久对象
+  ---
+  duration_ms: 843.591817
+  type: 'test'
+  ...
+# Subtest: 收款快照保留原始文本，随机加密且绑定单据、账户与金额
+ok 6 - 收款快照保留原始文本，随机加密且绑定单据、账户与金额
+  ---
+  duration_ms: 10.73382
+  type: 'test'
+  ...
+# Subtest: 轮换密钥后可读历史并重算历史请求HMAC，缺密钥明确失败
+ok 7 - 轮换密钥后可读历史并重算历史请求HMAC，缺密钥明确失败
+  ---
+  duration_ms: 6.014855
+  type: 'test'
+  ...
+# Subtest: 拒绝空白或控制字符收款资料，不把银行卡当数字
+ok 8 - 拒绝空白或控制字符收款资料，不把银行卡当数字
+  ---
+  duration_ms: 0.782544
+  type: 'test'
+  ...
+# Subtest: 财年以北京时间九月一日零点切换，结束边界不含下一年
+ok 9 - 财年以北京时间九月一日零点切换，结束边界不含下一年
+  ---
+  duration_ms: 4.91272
+  type: 'test'
+  ...
+# Subtest: 真实HTTP监听器提供健康检查并序列化周费用金额
+ok 10 - 真实HTTP监听器提供健康检查并序列化周费用金额
+  ---
+  duration_ms: 256.43514
+  type: 'test'
+  ...
+# Subtest: 附件二进制流独立于JSON上限，仍验证会话并隐藏内部异常
+ok 11 - 附件二进制流独立于JSON上限，仍验证会话并隐藏内部异常
+  ---
+  duration_ms: 191.284826
+  type: 'test'
+  ...
+# Subtest: 附件下载完成授权后才发送原件，禁缓存并安全编码文件名
+ok 12 - 附件下载完成授权后才发送原件，禁缓存并安全编码文件名
+  ---
+  duration_ms: 22.731401
+  type: 'test'
+  ...
+# Subtest: 未配置财务存储或密钥时明确不可用，不伪造上传或提现成功
+ok 13 - 未配置财务存储或密钥时明确不可用，不伪造上传或提现成功
+  ---
+  duration_ms: 21.311899
+  type: 'test'
+  ...
+# Subtest: 凭证按不可覆盖版本存放，流式校验内容且读取还原原件
+ok 14 - 凭证按不可覆盖版本存放，流式校验内容且读取还原原件
+  ---
+  duration_ms: 171.211535
+  type: 'test'
+  ...
+# Subtest: 凭证拒绝伪装格式、越界大小、路径名字、断流和摘要不符并清理临时文件
+ok 15 - 凭证拒绝伪装格式、越界大小、路径名字、断流和摘要不符并清理临时文件
+  ---
+  duration_ms: 50.804389
+  type: 'test'
+  ...
+# Subtest: 同版本并发只有一份原件，读取篡改、缺失和符号链接全部失败
+ok 16 - 同版本并发只有一份原件，读取篡改、缺失和符号链接全部失败
+  ---
+  duration_ms: 56.59553
+  type: 'test'
+  ...
+# Subtest: 拒绝不私密目录、符号链接目录及不合理的文件上限
+ok 17 - 拒绝不私密目录、符号链接目录及不合理的文件上限
+  ---
+  duration_ms: 9.109761
+  type: 'test'
+  ...
+# Subtest: 关闭失败仍清临时文件，发布后同步失败返回可识别的原件对账状态
+ok 18 - 关闭失败仍清临时文件，发布后同步失败返回可识别的原件对账状态
+  ---
+  duration_ms: 32.826639
+  type: 'test'
+  ...
+# Subtest: PostgreSQL身份仓储读取账号、岗位历史并保留密码哈希边界
+ok 19 - PostgreSQL身份仓储读取账号、岗位历史并保留密码哈希边界
+  ---
+  duration_ms: 5.883088
+  type: 'test'
+  ...
+# Subtest: 身份仓储拒绝数据库中未登记的岗位编码
+ok 20 - 身份仓储拒绝数据库中未登记的岗位编码
+  ---
+  duration_ms: 1.187564
+  type: 'test'
+  ...
+# Subtest: PostgreSQL账本适配器使用参数化SQL并在成功后提交
+ok 21 - PostgreSQL账本适配器使用参数化SQL并在成功后提交
+  ---
+  duration_ms: 5.614126
+  type: 'test'
+  ...
+# Subtest: PostgreSQL账户映射缺失时回滚事务
+ok 22 - PostgreSQL账户映射缺失时回滚事务
+  ---
+  duration_ms: 1.269941
+  type: 'test'
+  ...
+# Subtest: 账本可绑定外层事务，读取多类别按规范排序且不自行提交
+ok 23 - 账本可绑定外层事务，读取多类别按规范排序且不自行提交
+  ---
+  duration_ms: 23.352335
+  type: 'test'
+  ...
+# Subtest: 登录只返回当前有效职责，切换职责不合并权限
+ok 24 - 登录只返回当前有效职责，切换职责不合并权限
+  ---
+  duration_ms: 5.526465
+  type: 'test'
+  ...
+# Subtest: 教师接收推荐后可在正常场地登记周累计费用，并按版本保留历史
+ok 25 - 教师接收推荐后可在正常场地登记周累计费用，并按版本保留历史
+  ---
+  duration_ms: 2.310878
+  type: 'test'
+  ...
+# Subtest: HTTP请求处理器复用服务层并统一返回版本和错误码
+ok 26 - HTTP请求处理器复用服务层并统一返回版本和错误码
+  ---
+  duration_ms: 7.008289
+  type: 'test'
+  ...
+# Subtest: 管理员费率预览与发布通过HTTP边界保留版本
+ok 27 - 管理员费率预览与发布通过HTTP边界保留版本
+  ---
+  duration_ms: 2.189815
+  type: 'test'
+  ...
+# Subtest: 个人读取使用稳定404错误码，未装配服务返回500且不泄露内部原因
+ok 28 - 个人读取使用稳定404错误码，未装配服务返回500且不泄露内部原因
+  ---
+  duration_ms: 0.635134
+  type: 'test'
+  ...
+# Subtest: unexpected database errors never expose internal details
+ok 29 - unexpected database errors never expose internal details
+  ---
+  duration_ms: 0.387464
+  type: 'test'
+  ...
+# Subtest: teaching reads and session restore use authenticated actor and trusted clock
+ok 30 - teaching reads and session restore use authenticated actor and trusted clock
+  ---
+  duration_ms: 1.148146
+  type: 'test'
+  ...
+# Subtest: 周费用结算服务只提交新旧分配差额并支持事件重放
+ok 31 - 周费用结算服务只提交新旧分配差额并支持事件重放
+  ---
+  duration_ms: 21.465665
+  type: 'test'
+  ...
+# Subtest: 结算收款人变化时同时冲旧账户并增加新账户
+ok 32 - 结算收款人变化时同时冲旧账户并增加新账户
+  ---
+  duration_ms: 0.708538
+  type: 'test'
+  ...
+# Subtest: 欢乐豆金额以BigInt精确解析和格式化
+ok 33 - 欢乐豆金额以BigInt精确解析和格式化
+  ---
+  duration_ms: 5.778967
+  type: 'test'
+  ...
+# Subtest: 角色切换作废在途响应且不把旧角色数据写入缓存
+ok 34 - 角色切换作废在途响应且不把旧角色数据写入缓存
+  ---
+  duration_ms: 2.681938
+  type: 'test'
+  ...
+# Subtest: 本地退出作废在途响应并清除会话
+ok 35 - 本地退出作废在途响应并清除会话
+  ---
+  duration_ms: 0.61822
+  type: 'test'
+  ...
+# Subtest: 读取每次向服务端刷新，成功写入作废更早读取
+ok 36 - 读取每次向服务端刷新，成功写入作废更早读取
+  ---
+  duration_ms: 8.505109
+  type: 'test'
+  ...
+# Subtest: 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+ok 37 - 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+  ---
+  duration_ms: 1.489115
+  type: 'test'
+  ...
+# Subtest: 推荐归档与重新推送冻结命令、同键重试且不发送伪造字段
+ok 38 - 推荐归档与重新推送冻结命令、同键重试且不发送伪造字段
+  ---
+  duration_ms: 1.567915
+  type: 'test'
+  ...
+# Subtest: 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+ok 39 - 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+  ---
+  duration_ms: 2.547967
+  type: 'test'
+  ...
+# Subtest: 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+ok 40 - 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+  ---
+  duration_ms: 1.79464
+  type: 'test'
+  ...
+# Subtest: 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+ok 41 - 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+  ---
+  duration_ms: 1.749261
+  type: 'test'
+  ...
+# Subtest: 周费用失败后重试保持同一幂等键，修改参数建立新提交
+ok 42 - 周费用失败后重试保持同一幂等键，修改参数建立新提交
+  ---
+  duration_ms: 1.292648
+  type: 'test'
+  ...
+# Subtest: 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+ok 43 - 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+  ---
+  duration_ms: 11.962063
+  type: 'test'
+  ...
+# Subtest: 复制推荐冻结草稿、同键重试、可选字段白名单并拒绝跨会话提交
+ok 44 - 复制推荐冻结草稿、同键重试、可选字段白名单并拒绝跨会话提交
+  ---
+  duration_ms: 2.952322
+  type: 'test'
+  ...
+# Subtest: 财务草稿只提交冻结元数据，同键重试、读取与跨会话保护
+ok 45 - 财务草稿只提交冻结元数据，同键重试、读取与跨会话保护
+  ---
+  duration_ms: 0.996122
+  type: 'test'
+  ...
+# Subtest: 退出后在途推荐创建不能写回当前会话
+ok 46 - 退出后在途推荐创建不能写回当前会话
+  ---
+  duration_ms: 0.351012
+  type: 'test'
+  ...
+# Subtest: 附件预留冻结元数据、未知结果使用同键重试且不发送伪造字段
+ok 47 - 附件预留冻结元数据、未知结果使用同键重试且不发送伪造字段
+  ---
+  duration_ms: 1.399855
+  type: 'test'
+  ...
+# Subtest: 附件预留校验文件元数据，并在角色变化后拒绝旧提交或旧读取
+ok 48 - 附件预留校验文件元数据，并在角色变化后拒绝旧提交或旧读取
+  ---
+  duration_ms: 3.155909
+  type: 'test'
+  ...
+# Subtest: 文档附件列表保留槽、版本和绑定元数据，并在角色切换后作废旧响应
+ok 49 - 文档附件列表保留槽、版本和绑定元数据，并在角色切换后作废旧响应
+  ---
+  duration_ms: 0.576905
+  type: 'test'
+  ...
+# Subtest: 同槽附件版本冻结并以同一键重试，只发送版本元数据白名单
+ok 50 - 同槽附件版本冻结并以同一键重试，只发送版本元数据白名单
+  ---
+  duration_ms: 2.487904
+  type: 'test'
+  ...
+# Subtest: 附件预留的401清会话，403清角色上下文
+ok 51 - 附件预留的401清会话，403清角色上下文
+  ---
+  duration_ms: 1.165239
+  type: 'test'
+  ...
+# Subtest: 金额和版本在客户端校验，401清会话，403返回角色选择
+ok 52 - 金额和版本在客户端校验，401清会话，403返回角色选择
+  ---
+  duration_ms: 0.933023
+  type: 'test'
+  ...
+# Subtest: server sign-out clears local state even if the logout request fails
+ok 53 - server sign-out clears local state even if the logout request fails
+  ---
+  duration_ms: 0.936352
+  type: 'test'
+  ...
+# Subtest: 提现提交冻结银行文本与附件快照，以同一键重试且不发送伪造字段
+ok 54 - 提现提交冻结银行文本与附件快照，以同一键重试且不发送伪造字段
+  ---
+  duration_ms: 2.874519
+  type: 'test'
+  ...
+# Subtest: 提现命令拒绝跨角色复用，并阻止同一提交并发执行
+ok 55 - 提现命令拒绝跨角色复用，并阻止同一提交并发执行
+  ---
+  duration_ms: 9.487068
+  type: 'test'
+  ...
+# Subtest: 提现读取路径、财务撤回和转账完成命令使用严格 JSON 白名单
+ok 56 - 提现读取路径、财务撤回和转账完成命令使用严格 JSON 白名单
+  ---
+  duration_ms: 4.199417
+  type: 'test'
+  ...
+# Subtest: 提现读取沿用 401 清会话与 403 清角色上下文
+ok 57 - 提现读取沿用 401 清会话与 403 清角色上下文
+  ---
+  duration_ms: 1.065027
+  type: 'test'
+  ...
+# Subtest: 本人采买冻结金额、理由和附件，未知网络以同键重试且只发送固定字段
+ok 58 - 本人采买冻结金额、理由和附件，未知网络以同键重试且只发送固定字段
+  ---
+  duration_ms: 2.333994
+  type: 'test'
+  ...
+# Subtest: 采买读取路径遵循财年服务端裁决，旧会话命令和成功前读取不会污染当前状态
+ok 59 - 采买读取路径遵循财年服务端裁决，旧会话命令和成功前读取不会污染当前状态
+  ---
+  duration_ms: 10.480769
+  type: 'test'
+  ...
+# Subtest: 采买提交拒绝跨角色复用，并阻止同一冻结命令并发出站
+ok 60 - 采买提交拒绝跨角色复用，并阻止同一冻结命令并发出站
+  ---
+  duration_ms: 1.956227
+  type: 'test'
+  ...
+# Subtest: 采买撤销冻结命令以同键重试，只允许严格GLOBAL办理人且作废旧读取
+ok 61 - 采买撤销冻结命令以同键重试，只允许严格GLOBAL办理人且作废旧读取
+  ---
+  duration_ms: 1.465307
+  type: 'test'
+  ...
+# Subtest: 采买撤销拒绝个人、局部HQ和跨会话复用的冻结命令
+ok 62 - 采买撤销拒绝个人、局部HQ和跨会话复用的冻结命令
+  ---
+  duration_ms: 0.811485
+  type: 'test'
+  ...
+# Subtest: 公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段
+ok 63 - 公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段
+  ---
+  duration_ms: 1.711961
+  type: 'test'
+  ...
+# Subtest: HQ和带局部资源的管理员不能读取或提交公司资金配置，403清角色上下文
+ok 64 - HQ和带局部资源的管理员不能读取或提交公司资金配置，403清角色上下文
+  ---
+  duration_ms: 1.273353
+  type: 'test'
+  ...
+# Subtest: 权限契约覆盖开发者、管理员和基础教师能力
+ok 65 - 权限契约覆盖开发者、管理员和基础教师能力
+  ---
+  duration_ms: 1.562108
+  type: 'test'
+  ...
+# Subtest: 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+ok 66 - 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+  ---
+  duration_ms: 0.237285
+  type: 'test'
+  ...
+# Subtest: 财务业务账户配置只授予最高维护角色，不跟随财务办理权限
+ok 67 - 财务业务账户配置只授予最高维护角色，不跟随财务办理权限
+  ---
+  duration_ms: 0.323387
+  type: 'test'
+  ...
+# Subtest: 本人采买从个人入口提交，财务管理读取独立授权
+ok 68 - 本人采买从个人入口提交，财务管理读取独立授权
+  ---
+  duration_ms: 2.324633
+  type: 'test'
+  ...
+# Subtest: 场地选用与共享查看/提现是独立能力
+ok 69 - 场地选用与共享查看/提现是独立能力
+  ---
+  duration_ms: 0.353898
+  type: 'test'
+  ...
+# Subtest: 契约规则没有重复动作定义
+ok 70 - 契约规则没有重复动作定义
+  ---
+  duration_ms: 0.255925
+  type: 'test'
+  ...
+# Subtest: 提现提交、财务办理和凭证查阅各自授权，分区不取得财务能力
+ok 71 - 提现提交、财务办理和凭证查阅各自授权，分区不取得财务能力
+  ---
+  duration_ms: 0.442735
+  type: 'test'
+  ...
+# Subtest: 端点契约包含分区汇总、关系预览和全正常场地目录
+ok 72 - 端点契约包含分区汇总、关系预览和全正常场地目录
+  ---
+  duration_ms: 0.265284
+  type: 'test'
+  ...
+# Subtest: teaching directory reads have independent actions from fee writes
+ok 73 - teaching directory reads have independent actions from fee writes
+  ---
+  duration_ms: 1.496105
+  type: 'test'
+  ...
+# Subtest: 最大余数分币守恒并按稳定顺序处理尾差
+ok 74 - 最大余数分币守恒并按稳定顺序处理尾差
+  ---
+  duration_ms: 4.595235
+  type: 'test'
+  ...
+# Subtest: 零金额保留零分配
+ok 75 - 零金额保留零分配
+  ---
+  duration_ms: 0.652282
+  type: 'test'
+  ...
+# Subtest: 非法比例或负金额被拒绝
+ok 76 - 非法比例或负金额被拒绝
+  ---
+  duration_ms: 0.709692
+  type: 'test'
+  ...
+# Subtest: 角色上下文按有效期筛选，不合并未来职责
+ok 77 - 角色上下文按有效期筛选，不合并未来职责
+  ---
+  duration_ms: 8.097663
+  type: 'test'
+  ...
+# Subtest: 只有系统所有者能管理管理员身份
+ok 78 - 只有系统所有者能管理管理员身份
+  ---
+  duration_ms: 0.712608
+  type: 'test'
+  ...
+# Subtest: 会话上下文保留明确范围，不把缺少组织编号推断为全局财务
+ok 79 - 会话上下文保留明确范围，不把缺少组织编号推断为全局财务
+  ---
+  duration_ms: 18.517416
+  type: 'test'
+  ...
+# Subtest: 账本事务首次发布更新余额，重复同载荷只重放
+ok 80 - 账本事务首次发布更新余额，重复同载荷只重放
+  ---
+  duration_ms: 32.497568
+  type: 'test'
+  ...
+# Subtest: 事件载荷或类别变化拒绝重放，余额保持原值
+ok 81 - 事件载荷或类别变化拒绝重放，余额保持原值
+  ---
+  duration_ms: 2.125666
+  type: 'test'
+  ...
+# Subtest: 事务失败时回滚已写入的事件和余额
+ok 82 - 事务失败时回滚已写入的事件和余额
+  ---
+  duration_ms: 2.763185
+  type: 'test'
+  ...
+# Subtest: 空分录、缺类别和缺账户映射直接拒绝
+ok 83 - 空分录、缺类别和缺账户映射直接拒绝
+  ---
+  duration_ms: 0.683189
+  type: 'test'
+  ...
+# Subtest: 周费用更正只产生新旧分配差额
+ok 84 - 周费用更正只产生新旧分配差额
+  ---
+  duration_ms: 6.653059
+  type: 'test'
+  ...
+# Subtest: 同一类别换收款人时同时冲旧账户并增加新账户
+ok 85 - 同一类别换收款人时同时冲旧账户并增加新账户
+  ---
+  duration_ms: 1.110115
+  type: 'test'
+  ...
+# Subtest: 缺少账户映射拒绝生成分录
+ok 86 - 缺少账户映射拒绝生成分录
+  ---
+  duration_ms: 2.100371
+  type: 'test'
+  ...
+# Subtest: 重复事件不重复追加账本
+ok 87 - 重复事件不重复追加账本
+  ---
+  duration_ms: 0.79609
+  type: 'test'
+  ...
+# Subtest: 默认费率配置可通过校验，管理员可预览并发布版本
+ok 88 - 默认费率配置可通过校验，管理员可预览并发布版本
+  ---
+  duration_ms: 6.12791
+  type: 'test'
+  ...
+# Subtest: 非管理员不能预览、发布或读取完整配置
+ok 89 - 非管理员不能预览、发布或读取完整配置
+  ---
+  duration_ms: 3.990944
+  type: 'test'
+  ...
+# Subtest: 配置发布校验区间连续性和总比例，错误版本不能发布
+ok 90 - 配置发布校验区间连续性和总比例，错误版本不能发布
+  ---
+  duration_ms: 0.464918
+  type: 'test'
+  ...
+# Subtest: 制度费率发布保留历史，个人职责只能看到对应比例
+ok 91 - 制度费率发布保留历史，个人职责只能看到对应比例
+  ---
+  duration_ms: 0.384546
+  type: 'test'
+  ...
+# Subtest: 发布的自定义动态档位可被纯计算读取
+ok 92 - 发布的自定义动态档位可被纯计算读取
+  ---
+  duration_ms: 0.382556
+  type: 'test'
+  ...
+# Subtest: 15档动态费率的边界按左开右闭命中
+ok 93 - 15档动态费率的边界按左开右闭命中
+  ---
+  duration_ms: 4.471251
+  type: 'test'
+  ...
+# Subtest: 规划师介绍费负动态按池内权重缩放
+ok 94 - 规划师介绍费负动态按池内权重缩放
+  ---
+  duration_ms: 2.019142
+  type: 'test'
+  ...
+# Subtest: 非整数基点权重保留分子，不提前舍入
+ok 95 - 非整数基点权重保留分子，不提前舍入
+  ---
+  duration_ms: 0.772568
+  type: 'test'
+  ...
+# Subtest: 零动态、本人场地的1000豆九项分配守恒
+ok 96 - 零动态、本人场地的1000豆九项分配守恒
+  ---
+  duration_ms: 10.197292
+  type: 'test'
+  ...
+# Subtest: 修改为1200豆只改变分配结果总差额200豆
+ok 97 - 修改为1200豆只改变分配结果总差额200豆
+  ---
+  duration_ms: 0.666179
+  type: 'test'
+  ...
+# Subtest: 负动态和他人场地按计划算例分配
+ok 98 - 负动态和他人场地按计划算例分配
+  ---
+  duration_ms: 0.561647
+  type: 'test'
+  ...
+# Subtest: 0豆周费用合法保存，空白月份和空场地不转成默认值
+ok 99 - 0豆周费用合法保存，空白月份和空场地不转成默认值
+  ---
+  duration_ms: 2.988163
+  type: 'test'
+  ...
+# Subtest: 周费用拒绝负数并保留字段级错误
+ok 100 - 周费用拒绝负数并保留字段级错误
+  ---
+  duration_ms: 1.028632
+  type: 'test'
+  ...
+1..100
+# tests 100
+# suites 0
+# pass 100
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9636.006736

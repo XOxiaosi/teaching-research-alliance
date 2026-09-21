@@ -28,7 +28,8 @@ try{
  assert.equal(matches.length,1,'exact demo account must identify one schema');const schema=matches[0];
  const balance=await pool.query(`SELECT balance_cents::text FROM "${schema}".account_balance_projection WHERE account_id=$1`,[fund.accountId]);
  assert.equal(balance.rows[0].balance_cents,'-8765');
- const entries=await pool.query(`SELECT a.owner_type,e.category_key,e.amount_cents::text FROM "${schema}".ledger_entry e JOIN "${schema}".settlement_account a ON a.id=e.account_id WHERE e.event_id IN (SELECT event_id FROM "${schema}".ledger_entry WHERE account_id=$1 AND category_key='selfPurchaseExpense') ORDER BY e.category_key`,[fund.accountId]);
+ // Target the original 87.65 purchase; the full suite also creates separately verified reversals.
+ const entries=await pool.query(`SELECT a.owner_type,e.category_key,e.amount_cents::text FROM "${schema}".ledger_entry e JOIN "${schema}".settlement_account a ON a.id=e.account_id WHERE e.event_id IN (SELECT event_id FROM "${schema}".ledger_entry WHERE account_id=$1 AND category_key='selfPurchaseExpense' AND amount_cents=-8765) ORDER BY e.category_key`,[fund.accountId]);
  assert.deepEqual(entries.rows,[{owner_type:'COMPANY',category_key:'selfPurchaseExpense',amount_cents:'-8765'},{owner_type:'PERSON',category_key:'selfPurchaseIncome',amount_cents:'8765'}]);
  console.log(JSON.stringify({synthetic:true,readOnlyBusinessData:true,usesSyntheticAuthSession:true,sourceFundCode:fund.fundCode,sourceBalanceCents:balance.rows[0].balance_cents,entries:entries.rows,verified:'one exact debit and credit after lost-response retry'},null,2));
 }finally{await pool.end();await request('/v1/session/logout',{},token);}
