@@ -9,3 +9,4 @@ export { SessionService } from "./session-service.js";
 export { WeeklyFeeService } from "./weekly-fee-service.js";
 export { handleRequest } from "./http-handler.js";
 export { PostgresLedgerRepository } from "./postgres-ledger-repository.js";
+export { createPostgresPool } from "./postgres-pool.js";

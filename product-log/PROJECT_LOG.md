@@ -577,3 +577,9 @@
 - 按顺序执行 `database/migrations/0001_identity_accounts.sql` 至 `0004_ledger.sql` 成功，空库创建 23 张业务表；实际查询确认 `ledger_event_immutable`、`ledger_entry_immutable`、`weekly_fee_settlement_month_guard` 三个触发器存在。
 - 在事务内使用合成账户验证账本分录与余额投影为 10000 分；更新/删除账本事件或分录均被 `LEDGER_IMMUTABLE` 拒绝；错误结算月份被 `WEEKLY_FEE_SETTLEMENT_MONTH_MISMATCH` 拒绝；测试事务最终回滚，数据库不保留合成测试资料。
 - 验证命令为 Docker `pg_isready`、逐迁移 `psql -v ON_ERROR_STOP=1` 及约束验收 SQL，均通过；随后 `npm run check`（37项测试）、`npm run db:check`（4个迁移）和 `git diff --check` 也通过。PostgreSQL 服务池真实接入、并发锁、恢复演练和 HTTP 监听仍未完成。
+
+## 2026-09-20 · DEV-006 PostgreSQL 连接池与真实账本验收
+
+- `apps/api/src/postgres-pool.ts`接入 `pg` 连接池，连接字符串只从 `DATABASE_URL` 或调用方注入；API 导出该工厂，未把凭据写入源码。新增 `apps/api/test/integration/postgres-live.test.mjs` 作为需要隔离数据库的显式集成检查，不并入默认无数据库测试套件。
+- 使用本地合成库运行 `DATABASE_URL=... npm run test:postgres --workspace @teaching-research-alliance/api`：首次账本事件写入 72,000 分，重复同载荷返回 `REPLAY`，事件/分录保持各 1 条，余额仍为 72,000 分；随后清理容器中的合成资料，事件、人员和账户计数均回到 0。
+- 实际验证：`npm run check` 37 项通过，真实 PostgreSQL 集成 1 项通过，`npm run db:check` 4 个迁移通过，`git diff --check`通过。仍未完成 HTTP 监听器、周费用与身份的 PostgreSQL 仓储、并发锁竞争、备份恢复及三端业务验收。
