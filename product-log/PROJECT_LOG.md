@@ -570,3 +570,10 @@
 
 - `apps/api/src/postgres-ledger-repository.ts`实现 `LedgerRepository` 的 PostgreSQL 适配边界：事务内执行 `BEGIN/COMMIT/ROLLBACK`，账本事件和分录使用参数化 SQL，账户代码映射到 `settlement_account`，余额投影使用单条原子增量更新；缺失账户映射会回滚整笔事务。
 - 新增模拟 PostgreSQL 客户端测试，验证 SQL 参数不拼接金额、成功提交和账户缺失回滚。`npm run check`通过，TypeScript构建与37项Node测试通过；本机没有 PostgreSQL/Docker，因此未宣称真实迁移、锁竞争和恢复演练完成。
+
+## 2026-09-20 · DEV-006 Docker 数据库门禁
+
+- Docker Desktop 已在用户目录安装并启动；使用本地 `postgres:16-alpine` 合成容器 `teaching-research-alliance-postgres`（仅映射 `localhost:55432`）建立全新数据库 `teaching_research_alliance`。未使用真实学校、教师、学生资料或生产凭据。
+- 按顺序执行 `database/migrations/0001_identity_accounts.sql` 至 `0004_ledger.sql` 成功，空库创建 23 张业务表；实际查询确认 `ledger_event_immutable`、`ledger_entry_immutable`、`weekly_fee_settlement_month_guard` 三个触发器存在。
+- 在事务内使用合成账户验证账本分录与余额投影为 10000 分；更新/删除账本事件或分录均被 `LEDGER_IMMUTABLE` 拒绝；错误结算月份被 `WEEKLY_FEE_SETTLEMENT_MONTH_MISMATCH` 拒绝；测试事务最终回滚，数据库不保留合成测试资料。
+- 验证命令为 Docker `pg_isready`、逐迁移 `psql -v ON_ERROR_STOP=1` 及约束验收 SQL，均通过；随后 `npm run check`（37项测试）、`npm run db:check`（4个迁移）和 `git diff --check` 也通过。PostgreSQL 服务池真实接入、并发锁、恢复演练和 HTTP 监听仍未完成。
