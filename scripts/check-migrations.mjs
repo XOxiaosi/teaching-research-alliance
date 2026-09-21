@@ -26,4 +26,8 @@ const ledgerMigration = await readFile(join(directory.pathname, "0004_ledger.sql
 for (const required of ["ledger_event", "ledger_entry", "account_balance_projection", "payload_hash", "ledger_event_immutable", "ledger_entry_immutable", "LEDGER_IMMUTABLE"]) {
   if (!ledgerMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
 }
+const weeklyFeeHistoryMigration = await readFile(join(directory.pathname, "0005_weekly_fee_history.sql"), "utf8");
+for (const required of ["weekly_fee_entry_version", "weekly_fee_idempotency", "weekly_fee_entry_version_snapshot", "snapshot_weekly_fee_entry_version", "status IN ('OPEN', 'LOCKED')"]) {
+  if (!weeklyFeeHistoryMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
+}
 console.log(`checked ${files.length} migration(s)`);

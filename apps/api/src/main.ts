@@ -13,3 +13,4 @@ export { createPostgresPool } from "./postgres-pool.js";
 export { createApiServer } from "./http-server.js";
 export { SettlementPostingService } from "./settlement-posting-service.js";
 export { PostgresIdentityRepository } from "./postgres-identity-repository.js";
+export { PostgresWeeklyFeeRepository } from "./postgres-weekly-fee-repository.js";
