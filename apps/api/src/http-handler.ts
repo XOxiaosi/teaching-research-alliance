@@ -53,6 +53,7 @@ export type ApiServices = Readonly<{
   }>;
   referrals?: Readonly<{
     create: (context: RoleContext, draft: ReferralCreationDraft, key: string, at: Date) => unknown | Promise<unknown>;
+    copy?: (context: RoleContext, sourceReferralId: string, draft: {receiverPersonId: string; courseContextId?: string; classType?: "ONE_TO_ONE" | "SMALL_GROUP"}, key: string, at: Date) => unknown | Promise<unknown>;
     listReceivingTeachers: (context: RoleContext) => unknown | Promise<unknown>;
   }>;
   sentReferrals?: Readonly<{
@@ -293,6 +294,20 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         studentDisplayName: requiredString(body,"studentDisplayName"),
         courseContextId: requiredString(body,"courseContextId"), classType
       }, requiredString(body,"idempotencyKey"), at));
+    }
+    const copyPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/copy$/);
+    if (request.method === "POST" && copyPath !== null) {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.referrals?.copy) throw new Error("REFERRAL_SERVICE_UNAVAILABLE");
+      const allowedFields = ["sessionId","receiverPersonId","courseContextId","classType","idempotencyKey"];
+      if (Object.keys(body).some(key => !allowedFields.includes(key))) throw new Error("INVALID_INPUT");
+      const classType = body.classType;
+      if (classType !== undefined && classType !== "ONE_TO_ONE" && classType !== "SMALL_GROUP") throw new Error("INVALID_INPUT");
+      return success(await services.referrals.copy(context, copyPath[1]!, {
+        receiverPersonId: requiredString(body,"receiverPersonId"),
+        ...(body.courseContextId === undefined ? {} : {courseContextId: requiredString(body,"courseContextId")}),
+        ...(classType === undefined ? {} : {classType})
+      },requiredString(body,"idempotencyKey"),at));
     }
     const lifecyclePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/(archive|reactivate)$/);
     if (request.method === "POST" && lifecyclePath !== null) {

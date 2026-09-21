@@ -76,6 +76,30 @@ export type ReferralCreationResult = Readonly<{
   replay: boolean;
 }>;
 
+/**
+ * Creates a new recommendation from an existing referral's student context.
+ * The server remains responsible for checking that the source belongs to the caller.
+ */
+export type ReferralCopyDraft = Readonly<{
+  sourceReferralId: string;
+  receiverPersonId: string;
+  courseContextId?: string;
+  classType?: ReferralClassType;
+}>;
+
+export type ReferralCopySubmission = Readonly<{
+  draft: ReferralCopyDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReferralCopyResult = Readonly<{
+  referralId: string;
+  studentRecordId: string;
+  version: number;
+  replay: boolean;
+  copiedFromReferralId: string;
+}>;
+
 /** The receiving teacher may optionally select an allowed venue when accepting a referral. */
 export type ReferralAcceptanceDraft = Readonly<{
   referralId: string;
@@ -193,7 +217,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -265,6 +289,15 @@ const validateReferralCreationDraft = (draft: ReferralCreationDraft): void => {
   requireNonBlank(draft.studentDisplayName, "studentDisplayName");
   requireNonBlank(draft.courseContextId, "courseContextId");
   if (draft.classType !== "ONE_TO_ONE" && draft.classType !== "SMALL_GROUP") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:classType");
+  }
+};
+
+const validateReferralCopyDraft = (draft: ReferralCopyDraft): void => {
+  requireNonBlank(draft.sourceReferralId, "sourceReferralId");
+  requireNonBlank(draft.receiverPersonId, "receiverPersonId");
+  if (draft.courseContextId !== undefined) requireNonBlank(draft.courseContextId, "courseContextId");
+  if (draft.classType !== undefined && draft.classType !== "ONE_TO_ONE" && draft.classType !== "SMALL_GROUP") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:classType");
   }
 };
@@ -433,6 +466,19 @@ export class TeacherApiClient {
     return submission;
   }
 
+  /** Omitted course or class fields keep the source recommendation's server-side values. */
+  public createReferralCopySubmission(draft: ReferralCopyDraft): ReferralCopySubmission {
+    validateReferralCopyDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({ ...draft });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   /**
    * Capture the active authentication generation with this immutable submission.
    * A retry is safe only while the same person and role generation remain active.
@@ -499,6 +545,31 @@ export class TeacherApiClient {
         ...submission.draft,
         idempotencyKey: submission.idempotencyKey
       });
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async copyReferral(submission: ReferralCopySubmission): Promise<ReferralCopyResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<ReferralCopyResult>(
+        "POST",
+        `/v1/referrals/${encodeURIComponent(submission.draft.sourceReferralId)}/copy`,
+        {
+          receiverPersonId: submission.draft.receiverPersonId,
+          ...(submission.draft.courseContextId === undefined ? {} : { courseContextId: submission.draft.courseContextId }),
+          ...(submission.draft.classType === undefined ? {} : { classType: submission.draft.classType }),
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;

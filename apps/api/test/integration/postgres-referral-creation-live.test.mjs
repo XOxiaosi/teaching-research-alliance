@@ -66,6 +66,17 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
     assert.ok(sent.every(item=>item.sourceSubject==='ACADEMIC_PLANNER'));
     assert.equal(sent.some(item=>item.referralId===direct.referralId),false);
     assert.equal((await fetch(`${url}/sent`)).status,401);
+    const copy=body=>fetch(`${url}/${result.referralId}/copy`,{method:'POST',headers:{authorization:'Bearer synthetic-referral-token','content-type':'application/json'},body:JSON.stringify(body)});
+    const copyDraft={receiverPersonId:teacher,courseContextId:'另一课程',idempotencyKey:'http-copy'};
+    for(const field of ['studentDisplayName','referrerPersonId','sourceSubject','campusId','status','venueId'])assert.equal((await copy({...copyDraft,[field]:'forged'})).status,400);
+    const copiedResponse=await copy(copyDraft);
+    assert.equal(copiedResponse.status,200);
+    const copied=(await copiedResponse.json()).data;
+    assert.equal(copied.copiedFromReferralId,result.referralId);
+    assert.notEqual(copied.referralId,result.referralId);
+    assert.notEqual(copied.studentRecordId,result.studentRecordId);
+    assert.equal((await (await copy(copyDraft)).json()).data.replay,true);
+    assert.equal((await copy({...copyDraft,courseContextId:draft.courseContextId,idempotencyKey:'same-target'})).status,400);
     const venueId=randomUUID();
     await pool.query("INSERT INTO venue(id,owner_person_id,name,status) VALUES ($1,$2,'HTTP合成场地','ACTIVE')",[venueId,teacher]);
     await pool.query("INSERT INTO settlement_account(owner_type,owner_id,account_code,status) VALUES ('VENUE',$1,$2,'ACTIVE')",[venueId,`venue:${venueId}`]);

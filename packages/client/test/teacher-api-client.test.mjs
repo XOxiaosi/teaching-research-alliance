@@ -404,6 +404,64 @@ test("推荐创建以冻结提交对象安全重试，同名再次提交使用�
   assert.deepEqual(Object.keys(requestBodies[0]).sort(), ["classType", "courseContextId", "idempotencyKey", "receiverPersonId", "studentDisplayName"]);
 });
 
+test("复制推荐冻结草稿、同键重试、可选字段白名单并拒绝跨会话提交", async () => {
+  const requests = [];
+  let loginRequests = 0;
+  let firstCopyAttempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => {
+      let index = 0;
+      return () => `copy-key-${++index}`;
+    })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        loginRequests += 1;
+        return success({ ...teacherSession("ACADEMIC_PLANNER"), sessionId: `session-${loginRequests}` });
+      }
+      if (request.path === "/v1/referrals/source-1/copy") {
+        requests.push(request);
+        firstCopyAttempts += 1;
+        if (firstCopyAttempts === 1) throw new Error("network uncertain");
+        return success({ referralId: "copy-1", studentRecordId: "student-1", version: 1, replay: true, copiedFromReferralId: "source-1" });
+      }
+      if (request.path === "/v1/referrals/source-2/copy") {
+        requests.push(request);
+        return success({ referralId: "copy-2", studentRecordId: "student-2", version: 1, replay: false, copiedFromReferralId: "source-2" });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const sourceOnly = client.createReferralCopySubmission({
+    sourceReferralId: "source-1", receiverPersonId: "teacher-2", actorPersonId: "forged", referralStatus: "ARCHIVED"
+  });
+  assert.equal(Object.isFrozen(sourceOnly), true);
+  assert.equal(Object.isFrozen(sourceOnly.draft), true);
+  assert.throws(() => { sourceOnly.draft.receiverPersonId = "teacher-3"; }, TypeError);
+  await assert.rejects(client.copyReferral(sourceOnly), /network uncertain/);
+  assert.equal(client.submissionStatus(sourceOnly), "FAILED");
+  assert.equal((await client.copyReferral(sourceOnly)).copiedFromReferralId, "source-1");
+  assert.deepEqual(requests.slice(0, 2).map((request) => request.body.idempotencyKey), ["copy-key-1", "copy-key-1"]);
+  assert.deepEqual(Object.keys(requests[0].body).sort(), ["idempotencyKey", "receiverPersonId"]);
+  assert.equal(requests[0].body.actorPersonId, undefined);
+  assert.equal(requests[0].body.referralStatus, undefined);
+
+  const detailed = client.createReferralCopySubmission({
+    sourceReferralId: "source-2", receiverPersonId: "teacher-3", courseContextId: "数学", classType: "SMALL_GROUP"
+  });
+  assert.equal((await client.copyReferral(detailed)).referralId, "copy-2");
+  assert.deepEqual(Object.keys(requests[2].body).sort(), ["classType", "courseContextId", "idempotencyKey", "receiverPersonId"]);
+
+  const stale = client.createReferralCopySubmission({ sourceReferralId: "source-1", receiverPersonId: "teacher-2" });
+  client.logout();
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.copyReferral(stale), StaleResponseError);
+  assert.equal(requests.length, 3);
+  assert.equal(client.submissionStatus(stale), "FAILED");
+  assert.throws(() => client.createReferralCopySubmission({ sourceReferralId: "", receiverPersonId: "teacher-2" }), ApiClientError);
+  assert.throws(() => client.createReferralCopySubmission({ sourceReferralId: "source-1", receiverPersonId: "", classType: "UNKNOWN" }), ApiClientError);
+});
+
 test("退出后在途推荐创建不能写回当前会话", async () => {
   const creating = deferred();
   const client = new TeacherApiClient({
