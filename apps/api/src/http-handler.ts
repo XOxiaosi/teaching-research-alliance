@@ -49,6 +49,10 @@ export type ApiServices = Readonly<{
     getOwnOverview: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listAvailableVenues: (context: RoleContext) => unknown | Promise<unknown>;
   }>;
+  teaching?: Readonly<{
+    listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+  }>;
   now: () => Date;
 }>;
 
@@ -192,22 +196,35 @@ const ratePolicyDraft = (body: Record<string, unknown>): RatePolicyDraft => {
 
 export const handleRequest = async (request: ApiRequest, services: ApiServices): Promise<ApiResponse> => {
   try {
+    const at = services.now();
     const parsedBody = objectBody(request.body);
     const body = request.sessionId === undefined ? parsedBody : { ...parsedBody, sessionId: request.sessionId };
+    if (request.method === "GET" && request.path === "/v1/session") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      return success(sessionData(await services.sessions.get(sessionIdFrom(body), at)));
+    }
+    if (request.method === "GET" && ["/v1/teaching/referrals", "/v1/teaching/weeks"].includes(request.path)) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.teaching) throw new Error("TEACHING_SERVICE_UNAVAILABLE");
+      return success(request.path === "/v1/teaching/referrals"
+        ? await services.teaching.listReceivedReferrals(context, at)
+        : await services.teaching.listOpenTeachingWeeks(context, at));
+    }
     if (request.method === "GET" && (request.path === "/v1/me" || request.path === "/v1/venues/available")) {
       if (typeof body.sessionId !== "string" || body.sessionId.trim() === "") throw new Error("UNAUTHENTICATED");
-      const session = await services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), at);
       const context = currentContext(session);
       if (services.personal === undefined) throw new Error("PERSONAL_SERVICE_UNAVAILABLE");
       return success(request.path === "/v1/me"
-        ? await services.personal.getOwnOverview(context, services.now())
+        ? await services.personal.getOwnOverview(context, at)
         : await services.personal.listAvailableVenues(context));
     }
     if (request.method === "POST" && request.path === "/v1/session") {
       const view = await services.sessions.login(
         requiredString(body, "phoneNormalized"),
         requiredString(body, services.sessions.credentialField ?? "credentialDigest"),
-        services.now()
+        at
       );
       return success(sessionData(view));
     }
@@ -215,32 +232,32 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       const view = await services.sessions.switchRole(
         sessionIdFrom(body),
         subjectFrom(requiredString(body, "subject")),
-        services.now()
+        at
       );
       return success(sessionData(view));
     }
     if (request.method === "POST" && request.path === "/v1/admin/rates/preview") {
       if (services.ratePolicies === undefined) throw new Error("RATE_POLICY_SERVICE_UNAVAILABLE");
-      const session = await services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), at);
       return success(services.ratePolicies.preview(currentContext(session).subject, ratePolicyDraft(body)));
     }
     if (request.method === "POST" && request.path === "/v1/admin/rates/publish") {
       if (services.ratePolicies === undefined) throw new Error("RATE_POLICY_SERVICE_UNAVAILABLE");
-      const session = await services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), at);
       return success(services.ratePolicies.publish(currentContext(session).subject, requiredString(body, "previewId")));
     }
     const acceptPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/accept$/);
     if (request.method === "POST" && acceptPath !== null) {
       const referralId = acceptPath[1];
       if (referralId === undefined || referralId.trim() === "") throw new Error("INVALID_INPUT:referralId");
-      const session = await services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), at);
       return success(await services.weeklyFees.acceptReferral(currentContext(session), referralId));
     }
     const weeklyFeePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/weekly-fees$/);
     if (request.method === "POST" && weeklyFeePath !== null) {
       const referralCaseId = weeklyFeePath[1];
       if (referralCaseId === undefined || referralCaseId.trim() === "") throw new Error("INVALID_INPUT:referralCaseId");
-      const session = await services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), at);
       const idempotencyKey = requiredString(body, "idempotencyKey");
       return success(await services.weeklyFees.recordWeeklyFee(
         currentContext(session),

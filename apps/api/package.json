@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test:postgres": "node --test test/integration/*-live.test.mjs"
+    "test:postgres": "node --test test/integration/*-live.test.mjs",
+    "start": "node dist/start.js"
   },
   "dependencies": {
     "@teaching-research-alliance/contracts": "0.1.0",

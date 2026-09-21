@@ -299,3 +299,29 @@ test("个人读取使用稳定404错误码，未装配服务返回500且不泄�
   assert.equal(result.status, 500);
   assert.deepEqual(result.body.error, {code: "INTERNAL_ERROR", message: "INTERNAL_ERROR"});
  });
+
+test("teaching reads and session restore use authenticated actor and trusted clock", async () => {
+  const context = { subject: "TEACHING_TEACHER", personId: "teacher-authenticated" };
+  const view = { sessionId: "token", personId: context.personId, accountId: "account", currentRoleContext: context, roleContexts: [context] };
+  const calls = [];
+  let clockReads = 0;
+  const services = {
+    sessions: {get(token, at) { assert.equal(token, "token"); assert.equal(at, now); return view; }},
+    weeklyFees: {},
+    teaching: {
+      listReceivedReferrals(actor, at) { calls.push([actor, at]); return [{referralId: "own-referral"}]; },
+      listOpenTeachingWeeks(actor, at) { calls.push([actor, at]); return [{weekId: "open-week"}]; }
+    }, now: () => { clockReads++; return now; }
+  };
+  for (const path of ["/v1/teaching/referrals", "/v1/teaching/weeks"]) {
+    const before = clockReads;
+    const result = await handleRequest({method: "GET", path, sessionId: "token", body: {personId: "another-person", sessionId: "forged"}}, services);
+    assert.equal(result.status, 200);
+    assert.deepEqual(calls.at(-1), [context, now]);
+    assert.equal(clockReads-before, 1);
+    const missing = await handleRequest({method: "GET", path, body: {}}, services);
+    assert.equal(missing.status, 401);
+  }
+  const restored = await handleRequest({method: "GET", path: "/v1/session", sessionId: "token", body: {}}, services);
+  assert.deepEqual(restored.body.data.currentRoleContext, context);
+});
