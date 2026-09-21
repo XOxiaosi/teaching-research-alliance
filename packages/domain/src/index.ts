@@ -41,6 +41,41 @@ export const allocateCents = (total: Cents, inputs: readonly AllocationInput[]):
 export const sumCents = (lines: readonly AllocationLine[]): Cents =>
   lines.reduce((sum, line) => sum + line.cents, 0n);
 
+export type RationalAllocationInput = Readonly<{
+  key: string;
+  numerator: bigint;
+}>;
+
+/** 统一分母的精确分配，供动态介绍池等非整数基点比例延迟到最终分币。 */
+export const allocateRationalCents = (
+  total: Cents,
+  denominator: bigint,
+  inputs: readonly RationalAllocationInput[]
+): readonly AllocationLine[] => {
+  if (total < 0n || denominator <= 0n) throw new Error("INVALID_RATIONAL_ALLOCATION");
+  const totalNumerator = inputs.reduce((sum, item) => sum + item.numerator, 0n);
+  if (inputs.some((item) => item.numerator < 0n) || totalNumerator !== denominator) {
+    throw new Error("INVALID_RATIONAL_ALLOCATION");
+  }
+  const exactNumerators = inputs.map((item) => total * item.numerator);
+  const floors = exactNumerators.map((numerator) => numerator / denominator);
+  let remainder = total - floors.reduce((sum, value) => sum + value, 0n);
+  const order = exactNumerators
+    .map((numerator, index) => ({ index, remainder: numerator % denominator }))
+    .sort((left, right) => {
+      if (left.remainder === right.remainder) return left.index - right.index;
+      return left.remainder > right.remainder ? -1 : 1;
+    });
+  const result = [...floors];
+  for (const item of order) {
+    if (remainder === 0n) break;
+    result[item.index] = (result[item.index] ?? 0n) + 1n;
+    remainder -= 1n;
+  }
+  return inputs.map((item, index) => ({ key: item.key, cents: result[index] ?? 0n }));
+};
+
 export * from "./rates.js";
 export * from "./identity.js";
 export * from "./weekly-fee.js";
+export * from "./settlement.js";
