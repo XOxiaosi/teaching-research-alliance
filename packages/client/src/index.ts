@@ -205,6 +205,14 @@ export class TeacherApiClient {
   }
 
   /** Local-only sign-out. The current server contract has no logout endpoint, so it does not revoke a server session. */
+  public async endSession(): Promise<void> {
+    const token = this.session?.sessionId;
+    this.clearSessionState();
+    if (!token) return;
+    const response = await this.options.transport({method:"POST",path:"/v1/session/logout",headers:{authorization:`Bearer ${token}`}});
+    this.readResponse(response);
+  }
+
   public logout(): void {
     this.clearSessionState();
   }

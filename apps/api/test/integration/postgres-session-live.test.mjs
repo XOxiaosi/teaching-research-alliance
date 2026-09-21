@@ -79,6 +79,12 @@ test("数据库密码登录、重启续用、职责变化、密码重置和离�
       assert.equal((await me.json()).data.personId, personId);
       const wrong = await fetch(`${base}/v1/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phoneNormalized: "13800000001", password: "bad" }) });
       assert.equal(wrong.status, 401);
+      for (let attempt=0; attempt<2; attempt++) {
+        const logout = await fetch(`${base}/v1/session/logout`, {method:"POST",headers:{authorization:`Bearer ${data.sessionId}`}});
+        assert.equal(logout.status, 200);
+      }
+      const ended = await fetch(`${base}/v1/me`, {headers:{authorization:`Bearer ${data.sessionId}`}});
+      assert.equal(ended.status, 401);
     } finally { await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
   } finally { await database.close(); }
 });

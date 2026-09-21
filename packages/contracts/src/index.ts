@@ -153,6 +153,7 @@ export type EndpointContract = Readonly<{
 }>;
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
+  { method: "POST", path: "/v1/session/logout", action: "VIEW_OWN_PROFILE", responseVersion: "session-logout.v1", requiresRoleContext: false },
   { method: "GET", path: "/v1/session", action: "VIEW_OWN_PROFILE", responseVersion: "session.v1", requiresRoleContext: false },
   { method: "GET", path: "/v1/teaching/referrals", action: "CREATE_WEEKLY_FEE", responseVersion: "received-referrals.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/teaching/weeks", action: "CREATE_WEEKLY_FEE", responseVersion: "teaching-weeks.v1", requiresRoleContext: true },

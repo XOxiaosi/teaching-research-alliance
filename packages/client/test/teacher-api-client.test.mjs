@@ -164,3 +164,15 @@ test("金额和版本在客户端校验，401清会话，403返回角色选择",
   await assert.rejects(client.getMe(), RoleSelectionRequiredError);
   assert.equal(client.currentSession?.currentRoleContext, null);
 });
+
+test("server sign-out clears local state even if the logout request fails", async () => {
+  const client = new TeacherApiClient({transport:async request => {
+    if(request.path==='/v1/session') return success(teacherSession());
+    assert.equal(request.path,'/v1/session/logout');
+    assert.equal(request.headers.authorization,'Bearer session-1');
+    throw new Error('network');
+  }});
+  await client.login({phoneNormalized:'13800000000',password:'password'});
+  await assert.rejects(client.endSession(), /network/);
+  assert.equal(client.currentSession,null);
+});

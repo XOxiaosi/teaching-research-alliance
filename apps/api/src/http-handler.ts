@@ -36,6 +36,7 @@ export type WeeklyFeeApiService = Readonly<{
 
 export type SessionApiService = Readonly<{
   credentialField?: "password";
+  logout?: (sessionId: string) => void | Promise<void>;
   login: (phone: string, credential: string, at: Date) => SessionView | Promise<SessionView>;
   get: (sessionId: string, at: Date) => SessionView | Promise<SessionView>;
   switchRole: (sessionId: string, subject: PermissionSubject, at: Date) => SessionView | Promise<SessionView>;
@@ -199,6 +200,12 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
     const at = services.now();
     const parsedBody = objectBody(request.body);
     const body = request.sessionId === undefined ? parsedBody : { ...parsedBody, sessionId: request.sessionId };
+    if (request.method === "POST" && request.path === "/v1/session/logout") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (!services.sessions.logout) throw new Error("SESSION_LOGOUT_UNAVAILABLE");
+      await services.sessions.logout(sessionIdFrom(body));
+      return success({ loggedOut: true });
+    }
     if (request.method === "GET" && request.path === "/v1/session") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       return success(sessionData(await services.sessions.get(sessionIdFrom(body), at)));

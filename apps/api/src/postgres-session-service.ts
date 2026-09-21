@@ -206,6 +206,13 @@ export class PostgresSessionService {
     });
   }
 
+  public async logout(token: string): Promise<void> {
+    if (!token.trim()) return unauthenticated();
+    await this.transaction(async (client) => {
+      await client.query("DELETE FROM user_session WHERE token_hash=$1", [tokenHash(token)]);
+    });
+  }
+
   public async switchRole(token: string, subject: PermissionSubject, at: Date): Promise<SessionView> {
     assertValidDate(at);
     if (token.trim() === "") return unauthenticated();
