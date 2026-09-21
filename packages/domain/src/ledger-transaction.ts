@@ -10,10 +10,10 @@ export type LedgerEventRecord = Readonly<{
 }>;
 
 export type LedgerTransaction = Readonly<{
-  findEvent: (eventKey: string) => LedgerEventRecord | undefined;
-  insertEvent: (event: LedgerEventRecord) => void;
-  getBalance: (accountKey: string) => Cents;
-  applyBalance: (accountKey: string, amountCents: Cents) => void;
+  findEvent: (eventKey: string) => Promise<LedgerEventRecord | undefined>;
+  insertEvent: (event: LedgerEventRecord) => Promise<void>;
+  getBalance: (accountKey: string) => Promise<Cents>;
+  applyBalance: (accountKey: string, amountCents: Cents) => Promise<void>;
 }>;
 
 export type LedgerRepository = Readonly<{
@@ -81,7 +81,7 @@ export const postLedgerEvent = async (
   if (deltas.length === 0) throw new Error("LEDGER_EMPTY_EVENT");
 
   return repository.transaction(async (transaction) => {
-    const existing = transaction.findEvent(command.eventKey);
+    const existing = await transaction.findEvent(command.eventKey);
     const candidate: LedgerEventRecord = {
       eventId: existing?.eventId ?? eventIdFactory(),
       eventKey: command.eventKey,
@@ -94,15 +94,15 @@ export const postLedgerEvent = async (
         throw new Error("LEDGER_EVENT_CONFLICT");
       }
       const balances: Record<string, Cents> = {};
-      for (const delta of existing.deltas) balances[delta.accountKey] = transaction.getBalance(delta.accountKey);
+      for (const delta of existing.deltas) balances[delta.accountKey] = await transaction.getBalance(delta.accountKey);
       return { status: "REPLAY", event: existing, balances };
     }
 
-    transaction.insertEvent(candidate);
+    await transaction.insertEvent(candidate);
     const balances: Record<string, Cents> = {};
     for (const delta of deltas) {
-      transaction.applyBalance(delta.accountKey, delta.amountCents);
-      balances[delta.accountKey] = transaction.getBalance(delta.accountKey);
+      await transaction.applyBalance(delta.accountKey, delta.amountCents);
+      balances[delta.accountKey] = await transaction.getBalance(delta.accountKey);
     }
     return { status: "POSTED", event: candidate, balances };
   });
@@ -116,13 +116,13 @@ export class MemoryLedgerRepository implements LedgerRepository {
     const events = new Map(this.events);
     const balances = new Map(this.balances);
     const transaction: LedgerTransaction = {
-      findEvent: (eventKey) => events.get(eventKey),
-      insertEvent: (event) => {
+      findEvent: async (eventKey) => events.get(eventKey),
+      insertEvent: async (event) => {
         if (events.has(event.eventKey)) throw new Error("LEDGER_EVENT_CONFLICT");
         events.set(event.eventKey, event);
       },
-      getBalance: (accountKey) => balances.get(accountKey) ?? 0n,
-      applyBalance: (accountKey, amountCents) => balances.set(accountKey, (balances.get(accountKey) ?? 0n) + amountCents)
+      getBalance: async (accountKey) => balances.get(accountKey) ?? 0n,
+      applyBalance: async (accountKey, amountCents) => { balances.set(accountKey, (balances.get(accountKey) ?? 0n) + amountCents); }
     };
     const result = await work(transaction);
     this.events = events;

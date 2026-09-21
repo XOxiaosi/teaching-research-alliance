@@ -48,14 +48,14 @@ test("事务失败时回滚已写入的事件和余额", async () => {
   const repository = new MemoryLedgerRepository();
   await assert.rejects(
     () => repository.transaction(async (transaction) => {
-      transaction.insertEvent({
+      await transaction.insertEvent({
         eventId: "event-rollback",
         eventKey: "rollback",
         eventType: "TEST",
         payloadHash: "hash",
         deltas: [delta("person-teacher", "test", 1n)]
       });
-      transaction.applyBalance("person-teacher", 1n);
+      await transaction.applyBalance("person-teacher", 1n);
       throw new Error("FORCE_ROLLBACK");
     }),
     /FORCE_ROLLBACK/
