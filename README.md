@@ -2,7 +2,7 @@
 
 教研联盟管理平台的独立项目仓库，用于持续管理产品需求、源代码和开发记录。
 
-GitHub 私有仓库：[XOxiaosi/teaching-research-alliance](https://github.com/XOxiaosi/teaching-research-alliance)。
+GitHub 公开仓库：[XOxiaosi/teaching-research-alliance](https://github.com/XOxiaosi/teaching-research-alliance)。
 
 ## 当前状态
 
