@@ -636,6 +636,92 @@ test("附件预留校验文件元数据，并在角色变化后拒绝旧提交�
   }
 });
 
+test("文档附件列表保留槽、版本和绑定元数据，并在角色切换后作废旧响应", async () => {
+  const pending = deferred();
+  let requests = 0;
+  const documentAttachments = {
+    documentId: "draft-1",
+    attachments: [{
+      attachmentId: "attachment-1", purpose: "SUPPORTING_DOCUMENT", createdAt: "2026-09-21T00:00:00.000Z",
+      versions: [{
+        versionId: "version-2", versionNo: 2, status: "READY", originalFilename: "更正凭证.pdf",
+        declaredMediaType: "application/pdf", declaredSizeBytes: 42, expectedSha256: "a".repeat(64),
+        createdAt: "2026-09-21T01:00:00.000Z",
+        binding: { stage: "SUBMISSION", documentVersion: 2, boundAt: "2026-09-21T02:00:00.000Z" }
+      }]
+    }]
+  };
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/finance/documents/draft-1/attachments") {
+        requests += 1;
+        return requests === 1 ? pending.promise : success(documentAttachments);
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const oldRead = client.listFinanceDocumentAttachments("draft-1");
+  await client.switchRole("ACADEMIC_PLANNER");
+  pending.resolve(success(documentAttachments));
+  await assert.rejects(oldRead, StaleResponseError);
+  assert.deepEqual(await client.listFinanceDocumentAttachments("draft-1"), documentAttachments);
+  await assert.rejects(client.listFinanceDocumentAttachments(""), ApiClientError);
+});
+
+test("同槽附件版本冻结并以同一键重试，只发送版本元数据白名单", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const reservation = {
+    attachmentId: "attachment-1", versionId: "version-2", versionNo: 2, status: "UPLOADING",
+    purpose: "SUPPORTING_DOCUMENT", originalFilename: "更正凭证.pdf", declaredMediaType: "application/pdf",
+    declaredSizeBytes: 42, expectedSha256: "a".repeat(64), createdAt: "2026-09-21T00:00:00.000Z", replay: true
+  };
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "attachment-version-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/finance/attachments/attachment-1/versions") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success(reservation);
+      }
+      if (request.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createFinanceAttachmentVersionSubmission({
+    attachmentId: "attachment-1", originalFilename: "更正凭证.pdf", declaredMediaType: "application/pdf",
+    declaredSizeBytes: 42, expectedSha256: "a".repeat(64), documentId: "forged", purpose: "PAYMENT_RECEIPT", status: "READY"
+  });
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.throws(() => { submission.draft.attachmentId = "other"; }, TypeError);
+  await assert.rejects(client.reserveFinanceAttachmentVersion(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.reserveFinanceAttachmentVersion(submission), reservation);
+  assert.deepEqual(bodies.map((body) => body.idempotencyKey), ["attachment-version-key-1", "attachment-version-key-1"]);
+  assert.deepEqual(Object.keys(bodies[0]).sort(), [
+    "declaredMediaType", "declaredSizeBytes", "expectedSha256", "idempotencyKey", "originalFilename"
+  ]);
+  assert.equal(bodies[0].documentId, undefined);
+  assert.equal(bodies[0].purpose, undefined);
+
+  const stale = client.createFinanceAttachmentVersionSubmission({
+    attachmentId: "attachment-1", originalFilename: "再次更正.pdf", declaredMediaType: "application/pdf", declaredSizeBytes: 42
+  });
+  await client.switchRole("ACADEMIC_PLANNER");
+  await assert.rejects(client.reserveFinanceAttachmentVersion(stale), StaleResponseError);
+  assert.equal(attempts, 2);
+  assert.throws(() => client.createFinanceAttachmentVersionSubmission({
+    attachmentId: "", originalFilename: "x.pdf", declaredMediaType: "application/pdf", declaredSizeBytes: 1
+  }), ApiClientError);
+});
+
 test("附件预留的401清会话，403清角色上下文", async () => {
   let loginCount = 0;
   const client = new TeacherApiClient({

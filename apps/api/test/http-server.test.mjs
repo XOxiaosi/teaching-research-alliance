@@ -174,7 +174,9 @@ test('未配置财务存储或密钥时明确不可用，不伪造上传或提�
   for(const [path,method,body,type] of [
    ['/v1/finance/attachment-uploads/version/content','POST',Buffer.from('test'),'application/octet-stream'],
    ['/v1/finance/attachments/version/content','GET',undefined,undefined],
-   ['/v1/finance/drafts/document/withdrawal-submit','POST','{}','application/json']
+   ['/v1/finance/drafts/document/withdrawal-submit','POST','{}','application/json'],
+   ['/v1/finance/attachments/attachment/versions','POST','{}','application/json'],
+   ['/v1/finance/documents/document/attachments','GET',undefined,undefined]
   ]){
    const response=await fetch(baseUrl+path,{method,headers:{...headers,...(type?{'content-type':type}:{})},...(body===undefined?{}:{body})});
    assert.equal(response.status,503);assert.equal(response.headers.get('cache-control'),'private, no-store');

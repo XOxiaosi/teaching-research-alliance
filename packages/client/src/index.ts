@@ -229,6 +229,51 @@ export type FinanceAttachmentVersionMetadata = Readonly<{
   createdAt: string;
 }>;
 
+export type FinanceAttachmentBinding = Readonly<{
+  stage: "SUBMISSION" | "COMPLETION";
+  documentVersion: number;
+  boundAt: string;
+}>;
+
+/** Version history is grouped by its immutable attachment slot. */
+export type FinanceDocumentAttachmentVersion = Readonly<{
+  versionId: string;
+  versionNo: number;
+  status: "UPLOADING" | "READY" | "FAILED";
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+  createdAt: string;
+  binding?: FinanceAttachmentBinding;
+}>;
+
+export type FinanceDocumentAttachment = Readonly<{
+  attachmentId: string;
+  purpose: FinanceAttachmentPurpose;
+  createdAt: string;
+  versions: readonly FinanceDocumentAttachmentVersion[];
+}>;
+
+export type FinanceDocumentAttachments = Readonly<{
+  documentId: string;
+  attachments: readonly FinanceDocumentAttachment[];
+}>;
+
+/** Adds a new immutable version within an existing attachment slot. */
+export type FinanceAttachmentVersionDraft = Readonly<{
+  attachmentId: string;
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+}>;
+
+export type FinanceAttachmentVersionSubmission = Readonly<{
+  draft: FinanceAttachmentVersionDraft;
+  idempotencyKey: string;
+}>;
+
 export type WithdrawalStatus = "PENDING_TRANSFER" | "TRANSFERRED" | "FINANCE_REVOKED";
 export type WithdrawalSourceType = "PERSON" | "VENUE";
 
@@ -392,7 +437,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -524,11 +569,12 @@ const utf8ByteLength = (value: string): number => {
   return length;
 };
 
-const validateFinanceAttachmentDraft = (draft: FinanceAttachmentReservationDraft): void => {
-  requireNonBlank(draft.documentId, "documentId");
-  if (!(FINANCE_ATTACHMENT_PURPOSES as readonly string[]).includes(draft.purpose)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:purpose");
-  }
+const validateFinanceAttachmentVersionFields = (draft: Readonly<{
+  originalFilename: string;
+  declaredMediaType: FinanceAttachmentMediaType;
+  declaredSizeBytes: number;
+  expectedSha256?: string;
+}>): void => {
   requireNonBlank(draft.originalFilename, "originalFilename");
   if (utf8ByteLength(draft.originalFilename) > 255 || /[\x00-\x1f\x7f/\\]/.test(draft.originalFilename)) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:originalFilename");
@@ -542,6 +588,19 @@ const validateFinanceAttachmentDraft = (draft: FinanceAttachmentReservationDraft
   if (draft.expectedSha256 !== undefined && !/^[0-9a-f]{64}$/.test(draft.expectedSha256)) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedSha256");
   }
+};
+
+const validateFinanceAttachmentDraft = (draft: FinanceAttachmentReservationDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  if (!(FINANCE_ATTACHMENT_PURPOSES as readonly string[]).includes(draft.purpose)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:purpose");
+  }
+  validateFinanceAttachmentVersionFields(draft);
+};
+
+const validateFinanceAttachmentVersionDraft = (draft: FinanceAttachmentVersionDraft): void => {
+  requireNonBlank(draft.attachmentId, "attachmentId");
+  validateFinanceAttachmentVersionFields(draft);
 };
 
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
@@ -739,6 +798,14 @@ export class TeacherApiClient {
     );
   }
 
+  public async listFinanceDocumentAttachments(documentId: string): Promise<FinanceDocumentAttachments> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<FinanceDocumentAttachments>(
+      "GET",
+      `/v1/finance/documents/${encodeURIComponent(documentId)}/attachments`
+    );
+  }
+
   public async listWithdrawalSources(): Promise<readonly WithdrawalSource[]> {
     return this.authenticatedRequest<readonly WithdrawalSource[]>("GET", "/v1/finance/withdrawals/sources");
   }
@@ -861,6 +928,27 @@ export class TeacherApiClient {
     const frozenDraft = Object.freeze({
       documentId: draft.documentId,
       purpose: draft.purpose,
+      originalFilename: draft.originalFilename,
+      declaredMediaType: draft.declaredMediaType,
+      declaredSizeBytes: draft.declaredSizeBytes,
+      ...(draft.expectedSha256 === undefined ? {} : { expectedSha256: draft.expectedSha256 })
+    });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Keep the slot identity and immutable file metadata together for an uncertain version-reservation retry. */
+  public createFinanceAttachmentVersionSubmission(
+    draft: FinanceAttachmentVersionDraft
+  ): FinanceAttachmentVersionSubmission {
+    validateFinanceAttachmentVersionDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({
+      attachmentId: draft.attachmentId,
       originalFilename: draft.originalFilename,
       declaredMediaType: draft.declaredMediaType,
       declaredSizeBytes: draft.declaredSizeBytes,
@@ -1078,6 +1166,34 @@ export class TeacherApiClient {
         `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/attachment-uploads`,
         {
           purpose: submission.draft.purpose,
+          originalFilename: submission.draft.originalFilename,
+          declaredMediaType: submission.draft.declaredMediaType,
+          declaredSizeBytes: submission.draft.declaredSizeBytes,
+          ...(submission.draft.expectedSha256 === undefined ? {} : { expectedSha256: submission.draft.expectedSha256 }),
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async reserveFinanceAttachmentVersion(
+    submission: FinanceAttachmentVersionSubmission
+  ): Promise<FinanceAttachmentReservation> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<FinanceAttachmentReservation>(
+        "POST",
+        `/v1/finance/attachments/${encodeURIComponent(submission.draft.attachmentId)}/versions`,
+        {
           originalFilename: submission.draft.originalFilename,
           declaredMediaType: submission.draft.declaredMediaType,
           declaredSizeBytes: submission.draft.declaredSizeBytes,

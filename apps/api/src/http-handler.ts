@@ -75,6 +75,8 @@ export type ApiServices = Readonly<{
   financeAttachments?: Readonly<{
     reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     getOwnVersion: (context: RoleContext, versionId: string, at: Date) => unknown | Promise<unknown>;
+    reserveNextVersion?: (context: RoleContext, attachmentId: string, draft: Omit<FinanceAttachmentReservationDraft, "purpose">, key: string, at: Date) => unknown | Promise<unknown>;
+    listDocument?: (context: RoleContext, documentId: string, at: Date) => unknown | Promise<unknown>;
   }>;
   financeAttachmentUploads?: Readonly<{
     upload: (context: RoleContext, versionId: string, chunks: AsyncIterable<Uint8Array>, at: Date) => unknown | Promise<unknown>;
@@ -400,6 +402,27 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         purpose,originalFilename:requiredString(body,"originalFilename"),declaredMediaType,declaredSizeBytes,
         ...(body.expectedSha256===undefined?{}:{expectedSha256:requiredString(body,"expectedSha256")})
       },requiredString(body,"idempotencyKey"),at));
+    }
+    const attachmentVersionPath=request.path.match(/^\/v1\/finance\/attachments\/([^/]+)\/versions$/);
+    if(attachmentVersionPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.financeAttachments?.reserveNextVersion)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","originalFilename","declaredMediaType","declaredSizeBytes","expectedSha256","idempotencyKey"].includes(key)))throw new Error("INVALID_INPUT");
+      const declaredMediaType=requiredString(body,"declaredMediaType"),declaredSizeBytes=body.declaredSizeBytes;
+      if((declaredMediaType!=="application/pdf"&&declaredMediaType!=="image/png"&&declaredMediaType!=="image/jpeg")
+        ||typeof declaredSizeBytes!=="number"||!Number.isSafeInteger(declaredSizeBytes)||declaredSizeBytes<1)throw new Error("INVALID_INPUT");
+      return success(await services.financeAttachments.reserveNextVersion(context,attachmentVersionPath[1]!,{
+        originalFilename:requiredString(body,"originalFilename"),declaredMediaType,declaredSizeBytes,
+        ...(body.expectedSha256===undefined?{}:{expectedSha256:requiredString(body,"expectedSha256")})
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const documentAttachmentsPath=request.path.match(/^\/v1\/finance\/documents\/([^/]+)\/attachments$/);
+    if(documentAttachmentsPath!==null&&request.method==="GET"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.financeAttachments?.listDocument)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      return success(await services.financeAttachments.listDocument(context,documentAttachmentsPath[1]!,at));
     }
     const attachmentMetadataPath=request.path.match(/^\/v1\/finance\/attachment-uploads\/([^/]+)$/);
     if(attachmentMetadataPath!==null&&request.method==="GET"){
