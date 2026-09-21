@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SessionService, WeeklyFeeService, handleRequest } from "../dist/main.js";
+import { DEFAULT_RATE_POLICY_VALUES, RatePolicyService } from "@teaching-research-alliance/domain";
 
 const now = new Date("2026-09-20T10:00:00.000Z");
 const teacherContext = { subject: "TEACHING_TEACHER", personId: "teacher-1" };
@@ -159,4 +160,44 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", () =
   const missing = handleRequest({ method: "GET", path: "/v1/unknown", body: {} }, services);
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error?.code, "NOT_FOUND");
+});
+
+test("管理员费率预览与发布通过HTTP边界保留版本", () => {
+  const sessions = new SessionService({
+    accounts: [{ accountId: "admin-account", personId: "admin-1", phoneNormalized: "13900000000", credentialDigest: "admin-digest", status: "ACTIVE" }],
+    assignments: [{ personId: "admin-1", subject: "SYSTEM_ADMIN", scope: "GLOBAL", validFrom: new Date("2026-01-01") }],
+    sessionIdFactory: () => "admin-session"
+  });
+  const ratePolicies = new RatePolicyService({ previewIdFactory: () => "http-rate-preview", now: () => "2026-09-20T10:00:00.000Z" });
+  const services = {
+    sessions,
+    weeklyFees: new WeeklyFeeService({ referrals: [], teachingWeeks: [], venues: [] }),
+    ratePolicies,
+    now: () => now
+  };
+  const login = handleRequest({ method: "POST", path: "/v1/session", body: { phoneNormalized: "13900000000", credentialDigest: "admin-digest" } }, services);
+  assert.equal(login.status, 200);
+  const switched = handleRequest({ method: "POST", path: "/v1/role-contexts/switch", body: { sessionId: "admin-session", subject: "SYSTEM_ADMIN" } }, services);
+  assert.equal(switched.status, 200);
+  const preview = handleRequest({
+    method: "POST",
+    path: "/v1/admin/rates/preview",
+    body: {
+      sessionId: "admin-session",
+      ...Object.fromEntries(Object.entries(DEFAULT_RATE_POLICY_VALUES).filter(([key]) => key !== "dynamicTiers").map(([key, value]) => [key, value.toString()])),
+      dynamicTiers: DEFAULT_RATE_POLICY_VALUES.dynamicTiers.map((tier) => ({
+        label: tier.label,
+        adjustmentBasisPoints: tier.adjustmentBasisPoints.toString(),
+        ...(tier.minExclusive === undefined ? {} : { minExclusive: tier.minExclusive.toString() }),
+        ...(tier.maxInclusive === undefined ? {} : { maxInclusive: tier.maxInclusive.toString() })
+      })),
+      effectiveFrom: "2026-09-01",
+      reason: "HTTP费率发布测试"
+    }
+  }, services);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.data?.previewId, "http-rate-preview");
+  const published = handleRequest({ method: "POST", path: "/v1/admin/rates/publish", body: { sessionId: "admin-session", previewId: "http-rate-preview" } }, services);
+  assert.equal(published.status, 200);
+  assert.equal(published.body.data?.version, 1);
 });

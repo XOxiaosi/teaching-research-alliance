@@ -28,8 +28,11 @@ export const DYNAMIC_TIERS: readonly DynamicTier[] = [
   { label: ">15000", minExclusive: bean(15_000), adjustmentBasisPoints: 450n }
 ];
 
-export const dynamicAdjustmentBasisPoints = (netMonthlyCents: Cents): bigint => {
-  const tier = DYNAMIC_TIERS.find((item) =>
+export const dynamicAdjustmentBasisPoints = (
+  netMonthlyCents: Cents,
+  tiers: readonly DynamicTier[] = DYNAMIC_TIERS
+): bigint => {
+  const tier = tiers.find((item) =>
     (item.minExclusive === undefined || netMonthlyCents > item.minExclusive) &&
     (item.maxInclusive === undefined || netMonthlyCents <= item.maxInclusive)
   );
@@ -41,6 +44,7 @@ export type ReferralRateInput = Readonly<{
   baseRateBasisPoints: bigint;
   netMonthlyCents: Cents;
   mentorWeightBasisPoints: bigint;
+  dynamicTiers?: readonly DynamicTier[];
 }>;
 
 export type ReferralRateResult = Readonly<{
@@ -55,7 +59,7 @@ export type ReferralRateResult = Readonly<{
 export const calculateReferralRates = (input: ReferralRateInput): ReferralRateResult => {
   if (input.baseRateBasisPoints < 0n || input.baseRateBasisPoints > 10_000n) throw new Error("INVALID_BASE_RATE");
   if (input.mentorWeightBasisPoints < 0n || input.mentorWeightBasisPoints > 10_000n) throw new Error("INVALID_MENTOR_WEIGHT");
-  const adjustmentBasisPoints = dynamicAdjustmentBasisPoints(input.netMonthlyCents);
+  const adjustmentBasisPoints = dynamicAdjustmentBasisPoints(input.netMonthlyCents, input.dynamicTiers ?? DYNAMIC_TIERS);
   const actualPoolBasisPoints = input.baseRateBasisPoints + adjustmentBasisPoints;
   if (actualPoolBasisPoints < 0n || actualPoolBasisPoints > 10_000n) throw new Error("INVALID_REFERRAL_POOL");
   return {

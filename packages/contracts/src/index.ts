@@ -151,6 +151,7 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "POST", path: "/v1/finance/documents/:documentId/approve", action: "APPROVE_FINANCE_DOCUMENT", responseVersion: "finance-document.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/regions/:regionId/person-summaries", action: "VIEW_REGION_PERSONAL_SUMMARY", responseVersion: "region-person-summary.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/admin/rates/preview", action: "CONFIGURE_RATES", responseVersion: "rate-policy-preview.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/admin/rates/publish", action: "CONFIGURE_RATES", responseVersion: "rate-policy.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/admin/person-relationships/preview", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-preview.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/admin/person-relationships", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-change.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/venues", action: "CREATE_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },

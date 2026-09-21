@@ -1,5 +1,5 @@
 import { allocateRationalCents, type AllocationLine, type Cents } from "./index.js";
-import { calculateReferralRates } from "./rates.js";
+import { calculateReferralRates, type DynamicTier } from "./rates.js";
 
 export type SettlementInput = Readonly<{
   feeCents: Cents;
@@ -12,6 +12,7 @@ export type SettlementInput = Readonly<{
   campusConsultationRateBasisPoints: bigint;
   platformFinanceRateBasisPoints: bigint;
   regionFinanceRateBasisPoints: bigint;
+  dynamicTiers?: readonly DynamicTier[];
 }>;
 
 export const SETTLEMENT_KEYS = [
@@ -33,11 +34,18 @@ const toRationalNumerator = (rateBasisPoints: bigint): bigint => rateBasisPoints
 
 export const allocateSettlement = (input: SettlementInput): readonly AllocationLine[] => {
   if (input.feeCents < 0n) throw new Error("NEGATIVE_FEE");
-  const referral = calculateReferralRates({
-    baseRateBasisPoints: input.baseIntroRateBasisPoints,
-    netMonthlyCents: input.netMonthlyCents,
-    mentorWeightBasisPoints: input.mentorWeightBasisPoints
-  });
+  const referral = input.dynamicTiers === undefined
+    ? calculateReferralRates({
+      baseRateBasisPoints: input.baseIntroRateBasisPoints,
+      netMonthlyCents: input.netMonthlyCents,
+      mentorWeightBasisPoints: input.mentorWeightBasisPoints
+    })
+    : calculateReferralRates({
+      baseRateBasisPoints: input.baseIntroRateBasisPoints,
+      netMonthlyCents: input.netMonthlyCents,
+      mentorWeightBasisPoints: input.mentorWeightBasisPoints,
+      dynamicTiers: input.dynamicTiers
+    });
   const fixedNumerators = [
     input.groupLeaderRateBasisPoints,
     input.teachingMentorRateBasisPoints,
