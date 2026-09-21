@@ -144,6 +144,75 @@ test("周费用失败后重试保持同一幂等键，修改参数建立新提�
   assert.deepEqual(keys, ["key-1", "key-1"]);
 });
 
+test("推荐创建以冻结提交对象安全重试，同名再次提交使用新键", async () => {
+  const requestBodies = [];
+  let createAttempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => {
+      let id = 0;
+      return () => `referral-key-${++id}`;
+    })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/referrals/receiving-teachers") {
+        return success([{ personId: "teacher-1", nickname: "接收老师" }]);
+      }
+      if (request.path === "/v1/referrals/sent") {
+        return success([{
+          referralId: "sent-1", studentRecordId: "student-1", studentDisplayName: "已推荐学生",
+          courseContextId: "数学", receiverPersonId: "teacher-1", receiverNickname: "接收老师",
+          referralStatus: "PENDING", submittedAt: "2026-09-21T00:00:00Z",
+          sourceSubject: null, classType: "ONE_TO_ONE", weeklyFees: []
+        }]);
+      }
+      if (request.path === "/v1/referrals") {
+        requestBodies.push(request.body);
+        createAttempts += 1;
+        if (createAttempts === 1) throw new Error("network uncertain");
+        return success({ referralId: `ref-${createAttempts}`, studentRecordId: `student-${createAttempts}`, version: 1, replay: createAttempts === 2 });
+      }
+      throw new Error(`unexpected ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.deepEqual(await client.listReceivingTeachers(), [{ personId: "teacher-1", nickname: "接收老师" }]);
+  assert.equal((await client.listSentReferrals())[0].studentDisplayName, "已推荐学生");
+  const first = client.createReferralSubmission({
+    receiverPersonId: "teacher-1", studentDisplayName: "同名学生", courseContextId: "数学", classType: "ONE_TO_ONE"
+  });
+  assert.equal(Object.isFrozen(first), true);
+  assert.equal(Object.isFrozen(first.draft), true);
+  await assert.rejects(client.createReferral(first), /network uncertain/);
+  assert.equal(client.submissionStatus(first), "FAILED");
+  assert.equal((await client.createReferral(first)).replay, true);
+  const sameNameAgain = client.createReferralSubmission(first.draft);
+  await client.createReferral(sameNameAgain);
+  assert.notEqual(sameNameAgain.idempotencyKey, first.idempotencyKey);
+  assert.deepEqual(requestBodies.map((body) => body.idempotencyKey), ["referral-key-1", "referral-key-1", "referral-key-2"]);
+  assert.deepEqual(Object.keys(requestBodies[0]).sort(), ["classType", "courseContextId", "idempotencyKey", "receiverPersonId", "studentDisplayName"]);
+});
+
+test("退出后在途推荐创建不能写回当前会话", async () => {
+  const creating = deferred();
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/referrals") return creating.promise;
+      throw new Error(`unexpected ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReferralSubmission({
+    receiverPersonId: "teacher-1", studentDisplayName: "学生", courseContextId: "语文", classType: "SMALL_GROUP"
+  });
+  const pending = client.createReferral(submission);
+  client.logout();
+  creating.resolve(success({ referralId: "ref-old", studentRecordId: "student-old", version: 1, replay: false }));
+  await assert.rejects(pending, StaleResponseError);
+  assert.equal(client.currentSession, null);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+});
+
 test("金额和版本在客户端校验，401清会话，403返回角色选择", async () => {
   const client = new TeacherApiClient({
     transport: async (request) => {

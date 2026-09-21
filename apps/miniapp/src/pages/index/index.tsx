@@ -11,6 +11,7 @@ import {
   type WeeklyFeeSubmission
 } from "@teaching-research-alliance/client";
 import { taroTransport } from "../../services";
+import { ReferralPanel } from "./referral-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -371,6 +372,11 @@ export default function IndexPage(): ReactNode {
             </>
           )}
 
+          {["TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(session.currentRoleContext?.subject ?? "") && (
+            <ReferralPanel key={`${session.personId}:${session.currentRoleContext?.subject}`} client={client} onSessionInvalidated={()=>{
+              clearTeachingState();setSession(client.currentSession);setNotice("登录或身份已失效，请重新登录或选择身份。");
+            }}/>
+          )}
           {isTeacher(session) && (
             <>
               <View className="panel">

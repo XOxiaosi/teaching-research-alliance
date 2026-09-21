@@ -49,6 +49,55 @@ export type WeeklyFeeSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type ReferralClassType = "ONE_TO_ONE" | "SMALL_GROUP";
+
+/** The client can select only a receiving teacher; the server fixes the referrer and source identity. */
+export type ReferralCreationDraft = Readonly<{
+  receiverPersonId: string;
+  studentDisplayName: string;
+  courseContextId: string;
+  classType: ReferralClassType;
+}>;
+
+export type ReferralCreationSubmission = Readonly<{
+  draft: ReferralCreationDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReceivingTeacher = Readonly<{
+  personId: string;
+  nickname: string;
+}>;
+
+export type ReferralCreationResult = Readonly<{
+  referralId: string;
+  studentRecordId: string;
+  version: number;
+  replay: boolean;
+}>;
+
+export type SentReferralWeeklyFee = Readonly<{
+  entryId: string;
+  teachingWeekId: string;
+  weekStartsOn: string;
+  weekEndsOn: string;
+  grossAmountCents: string;
+}>;
+
+export type SentReferral = Readonly<{
+  referralId: string;
+  studentRecordId: string;
+  studentDisplayName: string;
+  courseContextId: string;
+  receiverPersonId: string;
+  receiverNickname: string;
+  referralStatus: string;
+  submittedAt: string;
+  sourceSubject: string | null;
+  classType: string | null;
+  weeklyFees: readonly SentReferralWeeklyFee[];
+}>;
+
 export type SubmissionStatus = "READY" | "SUBMITTING" | "FAILED" | "SUCCEEDED";
 
 export type TeacherApiClientOptions = Readonly<{
@@ -146,6 +195,15 @@ const validateWeeklyFeeDraft = (draft: WeeklyFeeDraftInput): void => {
   }
 };
 
+const validateReferralCreationDraft = (draft: ReferralCreationDraft): void => {
+  requireNonBlank(draft.receiverPersonId, "receiverPersonId");
+  requireNonBlank(draft.studentDisplayName, "studentDisplayName");
+  requireNonBlank(draft.courseContextId, "courseContextId");
+  if (draft.classType !== "ONE_TO_ONE" && draft.classType !== "SMALL_GROUP") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:classType");
+  }
+};
+
 let fallbackIdSequence = 0;
 
 const defaultIdempotencyKeyFactory = (): string => {
@@ -161,7 +219,7 @@ const defaultIdempotencyKeyFactory = (): string => {
  * session is the only authority for requests; callers may inspect, never mutate it.
  */
 export class TeacherApiClient {
-  private readonly submissionStatuses = new WeakMap<WeeklyFeeSubmission, SubmissionStatus>();
+  private readonly submissionStatuses = new WeakMap<WeeklyFeeSubmission | ReferralCreationSubmission, SubmissionStatus>();
   private session: SessionSnapshot | null = null;
   private epoch = 0;
 
@@ -240,6 +298,14 @@ export class TeacherApiClient {
     return this.authenticatedRequest<T>("GET", "/v1/teaching/weeks");
   }
 
+  public async listReceivingTeachers(): Promise<readonly ReceivingTeacher[]> {
+    return this.authenticatedRequest<readonly ReceivingTeacher[]>("GET", "/v1/referrals/receiving-teachers");
+  }
+
+  public async listSentReferrals(): Promise<readonly SentReferral[]> {
+    return this.authenticatedRequest<readonly SentReferral[]>("GET", "/v1/referrals/sent");
+  }
+
   public async acceptReferral<T = unknown>(referralId: string): Promise<T> {
     requireNonBlank(referralId, "referralId");
     const result = await this.authenticatedRequest<T>("POST", `/v1/referrals/${encodeURIComponent(referralId)}/accept`);
@@ -261,7 +327,21 @@ export class TeacherApiClient {
     return submission;
   }
 
-  public submissionStatus(submission: WeeklyFeeSubmission): SubmissionStatus {
+  /**
+   * The submission excludes referrer fields by design. Retry this same object after
+   * an uncertain network result; change any form field to create a new request key.
+   */
+  public createReferralSubmission(draft: ReferralCreationDraft): ReferralCreationSubmission {
+    validateReferralCreationDraft(draft);
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({ ...draft });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    return submission;
+  }
+
+  public submissionStatus(submission: WeeklyFeeSubmission | ReferralCreationSubmission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
   }
 
@@ -275,6 +355,24 @@ export class TeacherApiClient {
         `/v1/referrals/${encodeURIComponent(submission.draft.referralCaseId)}/weekly-fees`,
         { ...submission.draft, idempotencyKey: submission.idempotencyKey }
       );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async createReferral(submission: ReferralCreationSubmission): Promise<ReferralCreationResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<ReferralCreationResult>("POST", "/v1/referrals", {
+        ...submission.draft,
+        idempotencyKey: submission.idempotencyKey
+      });
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
