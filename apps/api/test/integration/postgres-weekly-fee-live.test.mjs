@@ -88,6 +88,10 @@ test("真实PostgreSQL推荐接收与周费用版本/幂等流程", async () => 
     assert.equal(first.grossAmountCents, 100000n);
     assert.equal(first.isSelfUseSnapshot, true);
 
+    await pool.query("UPDATE referral_case SET status='ARCHIVED' WHERE id=$1", [referralId]);
+    const emptyWeek = randomUUID();
+    await pool.query("INSERT INTO teaching_week(id,academic_period_id,sequence_no,week_kind,starts_on,ends_on,settlement_month) SELECT $1,academic_period_id,2,week_kind,starts_on+7,ends_on+7,settlement_month FROM teaching_week WHERE id=$2", [emptyWeek,weekId]);
+    await assert.rejects(recordWeeklyFee(teacherId, {referralCaseId:referralId,teachingWeekId:emptyWeek,venueId,settlementMonth:"2026-09-01",grossAmountCents:1n}, "archived-new"), /REFERRAL_ARCHIVED/);
     const replay = await recordWeeklyFee(teacherId, {
       referralCaseId: referralId,
       teachingWeekId: weekId,

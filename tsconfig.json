@@ -1,11 +1,26 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/contracts" },
-    { "path": "packages/domain" },
-    { "path": "apps/api" },
-    { "path": "apps/worker" },
-    { "path": "apps/web" },
-    { "path": "apps/miniapp" }
+    {
+      "path": "packages/contracts"
+    },
+    {
+      "path": "packages/domain"
+    },
+    {
+      "path": "packages/client"
+    },
+    {
+      "path": "apps/api"
+    },
+    {
+      "path": "apps/worker"
+    },
+    {
+      "path": "apps/web"
+    },
+    {
+      "path": "apps/miniapp"
+    }
   ]
 }

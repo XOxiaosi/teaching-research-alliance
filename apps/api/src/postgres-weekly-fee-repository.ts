@@ -275,7 +275,7 @@ export class PostgresWeeklyFeeRepository {
     );
     const referral = referralResult.rows[0];
     if (referral === undefined) throw new Error("REFERRAL_NOT_FOUND");
-    if (referral.receiver_person_id !== receiverPersonId || referral.status !== "ACCEPTED") {
+    if (referral.receiver_person_id !== receiverPersonId) {
       throw new Error("FORBIDDEN_SCOPE");
     }
 
@@ -309,6 +309,7 @@ export class PostgresWeeklyFeeRepository {
       [draft.referralCaseId, draft.teachingWeekId]
     );
     const previous = current.rows[0];
+    if (referral.status === "ARCHIVED" && previous === undefined) throw new Error("REFERRAL_ARCHIVED");
     if (draft.expectedVersion !== undefined && draft.expectedVersion !== Number(previous?.version ?? 0)) {
       throw new Error("VERSION_CONFLICT");
     }

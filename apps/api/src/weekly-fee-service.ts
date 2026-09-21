@@ -7,7 +7,7 @@ import {
 export type ReferralRecord = Readonly<{
   id: string;
   receiverPersonId: string;
-  status: "PENDING" | "ACCEPTED" | "REJECTED";
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "ARCHIVED" | "REACTIVATED";
 }>;
 
 export type TeachingWeekRecord = Readonly<{
@@ -90,11 +90,12 @@ export class WeeklyFeeService {
     assertValidWeeklyFeeDraft(draft);
     const referral = this.referrals.get(draft.referralCaseId);
     if (referral === undefined) throw new Error("REFERRAL_NOT_FOUND");
-    if (referral.receiverPersonId !== context.personId || referral.status !== "ACCEPTED") {
+    if (referral.receiverPersonId !== context.personId) {
       throw new Error("FORBIDDEN_SCOPE");
     }
     const entryKey = `${draft.referralCaseId}:${draft.teachingWeekId}`;
     const previous = this.current.get(entryKey);
+    if (referral.status === "ARCHIVED" && previous === undefined) throw new Error("REFERRAL_ARCHIVED");
     if (draft.expectedVersion !== (previous?.version ?? 0)) throw new Error("VERSION_CONFLICT");
     const week = this.teachingWeeks.get(draft.teachingWeekId);
     if (week === undefined) throw new Error("TEACHING_WEEK_NOT_FOUND");

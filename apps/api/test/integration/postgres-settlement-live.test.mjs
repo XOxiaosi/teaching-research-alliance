@@ -228,6 +228,8 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
       settlementMonth: effectiveFrom,
       grossAmountCents: 100000n
     };
+    // F03: an owned pending referral with a valid venue can carry real weekly fees.
+    await pool.query("UPDATE referral_case SET status='PENDING' WHERE id=$1", [ids.referral]);
     const first = await service.recordAndSettle(ids.teacher, draft, `settle:first:${suffix}`);
     assert.equal(first.status, "POSTED");
     assert.equal(first.replay, false);

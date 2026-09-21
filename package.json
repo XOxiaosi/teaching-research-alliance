@@ -13,7 +13,10 @@
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test packages/*/test/*.test.mjs apps/*/test/*.test.mjs",
     "check": "npm run typecheck && npm test",
-    "db:check": "node scripts/check-migrations.mjs"
+    "db:check": "node scripts/check-migrations.mjs",
+    "dev:demo": "npm run build && node scripts/dev-demo.mjs",
+    "dev:web": "npm run dev --workspace @teaching-research-alliance/web",
+    "build:web": "npm run build:web --workspace @teaching-research-alliance/web"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
