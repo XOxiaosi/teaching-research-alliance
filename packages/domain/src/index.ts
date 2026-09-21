@@ -43,3 +43,4 @@ export const sumCents = (lines: readonly AllocationLine[]): Cents =>
 
 export * from "./rates.js";
 export * from "./identity.js";
+export * from "./weekly-fee.js";

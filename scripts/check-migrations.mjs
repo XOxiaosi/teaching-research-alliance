@@ -18,4 +18,8 @@ const organizationMigration = await readFile(join(directory.pathname, "0002_orga
 for (const required of ["person_campus_assignment", "btree_gist", "EXCLUDE USING gist", "one_default_venue_per_owner"]) {
   if (!organizationMigration.includes(required)) throw new Error(`MIGRATION_CONSTRAINT:${required}`);
 }
+const weeklyFeeMigration = await readFile(join(directory.pathname, "0003_referrals_periods_weekly_fees.sql"), "utf8");
+for (const required of ["teacher_student_record", "referral_case", "teaching_week", "weekly_fee_entry", "UNIQUE (referral_case_id, teaching_week_id)"]) {
+  if (!weeklyFeeMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
+}
 console.log(`checked ${files.length} migration(s)`);
