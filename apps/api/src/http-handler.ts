@@ -1,12 +1,12 @@
 import {
   API_CONTRACT_VERSION,
   type HttpMethod,
-  type PermissionSubject
+  type PermissionSubject,
+  type RoleContext
 } from "@teaching-research-alliance/contracts";
-import type { RatePolicyDraft } from "@teaching-research-alliance/domain";
+import type { RatePolicyDraft, WeeklyFeeDraft } from "@teaching-research-alliance/domain";
 import { RatePolicyService } from "@teaching-research-alliance/domain";
 import { SessionService, type SessionView } from "./session-service.js";
-import { WeeklyFeeService } from "./weekly-fee-service.js";
 
 export type ApiRequest = Readonly<{
   method: HttpMethod;
@@ -23,9 +23,18 @@ export type ApiResponse = Readonly<{
   }>;
 }>;
 
+export type WeeklyFeeApiService = Readonly<{
+  acceptReferral: (context: RoleContext, referralId: string) => unknown | Promise<unknown>;
+  recordWeeklyFee: (
+    context: RoleContext,
+    draft: WeeklyFeeDraft,
+    idempotencyKey: string
+  ) => unknown | Promise<unknown>;
+}>;
+
 export type ApiServices = Readonly<{
   sessions: SessionService;
-  weeklyFees: WeeklyFeeService;
+  weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
   now: () => Date;
 }>;
@@ -47,7 +56,7 @@ const errorStatus = (code: string): number => {
   if (code === "UNAUTHENTICATED") return 401;
   if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;
-  if (code === "PERIOD_LOCKED" || code === "IDEMPOTENCY_REPLAY") return 409;
+  if (code === "PERIOD_LOCKED" || code === "IDEMPOTENCY_REPLAY" || code === "VERSION_CONFLICT") return 409;
   return 400;
 };
 
@@ -95,11 +104,19 @@ const weeklyDraft = (body: Record<string, unknown>) => ({
   settlementMonth: requiredString(body, "settlementMonth"),
   grossAmountCents: (() => {
     const value = requiredString(body, "grossAmountCents");
+    if (!/^\d+$/.test(value)) throw new Error("INVALID_INPUT:grossAmountCents");
     try {
       return BigInt(value);
     } catch {
       throw new Error("INVALID_INPUT:grossAmountCents");
     }
+  })(),
+  expectedVersion: (() => {
+    const value = body.expectedVersion;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error("INVALID_INPUT:expectedVersion");
+    }
+    return value;
   })()
 });
 
@@ -157,7 +174,7 @@ const ratePolicyDraft = (body: Record<string, unknown>): RatePolicyDraft => {
   };
 };
 
-export const handleRequest = (request: ApiRequest, services: ApiServices): ApiResponse => {
+export const handleRequest = async (request: ApiRequest, services: ApiServices): Promise<ApiResponse> => {
   try {
     const body = objectBody(request.body);
     if (request.method === "POST" && request.path === "/v1/session") {
@@ -191,7 +208,7 @@ export const handleRequest = (request: ApiRequest, services: ApiServices): ApiRe
       const referralId = acceptPath[1];
       if (referralId === undefined || referralId.trim() === "") throw new Error("INVALID_INPUT:referralId");
       const session = services.sessions.get(sessionIdFrom(body), services.now());
-      return success(services.weeklyFees.acceptReferral(currentContext(session), referralId));
+      return success(await services.weeklyFees.acceptReferral(currentContext(session), referralId));
     }
     const weeklyFeePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/weekly-fees$/);
     if (request.method === "POST" && weeklyFeePath !== null) {
@@ -199,7 +216,7 @@ export const handleRequest = (request: ApiRequest, services: ApiServices): ApiRe
       if (referralCaseId === undefined || referralCaseId.trim() === "") throw new Error("INVALID_INPUT:referralCaseId");
       const session = services.sessions.get(sessionIdFrom(body), services.now());
       const idempotencyKey = requiredString(body, "idempotencyKey");
-      return success(services.weeklyFees.recordWeeklyFee(
+      return success(await services.weeklyFees.recordWeeklyFee(
         currentContext(session),
         weeklyDraft({ ...body, referralCaseId }),
         idempotencyKey

@@ -17,6 +17,7 @@ export type PersistedReferral = Readonly<{
 }>;
 
 export type PersistedWeeklyFeeRecord = Readonly<WeeklyFeeDraft & {
+  id: string;
   entryKey: string;
   version: number;
   recordedByPersonId: string;
@@ -70,6 +71,7 @@ const requestHash = (actorPersonId: string, draft: WeeklyFeeDraft): string => cr
     teachingWeekId: draft.teachingWeekId,
     venueId: draft.venueId,
     settlementMonth: draft.settlementMonth,
+    expectedVersion: draft.expectedVersion,
     grossAmountCents: draft.grossAmountCents.toString()
   }))
   .digest("hex");
@@ -84,6 +86,7 @@ const mapReferral = (row: ReferralRow): PersistedReferral => ({
 });
 
 const mapFee = (row: FeeRow): PersistedWeeklyFeeRecord => ({
+  id: row.id,
   referralCaseId: row.referral_case_id,
   teachingWeekId: row.teaching_week_id,
   venueId: row.venue_id,
@@ -219,7 +222,9 @@ export class PostgresWeeklyFeeRepository {
     });
   }
 
-  public async recordWeeklyFee(
+  /** Uses the caller's transaction so fee and settlement can commit or roll back together. */
+  public async recordWeeklyFeeInTransaction(
+    client: PostgresClient,
     receiverPersonId: string,
     draft: WeeklyFeeDraft,
     idempotencyKey: string
@@ -227,134 +232,138 @@ export class PostgresWeeklyFeeRepository {
     assertValidWeeklyFeeDraft(draft);
     if (idempotencyKey.trim() === "") throw new Error("INVALID_INPUT:IDEMPOTENCY_KEY_REQUIRED");
     const hash = requestHash(receiverPersonId, draft);
-    return this.transaction(async (client) => {
-      const replay = await client.query<IdempotencyRow>(
-        `SELECT idempotency_key,
-                request_hash,
-                actor_person_id::text AS actor_person_id,
-                referral_case_id::text AS referral_case_id,
-                teaching_week_id::text AS teaching_week_id,
-                weekly_fee_entry_id::text AS weekly_fee_entry_id,
-                version::text AS version
-           FROM weekly_fee_idempotency
-          WHERE idempotency_key = $1
-          FOR UPDATE`,
-        [idempotencyKey]
+    // Lock absent keys as well as existing requests; row locks alone cannot do this.
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`weekly-request:${idempotencyKey}`]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`weekly-entry:${draft.referralCaseId}:${draft.teachingWeekId}`]);
+    const replay = await client.query<IdempotencyRow>(
+      `SELECT idempotency_key,
+              request_hash,
+              actor_person_id::text AS actor_person_id,
+              referral_case_id::text AS referral_case_id,
+              teaching_week_id::text AS teaching_week_id,
+              weekly_fee_entry_id::text AS weekly_fee_entry_id,
+              version::text AS version
+         FROM weekly_fee_idempotency
+        WHERE idempotency_key = $1
+        FOR UPDATE`,
+      [idempotencyKey]
+    );
+    const replayRow = replay.rows[0];
+    if (replayRow !== undefined) {
+      if (replayRow.request_hash !== hash) throw new Error("IDEMPOTENCY_REPLAY");
+      const existing = await client.query<FeeRow>(
+        `${historySelect}
+          WHERE version_entry.weekly_fee_entry_id = $1::uuid AND version_entry.version = $2::bigint`,
+        [replayRow.weekly_fee_entry_id, replayRow.version]
       );
-      const replayRow = replay.rows[0];
-      if (replayRow !== undefined) {
-        if (replayRow.request_hash !== hash) throw new Error("IDEMPOTENCY_REPLAY");
-        const existing = await client.query<FeeRow>(
-          `${feeSelect}
-            WHERE entry.id = $1::uuid AND entry.version = $2::bigint`,
-          [replayRow.weekly_fee_entry_id, replayRow.version]
-        );
-        const existingRow = existing.rows[0];
-        if (existingRow === undefined) throw new Error("WEEKLY_FEE_IDEMPOTENCY_CORRUPT");
-        return mapFee(existingRow);
-      }
+      const existingRow = existing.rows[0];
+      if (existingRow === undefined) throw new Error("WEEKLY_FEE_IDEMPOTENCY_CORRUPT");
+      return mapFee(existingRow);
+    }
 
-      const referralResult = await client.query<ReferralRow>(
-        `SELECT id::text AS id,
-                referrer_person_id::text AS referrer_person_id,
-                receiver_person_id::text AS receiver_person_id,
-                referrer_identity,
-                status,
-                version::text AS version
-           FROM referral_case
-          WHERE id = $1::uuid
-          FOR SHARE`,
-        [draft.referralCaseId]
-      );
-      const referral = referralResult.rows[0];
-      if (referral === undefined) throw new Error("REFERRAL_NOT_FOUND");
-      if (referral.receiver_person_id !== receiverPersonId || referral.status !== "ACCEPTED") {
-        throw new Error("FORBIDDEN_SCOPE");
-      }
+    const referralResult = await client.query<ReferralRow>(
+      `SELECT id::text AS id,
+              referrer_person_id::text AS referrer_person_id,
+              receiver_person_id::text AS receiver_person_id,
+              referrer_identity,
+              status,
+              version::text AS version
+         FROM referral_case
+        WHERE id = $1::uuid
+        FOR SHARE`,
+      [draft.referralCaseId]
+    );
+    const referral = referralResult.rows[0];
+    if (referral === undefined) throw new Error("REFERRAL_NOT_FOUND");
+    if (referral.receiver_person_id !== receiverPersonId || referral.status !== "ACCEPTED") {
+      throw new Error("FORBIDDEN_SCOPE");
+    }
 
-      const weekResult = await client.query<WeekRow>(
-        `SELECT settlement_month::text AS settlement_month, status
-           FROM teaching_week
-          WHERE id = $1::uuid
-          FOR SHARE`,
-        [draft.teachingWeekId]
-      );
-      const week = weekResult.rows[0];
-      if (week === undefined) throw new Error("TEACHING_WEEK_NOT_FOUND");
-      if (week.status !== "OPEN") throw new Error("PERIOD_LOCKED");
-      if (week.settlement_month !== draft.settlementMonth) throw new Error("PERIOD_MONTH_MISMATCH");
+    const weekResult = await client.query<WeekRow>(
+      `SELECT settlement_month::text AS settlement_month, status
+         FROM teaching_week
+        WHERE id = $1::uuid
+        FOR SHARE`,
+      [draft.teachingWeekId]
+    );
+    const week = weekResult.rows[0];
+    if (week === undefined) throw new Error("TEACHING_WEEK_NOT_FOUND");
+    if (week.status !== "OPEN") throw new Error("PERIOD_LOCKED");
+    if (week.settlement_month !== draft.settlementMonth) throw new Error("PERIOD_MONTH_MISMATCH");
 
-      const venueResult = await client.query<VenueRow>(
-        `SELECT id::text AS id, owner_person_id::text AS owner_person_id, status
-           FROM venue
-          WHERE id = $1::uuid
-          FOR SHARE`,
-        [draft.venueId]
-      );
-      const venue = venueResult.rows[0];
-      if (venue === undefined || venue.status !== "ACTIVE") throw new Error("VENUE_NOT_ACTIVE");
+    const venueResult = await client.query<VenueRow>(
+      `SELECT id::text AS id, owner_person_id::text AS owner_person_id, status
+         FROM venue
+        WHERE id = $1::uuid
+        FOR SHARE`,
+      [draft.venueId]
+    );
+    const venue = venueResult.rows[0];
+    if (venue === undefined || venue.status !== "ACTIVE") throw new Error("VENUE_NOT_ACTIVE");
 
-      const current = await client.query<FeeRow>(
-        `${feeSelect}
-          WHERE entry.referral_case_id = $1::uuid
-            AND entry.teaching_week_id = $2::uuid
-          FOR UPDATE OF entry`,
-        [draft.referralCaseId, draft.teachingWeekId]
+    const current = await client.query<FeeRow>(
+      `${feeSelect}
+        WHERE entry.referral_case_id = $1::uuid
+          AND entry.teaching_week_id = $2::uuid
+        FOR UPDATE OF entry`,
+      [draft.referralCaseId, draft.teachingWeekId]
+    );
+    const previous = current.rows[0];
+    if (draft.expectedVersion !== undefined && draft.expectedVersion !== Number(previous?.version ?? 0)) {
+      throw new Error("VERSION_CONFLICT");
+    }
+    const nextVersion = previous === undefined ? 1 : Number(previous.version) + 1;
+    let entryId: string;
+    if (previous === undefined) {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO weekly_fee_entry (
+           referral_case_id, teaching_week_id, settlement_month, gross_amount_cents,
+           venue_id, venue_owner_person_id, is_self_use_snapshot, source_case_version,
+           version, created_by
+         ) VALUES ($1::uuid, $2::uuid, $3::date, $4::bigint, $5::uuid, $6::uuid, $7::boolean, $8::bigint, $9::bigint, $10::uuid)
+         RETURNING id::text AS id`,
+        [draft.referralCaseId, draft.teachingWeekId, draft.settlementMonth, draft.grossAmountCents.toString(), draft.venueId, venue.owner_person_id, venue.owner_person_id === receiverPersonId, referral.version, nextVersion, receiverPersonId]
       );
-      const previous = current.rows[0];
-      const nextVersion = previous === undefined ? 1 : Number(previous.version) + 1;
-      let entryId: string;
-      if (previous === undefined) {
-        const inserted = await client.query<{ id: string }>(
-          `INSERT INTO weekly_fee_entry (
-             referral_case_id, teaching_week_id, settlement_month, gross_amount_cents,
-             venue_id, venue_owner_person_id, is_self_use_snapshot, source_case_version,
-             version, created_by
-           ) VALUES ($1::uuid, $2::uuid, $3::date, $4::bigint, $5::uuid, $6::uuid, $7::boolean, $8::bigint, $9::bigint, $10::uuid)
-           RETURNING id::text AS id`,
-          [draft.referralCaseId, draft.teachingWeekId, draft.settlementMonth, draft.grossAmountCents.toString(), draft.venueId, venue.owner_person_id, venue.owner_person_id === receiverPersonId, referral.version, nextVersion, receiverPersonId]
-        );
-        const insertedRow = inserted.rows[0];
-        if (insertedRow === undefined) throw new Error("WEEKLY_FEE_INSERT_FAILED");
-        entryId = insertedRow.id;
-      } else {
-        entryId = previous.id;
-        await client.query(
-          `UPDATE weekly_fee_entry
-              SET settlement_month = $3::date,
-                  gross_amount_cents = $4::bigint,
-                  venue_id = $5::uuid,
-                  venue_owner_person_id = $6::uuid,
-                  is_self_use_snapshot = $7::boolean,
-                  source_case_version = $8::bigint,
-                  version = $9::bigint,
-                  created_by = $10::uuid,
-                  updated_at = now()
-            WHERE referral_case_id = $1::uuid AND teaching_week_id = $2::uuid`,
-          [draft.referralCaseId, draft.teachingWeekId, draft.settlementMonth, draft.grossAmountCents.toString(), draft.venueId, venue.owner_person_id, venue.owner_person_id === receiverPersonId, referral.version, nextVersion, receiverPersonId]
-        );
-      }
+      const insertedRow = inserted.rows[0];
+      if (insertedRow === undefined) throw new Error("WEEKLY_FEE_INSERT_FAILED");
+      entryId = insertedRow.id;
+    } else {
+      entryId = previous.id;
       await client.query(
-        `INSERT INTO weekly_fee_event (weekly_fee_entry_id, event_type, actor_person_id)
-         VALUES ($1::uuid, $2, $3::uuid)`,
-        [entryId, previous === undefined ? "CREATED" : "CORRECTED", receiverPersonId]
+        `UPDATE weekly_fee_entry
+            SET settlement_month = $3::date,
+                gross_amount_cents = $4::bigint,
+                venue_id = $5::uuid,
+                venue_owner_person_id = $6::uuid,
+                is_self_use_snapshot = $7::boolean,
+                source_case_version = $8::bigint,
+                version = $9::bigint,
+                created_by = $10::uuid,
+                updated_at = now()
+          WHERE referral_case_id = $1::uuid AND teaching_week_id = $2::uuid`,
+        [draft.referralCaseId, draft.teachingWeekId, draft.settlementMonth, draft.grossAmountCents.toString(), draft.venueId, venue.owner_person_id, venue.owner_person_id === receiverPersonId, referral.version, nextVersion, receiverPersonId]
       );
-      await client.query(
-        `INSERT INTO weekly_fee_idempotency (
-           idempotency_key, request_hash, actor_person_id, referral_case_id,
-           teaching_week_id, weekly_fee_entry_id, version
-         ) VALUES ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::bigint)`,
-        [idempotencyKey, hash, receiverPersonId, draft.referralCaseId, draft.teachingWeekId, entryId, nextVersion]
-      );
-      const saved = await client.query<FeeRow>(
-        `${feeSelect}
-          WHERE entry.id = $1::uuid AND entry.version = $2::bigint`,
-        [entryId, nextVersion]
-      );
-      const savedRow = saved.rows[0];
-      if (savedRow === undefined) throw new Error("WEEKLY_FEE_READBACK_FAILED");
-      return mapFee(savedRow);
-    });
+    }
+    await client.query(
+      `INSERT INTO weekly_fee_event (weekly_fee_entry_id, event_type, actor_person_id)
+       VALUES ($1::uuid, $2, $3::uuid)`,
+      [entryId, previous === undefined ? "CREATED" : "CORRECTED", receiverPersonId]
+    );
+    await client.query(
+      `INSERT INTO weekly_fee_idempotency (
+         idempotency_key, request_hash, actor_person_id, referral_case_id,
+         teaching_week_id, weekly_fee_entry_id, version
+       ) VALUES ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::bigint)`,
+      [idempotencyKey, hash, receiverPersonId, draft.referralCaseId, draft.teachingWeekId, entryId, nextVersion]
+    );
+    const saved = await client.query<FeeRow>(
+      `${feeSelect}
+        WHERE entry.id = $1::uuid AND entry.version = $2::bigint`,
+      [entryId, nextVersion]
+    );
+    const savedRow = saved.rows[0];
+    if (savedRow === undefined) throw new Error("WEEKLY_FEE_READBACK_FAILED");
+    return mapFee(savedRow);
   }
 
   public async listHistory(referralCaseId: string, teachingWeekId: string): Promise<readonly PersistedWeeklyFeeRecord[]> {

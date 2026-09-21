@@ -58,7 +58,7 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
         });
         return;
       }
-      const result = handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes) }, services);
+      const result = await handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes) }, services);
       writeJson(response, result.status, result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "INVALID_INPUT";

@@ -79,6 +79,7 @@ test("真实HTTP监听器提供健康检查并序列化周费用金额", async (
         venueId: "venue-server",
         settlementMonth: "2026-09-01",
         grossAmountCents: "100000",
+        expectedVersion: 0,
         idempotencyKey: "server-request-1"
       })
     });

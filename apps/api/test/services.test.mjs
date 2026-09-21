@@ -48,14 +48,16 @@ test("教师接收推荐后可在正常场地登记周累计费用，并按版�
     teachingWeekId: "week-1",
     venueId: "venue-1",
     settlementMonth: "2026-09-01",
-    grossAmountCents: 100000n
+    grossAmountCents: 100000n,
+    expectedVersion: 0
   }, "request-1");
   const replay = service.recordWeeklyFee(teacherContext, {
     referralCaseId: "ref-1",
     teachingWeekId: "week-1",
     venueId: "venue-1",
     settlementMonth: "2026-09-01",
-    grossAmountCents: 100000n
+    grossAmountCents: 100000n,
+    expectedVersion: 0
   }, "request-1");
   assert.equal(replay.version, 1);
   assert.equal(service.listHistory("ref-1", "week-1").length, 1);
@@ -64,7 +66,8 @@ test("教师接收推荐后可在正常场地登记周累计费用，并按版�
     teachingWeekId: "week-1",
     venueId: "venue-1",
     settlementMonth: "2026-09-01",
-    grossAmountCents: 120000n
+    grossAmountCents: 120000n,
+    expectedVersion: 1
   }, "request-2");
   assert.equal(corrected.version, 2);
   assert.equal(service.getCurrent("ref-1", "week-1")?.grossAmountCents, 120000n);
@@ -74,25 +77,28 @@ test("教师接收推荐后可在正常场地登记周累计费用，并按版�
     teachingWeekId: "week-1",
     venueId: "venue-disabled",
     settlementMonth: "2026-09-01",
-    grossAmountCents: 120000n
+    grossAmountCents: 120000n,
+    expectedVersion: 2
   }, "request-3"), /VENUE_NOT_ACTIVE/);
   assert.throws(() => service.recordWeeklyFee(teacherContext, {
     referralCaseId: "ref-1",
     teachingWeekId: "week-1",
     venueId: "venue-1",
     settlementMonth: "2026-10-01",
-    grossAmountCents: 120000n
+    grossAmountCents: 120000n,
+    expectedVersion: 2
   }, "request-4"), /PERIOD_MONTH_MISMATCH/);
   assert.throws(() => service.recordWeeklyFee(teacherContext, {
     referralCaseId: "ref-1",
     teachingWeekId: "week-1",
     venueId: "venue-1",
     settlementMonth: "2026-09-01",
-    grossAmountCents: 130000n
+    grossAmountCents: 130000n,
+    expectedVersion: 1
   }, "request-2"), /IDEMPOTENCY_REPLAY/);
 });
 
-test("HTTP请求处理器复用服务层并统一返回版本和错误码", () => {
+test("HTTP请求处理器复用服务层并统一返回版本和错误码", async () => {
   const sessions = new SessionService({
     accounts: [{
       accountId: "account-1",
@@ -109,8 +115,15 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", () =
     teachingWeeks: [{ id: "week-http", settlementMonth: "2026-09-01", status: "OPEN" }],
     venues: [{ id: "venue-http", status: "ACTIVE" }]
   });
-  const services = { sessions, weeklyFees, now: () => now };
-  const login = handleRequest({
+  const services = {
+    sessions,
+    weeklyFees: {
+      acceptReferral: async (context, referralId) => weeklyFees.acceptReferral(context, referralId),
+      recordWeeklyFee: async (context, draft, idempotencyKey) => weeklyFees.recordWeeklyFee(context, draft, idempotencyKey)
+    },
+    now: () => now
+  };
+  const login = await handleRequest({
     method: "POST",
     path: "/v1/session",
     body: { phoneNormalized: "13800000000", credentialDigest: "digest-1" }
@@ -118,19 +131,19 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", () =
   assert.equal(login.status, 200);
   assert.equal(login.body.version, "2026-09-20.dev-001");
   assert.equal(login.body.data?.sessionId, "session-http");
-  const switched = handleRequest({
+  const switched = await handleRequest({
     method: "POST",
     path: "/v1/role-contexts/switch",
     body: { sessionId: "session-http", subject: "TEACHING_TEACHER" }
   }, services);
   assert.equal(switched.status, 200);
-  const accepted = handleRequest({
+  const accepted = await handleRequest({
     method: "POST",
     path: "/v1/referrals/ref-http/accept",
-    body: { sessionId: "session-http" }
+    body: { sessionId: "session-http", personId: "attacker-cannot-override-session" }
   }, services);
   assert.equal(accepted.status, 200);
-  const recorded = handleRequest({
+  const missingVersion = await handleRequest({
     method: "POST",
     path: "/v1/referrals/ref-http/weekly-fees",
     body: {
@@ -139,12 +152,45 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", () =
       venueId: "venue-http",
       settlementMonth: "2026-09-01",
       grossAmountCents: "100000",
-      idempotencyKey: "http-request-1"
+      idempotencyKey: "http-request-missing-version"
+    }
+  }, services);
+  assert.equal(missingVersion.status, 400);
+  assert.equal(missingVersion.body.error?.code, "INVALID_INPUT");
+  for (const [grossAmountCents, idempotencyKey] of [["0x10", "http-request-hex"], ["10.5", "http-request-decimal"]]) {
+    const invalidAmount = await handleRequest({
+      method: "POST",
+      path: "/v1/referrals/ref-http/weekly-fees",
+      body: {
+        sessionId: "session-http",
+        teachingWeekId: "week-http",
+        venueId: "venue-http",
+        settlementMonth: "2026-09-01",
+        grossAmountCents,
+        expectedVersion: 0,
+        idempotencyKey
+      }
+    }, services);
+    assert.equal(invalidAmount.status, 400);
+    assert.equal(invalidAmount.body.error?.code, "INVALID_INPUT");
+  }
+  const recorded = await handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/weekly-fees",
+    body: {
+      sessionId: "session-http",
+      teachingWeekId: "week-http",
+      venueId: "venue-http",
+      settlementMonth: "2026-09-01",
+      grossAmountCents: "100000",
+      expectedVersion: 0,
+      idempotencyKey: "http-request-1",
+      personId: "attacker-cannot-override-session"
     }
   }, services);
   assert.equal(recorded.status, 200);
   assert.equal(recorded.body.data?.version, 1);
-  const invalid = handleRequest({
+  const invalid = await handleRequest({
     method: "POST",
     path: "/v1/referrals/ref-http/weekly-fees",
     body: {
@@ -153,16 +199,47 @@ test("HTTP请求处理器复用服务层并统一返回版本和错误码", () =
       venueId: "venue-http",
       settlementMonth: "2026-09-01",
       grossAmountCents: "100000",
+      expectedVersion: 0,
       idempotencyKey: "http-request-1"
     }
   }, services);
   assert.equal(invalid.status, 200);
-  const missing = handleRequest({ method: "GET", path: "/v1/unknown", body: {} }, services);
+  const corrected = await handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/weekly-fees",
+    body: {
+      sessionId: "session-http",
+      teachingWeekId: "week-http",
+      venueId: "venue-http",
+      settlementMonth: "2026-09-01",
+      grossAmountCents: "120000",
+      expectedVersion: 1,
+      idempotencyKey: "http-request-correction-a"
+    }
+  }, services);
+  assert.equal(corrected.status, 200);
+  assert.equal(corrected.body.data?.version, 2);
+  const staleCorrection = await handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/weekly-fees",
+    body: {
+      sessionId: "session-http",
+      teachingWeekId: "week-http",
+      venueId: "venue-http",
+      settlementMonth: "2026-09-01",
+      grossAmountCents: "130000",
+      expectedVersion: 1,
+      idempotencyKey: "http-request-correction-b"
+    }
+  }, services);
+  assert.equal(staleCorrection.status, 409);
+  assert.equal(staleCorrection.body.error?.code, "VERSION_CONFLICT");
+  const missing = await handleRequest({ method: "GET", path: "/v1/unknown", body: {} }, services);
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error?.code, "NOT_FOUND");
 });
 
-test("管理员费率预览与发布通过HTTP边界保留版本", () => {
+test("管理员费率预览与发布通过HTTP边界保留版本", async () => {
   const sessions = new SessionService({
     accounts: [{ accountId: "admin-account", personId: "admin-1", phoneNormalized: "13900000000", credentialDigest: "admin-digest", status: "ACTIVE" }],
     assignments: [{ personId: "admin-1", subject: "SYSTEM_ADMIN", scope: "GLOBAL", validFrom: new Date("2026-01-01") }],
@@ -175,11 +252,11 @@ test("管理员费率预览与发布通过HTTP边界保留版本", () => {
     ratePolicies,
     now: () => now
   };
-  const login = handleRequest({ method: "POST", path: "/v1/session", body: { phoneNormalized: "13900000000", credentialDigest: "admin-digest" } }, services);
+  const login = await handleRequest({ method: "POST", path: "/v1/session", body: { phoneNormalized: "13900000000", credentialDigest: "admin-digest" } }, services);
   assert.equal(login.status, 200);
-  const switched = handleRequest({ method: "POST", path: "/v1/role-contexts/switch", body: { sessionId: "admin-session", subject: "SYSTEM_ADMIN" } }, services);
+  const switched = await handleRequest({ method: "POST", path: "/v1/role-contexts/switch", body: { sessionId: "admin-session", subject: "SYSTEM_ADMIN" } }, services);
   assert.equal(switched.status, 200);
-  const preview = handleRequest({
+  const preview = await handleRequest({
     method: "POST",
     path: "/v1/admin/rates/preview",
     body: {
@@ -197,7 +274,7 @@ test("管理员费率预览与发布通过HTTP边界保留版本", () => {
   }, services);
   assert.equal(preview.status, 200);
   assert.equal(preview.body.data?.previewId, "http-rate-preview");
-  const published = handleRequest({ method: "POST", path: "/v1/admin/rates/publish", body: { sessionId: "admin-session", previewId: "http-rate-preview" } }, services);
+  const published = await handleRequest({ method: "POST", path: "/v1/admin/rates/publish", body: { sessionId: "admin-session", previewId: "http-rate-preview" } }, services);
   assert.equal(published.status, 200);
   assert.equal(published.body.data?.version, 1);
 });

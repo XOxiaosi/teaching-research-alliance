@@ -30,4 +30,8 @@ const weeklyFeeHistoryMigration = await readFile(join(directory.pathname, "0005_
 for (const required of ["weekly_fee_entry_version", "weekly_fee_idempotency", "weekly_fee_entry_version_snapshot", "snapshot_weekly_fee_entry_version", "status IN ('OPEN', 'LOCKED')"]) {
   if (!weeklyFeeHistoryMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
 }
+const settlementMigration = await readFile(join(directory.pathname, "0006_settlement_snapshots.sql"), "utf8");
+for (const required of ["rate_policy_version", "settlement_calculation_run", "weekly_fee_allocation_snapshot", "sequence_no", "snapshot_json", "context_json"]) {
+  if (!settlementMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
+}
 console.log(`checked ${files.length} migration(s)`);

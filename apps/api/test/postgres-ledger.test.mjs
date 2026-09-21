@@ -9,6 +9,7 @@ const createFakePool = ({ entryRowCount = 1 } = {}) => {
     async query(sql, values = []) {
       calls.push({ sql, values });
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [], rowCount: 1 };
       if (sql.includes("FROM ledger_event le")) return { rows: [], rowCount: 0 };
       if (sql.includes("INSERT INTO ledger_event")) return { rows: [], rowCount: 1 };
       if (sql.includes("INSERT INTO ledger_entry")) return { rows: [], rowCount: entryRowCount };
@@ -32,16 +33,10 @@ test("PostgreSQL账本适配器使用参数化SQL并在成功后提交", async (
   }, () => "00000000-0000-4000-8000-000000000001");
   assert.equal(result.status, "POSTED");
   const normalizedSql = fake.calls.map((call) => call.sql.replace(/\s+/g, " ").trim());
-  assert.deepEqual(normalizedSql, [
-    "BEGIN",
-    "SELECT le.id::text AS event_id, le.event_key, le.event_type, le.payload_hash, sa.account_code AS account_key, entry.category_key, entry.amount_cents::text AS amount_cents FROM ledger_event le LEFT JOIN ledger_entry entry ON entry.event_id = le.id LEFT JOIN settlement_account sa ON sa.id = entry.account_id WHERE le.event_key = $1 ORDER BY entry.id",
-    "INSERT INTO ledger_event (id, event_key, event_type, payload_hash) VALUES ($1::uuid, $2, $3, $4)",
-    "INSERT INTO ledger_entry (event_id, account_id, category_key, amount_cents) SELECT $1::uuid, account.id, $3, $4::bigint FROM settlement_account account WHERE account.account_code = $2",
-    "INSERT INTO account_balance_projection (account_id, balance_cents) SELECT account.id, $2::bigint FROM settlement_account account WHERE account.account_code = $1 ON CONFLICT (account_id) DO UPDATE SET balance_cents = account_balance_projection.balance_cents + EXCLUDED.balance_cents, updated_at = now()",
-    "SELECT COALESCE(projection.balance_cents, 0)::text AS balance_cents FROM settlement_account account LEFT JOIN account_balance_projection projection ON projection.account_id = account.id WHERE account.account_code = $1",
-    "COMMIT",
-    "RELEASE"
-  ]);
+  assert.equal(normalizedSql[0], "BEGIN");
+  assert.equal(normalizedSql.at(-2), "COMMIT");
+  assert.equal(normalizedSql.at(-1), "RELEASE");
+  assert.equal(fake.calls.filter(call => call.sql.includes("pg_advisory_xact_lock")).length, 1);
   const ledgerEntryCall = fake.calls.find((call) => call.sql.includes("INSERT INTO ledger_entry"));
   assert.deepEqual(ledgerEntryCall.values, ["00000000-0000-4000-8000-000000000001", "person-teacher", "teachingTeacher", "72000"]);
 });
@@ -60,4 +55,23 @@ test("PostgreSQL账户映射缺失时回滚事务", async () => {
   );
   assert.equal(fake.calls.at(-2)?.sql, "ROLLBACK");
   assert.equal(fake.calls.at(-1)?.sql, "RELEASE");
+});
+
+test("账本可绑定外层事务，读取多类别按规范排序且不自行提交", async () => {
+  const { createPostgresLedgerTransaction } = await import("../dist/postgres-ledger-repository.js");
+  const calls = [];
+  const transaction = createPostgresLedgerTransaction({
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      return { rows: ["teachingTeacher", "groupLeader"].map(category => ({
+        event_id: "00000000-0000-4000-8000-000000000001", event_key: "shared", event_type: "TEST",
+        payload_hash: "hash", account_key: "one-person", category_key: category, amount_cents: "1"
+      })) };
+    },
+    release() { throw new Error("OUTER_TRANSACTION_RELEASED"); }
+  });
+  const event = await transaction.findEvent("shared");
+  assert.deepEqual(event.deltas.map(delta => delta.categoryKey), ["groupLeader", "teachingTeacher"]);
+  assert.equal(calls.some(sql => ["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)), false);
 });

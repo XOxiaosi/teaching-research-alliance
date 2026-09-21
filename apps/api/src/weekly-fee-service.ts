@@ -43,7 +43,8 @@ const sameDraft = (left: WeeklyFeeRecord, right: WeeklyFeeDraft): boolean =>
   left.teachingWeekId === right.teachingWeekId &&
   left.venueId === right.venueId &&
   left.settlementMonth === right.settlementMonth &&
-  left.grossAmountCents === right.grossAmountCents;
+  left.grossAmountCents === right.grossAmountCents &&
+  left.expectedVersion === right.expectedVersion;
 
 export class WeeklyFeeService {
   private readonly referrals = new Map<string, ReferralRecord>();
@@ -92,6 +93,9 @@ export class WeeklyFeeService {
     if (referral.receiverPersonId !== context.personId || referral.status !== "ACCEPTED") {
       throw new Error("FORBIDDEN_SCOPE");
     }
+    const entryKey = `${draft.referralCaseId}:${draft.teachingWeekId}`;
+    const previous = this.current.get(entryKey);
+    if (draft.expectedVersion !== (previous?.version ?? 0)) throw new Error("VERSION_CONFLICT");
     const week = this.teachingWeeks.get(draft.teachingWeekId);
     if (week === undefined) throw new Error("TEACHING_WEEK_NOT_FOUND");
     if (week.status !== "OPEN") throw new Error("PERIOD_LOCKED");
@@ -99,8 +103,6 @@ export class WeeklyFeeService {
     const venue = this.venues.get(draft.venueId);
     if (venue === undefined || venue.status !== "ACTIVE") throw new Error("VENUE_NOT_ACTIVE");
 
-    const entryKey = `${draft.referralCaseId}:${draft.teachingWeekId}`;
-    const previous = this.current.get(entryKey);
     const record: WeeklyFeeRecord = {
       ...draft,
       entryKey,

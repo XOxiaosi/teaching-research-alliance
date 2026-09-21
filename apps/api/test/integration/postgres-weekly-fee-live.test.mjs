@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { createPostgresPool, PostgresWeeklyFeeRepository } from "../../dist/main.js";
+import { PostgresWeeklyFeeRepository } from "../../dist/postgres-weekly-fee-repository.js";
+import { createTestDatabase } from "./postgres-test-database.mjs";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -9,7 +10,7 @@ test("真实PostgreSQL推荐接收与周费用版本/幂等流程", async () => 
   if (connectionString === undefined || connectionString.trim() === "") {
     throw new Error("DATABASE_URL_REQUIRED_FOR_POSTGRES_INTEGRATION");
   }
-  const pool = createPostgresPool(connectionString);
+  const { pool, close: cleanup } = await createTestDatabase(connectionString);
   const suffix = randomUUID();
   const plannerId = randomUUID();
   const teacherId = randomUUID();
@@ -57,22 +58,37 @@ test("真实PostgreSQL推荐接收与周费用版本/幂等流程", async () => 
     );
 
     const repository = new PostgresWeeklyFeeRepository(pool);
+    // Isolated repository test only. Application writes use recordAndSettle.
+    const recordWeeklyFee = async (...args) => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await repository.recordWeeklyFeeInTransaction(client, ...args);
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally { client.release(); }
+    };
     const accepted = await repository.acceptReferral(referralId, teacherId);
     assert.equal(accepted.status, "ACCEPTED");
     assert.equal(accepted.version, 2);
 
-    const first = await repository.recordWeeklyFee(teacherId, {
+    const firstRequests = await Promise.all(Array.from({ length: 4 }, () => recordWeeklyFee(teacherId, {
       referralCaseId: referralId,
       teachingWeekId: weekId,
       venueId,
       settlementMonth: "2026-09-01",
       grossAmountCents: 100000n
-    }, "weekly-request-1");
+    }, "weekly-request-1")));
+    assert.deepEqual(firstRequests.map(record => record.version), [1, 1, 1, 1]);
+    const first = firstRequests[0];
     assert.equal(first.version, 1);
     assert.equal(first.grossAmountCents, 100000n);
     assert.equal(first.isSelfUseSnapshot, true);
 
-    const replay = await repository.recordWeeklyFee(teacherId, {
+    const replay = await recordWeeklyFee(teacherId, {
       referralCaseId: referralId,
       teachingWeekId: weekId,
       venueId,
@@ -82,7 +98,7 @@ test("真实PostgreSQL推荐接收与周费用版本/幂等流程", async () => 
     assert.equal(replay.version, 1);
     assert.equal(replay.grossAmountCents, 100000n);
 
-    const corrected = await repository.recordWeeklyFee(teacherId, {
+    const corrected = await recordWeeklyFee(teacherId, {
       referralCaseId: referralId,
       teachingWeekId: weekId,
       venueId,
@@ -94,9 +110,23 @@ test("真实PostgreSQL推荐接收与周费用版本/幂等流程", async () => 
 
     const history = await repository.listHistory(referralId, weekId);
     assert.deepEqual(history.map((record) => [record.version, record.grossAmountCents.toString()]), [[1, "100000"], [2, "120000"]]);
+    const originalDraft = { referralCaseId: referralId, teachingWeekId: weekId, venueId, settlementMonth: "2026-09-01", grossAmountCents: 100000n };
+    const oldReplay = await recordWeeklyFee(teacherId, originalDraft, "weekly-request-1");
+    assert.equal(oldReplay.version, 1);
+    assert.equal(oldReplay.grossAmountCents, 100000n);
+    await assert.rejects(recordWeeklyFee(teacherId, { ...originalDraft, grossAmountCents: 1n }, "weekly-request-1"), /IDEMPOTENCY_REPLAY/);
+    const concurrent = await Promise.all(Array.from({ length: 5 }, () => recordWeeklyFee(teacherId, { ...originalDraft, grossAmountCents: 130000n }, "weekly-request-concurrent")));
+    assert.deepEqual(concurrent.map(record => record.version), [3, 3, 3, 3, 3]);
+    const distinct = await Promise.all([140000n, 150000n].map((grossAmountCents, index) => recordWeeklyFee(teacherId, { ...originalDraft, grossAmountCents }, `weekly-request-distinct-${index}`)));
+    assert.deepEqual(distinct.map(record => record.version).sort(), [4, 5]);
+    assert.equal((await repository.listHistory(referralId, weekId)).length, 5);
+    await assert.rejects(recordWeeklyFee(plannerId, originalDraft, "forbidden-request"), /FORBIDDEN_SCOPE/);
+    await pool.query("UPDATE teaching_week SET status = 'LOCKED' WHERE id = $1", [weekId]);
+    await assert.rejects(recordWeeklyFee(teacherId, originalDraft, "locked-request"), /PERIOD_LOCKED/);
+    assert.equal((await repository.listHistory(referralId, weekId)).length, 5);
+    const requests = await pool.query("SELECT count(*)::int AS count FROM weekly_fee_idempotency");
+    assert.equal(requests.rows[0].count, 5);
   } finally {
-    await pool.query("TRUNCATE TABLE ledger_entry, ledger_event, account_balance_projection, weekly_fee_idempotency, weekly_fee_event, weekly_fee_entry_version, weekly_fee_entry, referral_case_event, referral_case, teacher_student_record, teaching_week, academic_period, academic_year_plan, venue RESTART IDENTITY CASCADE");
-    await pool.query("TRUNCATE TABLE person RESTART IDENTITY CASCADE");
-    await pool.end();
+    await cleanup();
   }
 });
