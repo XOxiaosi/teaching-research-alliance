@@ -2,6 +2,7 @@ import type { AllocationLine, Cents } from "./index.js";
 
 export type LedgerDelta = Readonly<{
   accountKey: string;
+  categoryKey: string;
   amountCents: Cents;
 }>;
 
@@ -13,17 +14,30 @@ export type LedgerEvent = Readonly<{
 export const allocationDelta = (
   previous: readonly AllocationLine[],
   next: readonly AllocationLine[],
-  accountByKey: Readonly<Record<string, string>>
+  previousAccountByKey: Readonly<Record<string, string>>,
+  nextAccountByKey: Readonly<Record<string, string>> = previousAccountByKey
 ): readonly LedgerDelta[] => {
   const previousByKey = new Map(previous.map((line) => [line.key, line.cents]));
   const nextByKey = new Map(next.map((line) => [line.key, line.cents]));
   const keys = [...new Set([...previousByKey.keys(), ...nextByKey.keys()])];
-  return keys
-    .map((key) => ({
-      accountKey: accountByKey[key] ?? key,
-      amountCents: (nextByKey.get(key) ?? 0n) - (previousByKey.get(key) ?? 0n)
-    }))
-    .filter((line) => line.amountCents !== 0n);
+  const deltas = new Map<string, LedgerDelta>();
+  const append = (categoryKey: string, accountKey: string | undefined, amountCents: Cents): void => {
+    if (accountKey === undefined || accountKey.trim() === "") throw new Error("MISSING_ACCOUNT_MAPPING");
+    const key = `${accountKey}:${categoryKey}`;
+    const previous = deltas.get(key);
+    deltas.set(key, {
+      accountKey,
+      categoryKey,
+      amountCents: (previous?.amountCents ?? 0n) + amountCents
+    });
+  };
+  for (const key of keys) {
+    const previousAmount = previousByKey.get(key) ?? 0n;
+    const nextAmount = nextByKey.get(key) ?? 0n;
+    if (previousAmount !== 0n) append(key, previousAccountByKey[key], -previousAmount);
+    if (nextAmount !== 0n) append(key, nextAccountByKey[key], nextAmount);
+  }
+  return [...deltas.values()].filter((delta) => delta.amountCents !== 0n);
 };
 
 export const sumLedgerDelta = (deltas: readonly LedgerDelta[]): Cents =>
@@ -35,6 +49,13 @@ export const appendLedgerEventOnce = (
   event: LedgerEvent
 ): readonly LedgerEvent[] => {
   const existing = events.find((item) => item.eventId === event.eventId);
-  if (existing) return events;
+  if (existing) {
+    const normalize = (value: LedgerEvent): string => value.deltas
+      .map((delta) => `${delta.accountKey}:${delta.categoryKey}:${delta.amountCents.toString()}`)
+      .sort()
+      .join("|");
+    if (normalize(existing) !== normalize(event)) throw new Error("LEDGER_EVENT_CONFLICT");
+    return events;
+  }
   return [...events, event];
 };

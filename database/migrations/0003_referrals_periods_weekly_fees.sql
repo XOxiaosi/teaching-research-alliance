@@ -93,6 +93,27 @@ CREATE TABLE weekly_fee_event (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE OR REPLACE FUNCTION validate_weekly_fee_settlement_month()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  expected_month date;
+BEGIN
+  SELECT settlement_month INTO expected_month
+  FROM teaching_week
+  WHERE id = NEW.teaching_week_id;
+  IF expected_month IS NULL OR NEW.settlement_month <> expected_month THEN
+    RAISE EXCEPTION 'WEEKLY_FEE_SETTLEMENT_MONTH_MISMATCH';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER weekly_fee_settlement_month_guard
+BEFORE INSERT OR UPDATE OF teaching_week_id, settlement_month ON weekly_fee_entry
+FOR EACH ROW EXECUTE FUNCTION validate_weekly_fee_settlement_month();
+
 CREATE INDEX referral_case_receiver_lookup ON referral_case (receiver_person_id, status, submitted_at);
 CREATE INDEX referral_case_referrer_lookup ON referral_case (referrer_person_id, status, submitted_at);
 CREATE INDEX weekly_fee_month_lookup ON weekly_fee_entry (settlement_month, teaching_week_id);
