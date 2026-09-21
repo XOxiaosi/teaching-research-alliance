@@ -368,6 +368,124 @@ export type WithdrawalMarkTransferredSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type SelfPurchaseSubmissionDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  amountCents: string;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+}>;
+
+export type SelfPurchaseSubmission = Readonly<{
+  draft: SelfPurchaseSubmissionDraft;
+  idempotencyKey: string;
+}>;
+
+export type SelfPurchaseResult = Readonly<{
+  id: string;
+  status: "COMPLETED";
+  version: number;
+  replay: boolean;
+}>;
+
+export type SelfPurchaseSummary = Readonly<{
+  id: string;
+  status: "COMPLETED";
+  version: number;
+  amountCents: string;
+  reason: string;
+  applicantPersonId: string;
+  sourceFund: Readonly<{ id: string; displayName: string }>;
+  processingMode: "SYSTEM_RULE";
+  submittedAt: string;
+  completedAt: string;
+}>;
+
+export type SelfPurchaseAttachment = Readonly<{
+  versionId: string;
+  purpose: "SUPPORTING_DOCUMENT" | "APPLICATION_SCREENSHOT" | "INVOICE";
+  originalFilename: string;
+  mediaType: FinanceAttachmentMediaType;
+  sizeBytes: number;
+  sha256: string;
+}>;
+
+export type SelfPurchaseDetail = SelfPurchaseSummary & Readonly<{
+  attachments: readonly SelfPurchaseAttachment[];
+  management?: Readonly<{
+    roleAssignmentId: string;
+    companyFundAssignmentId: string;
+    sourceAccountId: string;
+    destinationAccountId: string;
+    ledgerEventId: string;
+  }>;
+}>;
+
+export type CompanyFundStatus = "ACTIVE" | "INACTIVE";
+
+/** Stable COMPANY business account metadata. Balance and person ownership are deliberately absent. */
+export type CompanyFundSummary = Readonly<{
+  id: string;
+  accountId: string;
+  accountCode: string;
+  fundCode: string;
+  displayName: string;
+  status: CompanyFundStatus;
+  version: number;
+}>;
+
+export type CompanyFundCommandResult = CompanyFundSummary & Readonly<{ replay: boolean }>;
+
+export type CompanyFundAssignment = Readonly<{
+  id: string;
+  fundId: string;
+  validFrom: string;
+}>;
+
+export type CompanyFundAssignmentResult = CompanyFundAssignment & Readonly<{
+  previousAssignmentId: string | null;
+  replay: boolean;
+}>;
+
+export type CompanyFundList = Readonly<{
+  funds: readonly CompanyFundSummary[];
+  currentAssignment: CompanyFundAssignment | null;
+}>;
+
+export type CompanyFundCreateDraft = Readonly<{
+  fundCode: string;
+  displayName: string;
+  organizationUnitId?: string;
+}>;
+
+export type CompanyFundCreateSubmission = Readonly<{
+  draft: CompanyFundCreateDraft;
+  idempotencyKey: string;
+}>;
+
+export type CompanyFundAssignmentDraft = Readonly<{
+  fundId: string;
+  expectedAssignmentId: string | null;
+  reason: string;
+}>;
+
+export type CompanyFundAssignmentSubmission = Readonly<{
+  draft: CompanyFundAssignmentDraft;
+  idempotencyKey: string;
+}>;
+
+export type CompanyFundStatusDraft = Readonly<{
+  fundId: string;
+  expectedVersion: number;
+  status: CompanyFundStatus;
+  reason: string;
+}>;
+
+export type CompanyFundStatusSubmission = Readonly<{
+  draft: CompanyFundStatusDraft;
+  idempotencyKey: string;
+}>;
+
 export type SentReferralWeeklyFee = Readonly<{
   entryId: string;
   teachingWeekId: string;
@@ -437,7 +555,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -662,6 +780,37 @@ const validateWithdrawalMarkTransferredDraft = (draft: WithdrawalMarkTransferred
   freezeAttachmentVersionIds(draft.attachmentVersionIds);
 };
 
+const validateSelfPurchaseDraft = (draft: SelfPurchaseSubmissionDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateWithdrawalAmount(draft.amountCents);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateCompanyFundCreateDraft = (draft: CompanyFundCreateDraft): void => {
+  if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(draft.fundCode)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:fundCode");
+  }
+  validateFinancialText(draft.displayName, "displayName", 200);
+  if (draft.organizationUnitId !== undefined) requireNonBlank(draft.organizationUnitId, "organizationUnitId");
+};
+
+const validateCompanyFundAssignmentDraft = (draft: CompanyFundAssignmentDraft): void => {
+  requireNonBlank(draft.fundId, "fundId");
+  if (draft.expectedAssignmentId !== null) requireNonBlank(draft.expectedAssignmentId, "expectedAssignmentId");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validateCompanyFundStatusDraft = (draft: CompanyFundStatusDraft): void => {
+  requireNonBlank(draft.fundId, "fundId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  if (draft.status !== "ACTIVE" && draft.status !== "INACTIVE") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:status");
+  }
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
 const sameRoleContext = (left: RoleContext | null, right: RoleContext | null): boolean =>
   left?.subject === right?.subject
   && left?.personId === right?.personId
@@ -825,6 +974,30 @@ export class TeacherApiClient {
   public async getWithdrawalDetail(documentId: string): Promise<WithdrawalDetail> {
     requireNonBlank(documentId, "documentId");
     return this.authenticatedRequest<WithdrawalDetail>("GET", `/v1/finance/withdrawals/${encodeURIComponent(documentId)}`);
+  }
+
+  public async listOwnSelfPurchases(): Promise<Readonly<{ documents: readonly SelfPurchaseSummary[] }>> {
+    return this.authenticatedRequest<Readonly<{ documents: readonly SelfPurchaseSummary[] }>>(
+      "GET", "/v1/finance/self-purchases/mine"
+    );
+  }
+
+  public async listManagedSelfPurchases(): Promise<Readonly<{ documents: readonly SelfPurchaseSummary[] }>> {
+    return this.authenticatedRequest<Readonly<{ documents: readonly SelfPurchaseSummary[] }>>(
+      "GET", "/v1/finance/self-purchases/managed"
+    );
+  }
+
+  public async getSelfPurchaseDetail(documentId: string): Promise<SelfPurchaseDetail> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<SelfPurchaseDetail>(
+      "GET", `/v1/finance/self-purchases/${encodeURIComponent(documentId)}`
+    );
+  }
+
+  public async listCompanyFunds(): Promise<CompanyFundList> {
+    this.requireCompanyFundAdministrator();
+    return this.authenticatedRequest<CompanyFundList>("GET", "/v1/admin/company-funds");
   }
 
   /**
@@ -1009,6 +1182,80 @@ export class TeacherApiClient {
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
         attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds)
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** An automatic own-procurement transfer may only retry this exact frozen command. */
+  public createSelfPurchaseSubmission(draft: SelfPurchaseSubmissionDraft): SelfPurchaseSubmission {
+    validateSelfPurchaseDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        amountCents: draft.amountCents,
+        reason: draft.reason,
+        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createCompanyFundSubmission(draft: CompanyFundCreateDraft): CompanyFundCreateSubmission {
+    validateCompanyFundCreateDraft(draft);
+    this.requireCompanyFundAdministrator();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        fundCode: draft.fundCode,
+        displayName: draft.displayName,
+        ...(draft.organizationUnitId === undefined ? {} : { organizationUnitId: draft.organizationUnitId })
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createCompanyFundAssignmentSubmission(
+    draft: CompanyFundAssignmentDraft
+  ): CompanyFundAssignmentSubmission {
+    validateCompanyFundAssignmentDraft(draft);
+    this.requireCompanyFundAdministrator();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ fundId: draft.fundId, expectedAssignmentId: draft.expectedAssignmentId, reason: draft.reason }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createCompanyFundStatusSubmission(draft: CompanyFundStatusDraft): CompanyFundStatusSubmission {
+    validateCompanyFundStatusDraft(draft);
+    this.requireCompanyFundAdministrator();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        fundId: draft.fundId, expectedVersion: draft.expectedVersion, status: draft.status, reason: draft.reason
       }),
       idempotencyKey
     });
@@ -1286,6 +1533,93 @@ export class TeacherApiClient {
     } catch (error) {
       this.submissionStatuses.set(submission, "FAILED");
       throw error;
+    }
+  }
+
+  public async submitSelfPurchase(submission: SelfPurchaseSubmission): Promise<SelfPurchaseResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<SelfPurchaseResult>(
+        "POST",
+        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/self-purchase-submit`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          amountCents: submission.draft.amountCents,
+          reason: submission.draft.reason,
+          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
+    return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
+      fundCode: submission.draft.fundCode,
+      displayName: submission.draft.displayName,
+      ...(submission.draft.organizationUnitId === undefined ? {} : { organizationUnitId: submission.draft.organizationUnitId }),
+      idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async assignCompanyFund(
+    submission: CompanyFundAssignmentSubmission
+  ): Promise<CompanyFundAssignmentResult> {
+    return this.runCompanyFundCommand<CompanyFundAssignmentResult>(submission, `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/assignment`, () => ({
+      expectedAssignmentId: submission.draft.expectedAssignmentId,
+      reason: submission.draft.reason,
+      idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async setCompanyFundStatus(submission: CompanyFundStatusSubmission): Promise<CompanyFundCommandResult> {
+    return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/status`, () => ({
+      expectedVersion: submission.draft.expectedVersion,
+      status: submission.draft.status,
+      reason: submission.draft.reason,
+      idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  private async runCompanyFundCommand<T>(
+    submission: CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission,
+    path: string,
+    body: () => Record<string, unknown>
+  ): Promise<T> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireCompanyFundAdministrator();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<T>("POST", path, body());
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  /** This is an early UX guard; the server remains authoritative for active assignments. */
+  private requireCompanyFundAdministrator(): void {
+    const context = this.session?.currentRoleContext;
+    if ((context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
+      || context.scope !== "GLOBAL"
+      || context.regionId !== undefined
+      || context.campusId !== undefined
+      || context.venueId !== undefined) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
 

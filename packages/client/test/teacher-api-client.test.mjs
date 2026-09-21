@@ -18,6 +18,14 @@ const teacherSession = (subject = "TEACHING_TEACHER") => ({
   currentRoleContext: { subject, personId: "person-1" }
 });
 
+const administratorSession = (subject = "SYSTEM_ADMIN", extra = {}) => ({
+  sessionId: "admin-session-1",
+  accountId: "admin-account-1",
+  personId: "admin-person-1",
+  roleContexts: [{ subject, personId: "admin-person-1", scope: "GLOBAL", ...extra }],
+  currentRoleContext: { subject, personId: "admin-person-1", scope: "GLOBAL", ...extra }
+});
+
 const success = (data) => ({ status: 200, body: { version: "test", data } });
 const deferred = () => {
   let resolve;
@@ -928,4 +936,186 @@ test("提现读取沿用 401 清会话与 403 清角色上下文", async () => {
   await client.login({ phoneNormalized: "13800000000", password: "password" });
   await assert.rejects(client.listPendingTransferWithdrawals(), RoleSelectionRequiredError);
   assert.equal(client.currentSession?.currentRoleContext, null);
+});
+
+test("本人采买冻结金额、理由和附件，未知网络以同键重试且只发送固定字段", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const attachmentVersionIds = ["attachment-1", "attachment-2"];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "self-purchase-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/finance/drafts/draft-1/self-purchase-submit") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "COMPLETED", version: 2, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "9007199254740991", reason: " 合成教具采买 ", attachmentVersionIds,
+    sourceFundId: "forged", sourceAccountId: "forged", applicantPersonId: "forged", processingMode: "MANUAL"
+  });
+  attachmentVersionIds.push("later-ui-change");
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.equal(Object.isFrozen(submission.draft.attachmentVersionIds), true);
+  await assert.rejects(client.submitSelfPurchase(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.submitSelfPurchase(submission), { id: "draft-1", status: "COMPLETED", version: 2, replay: true });
+  assert.deepEqual(bodies, [
+    { expectedVersion: 1, amountCents: "9007199254740991", reason: " 合成教具采买 ", attachmentVersionIds: ["attachment-1", "attachment-2"], idempotencyKey: "self-purchase-key-1" },
+    { expectedVersion: 1, amountCents: "9007199254740991", reason: " 合成教具采买 ", attachmentVersionIds: ["attachment-1", "attachment-2"], idempotencyKey: "self-purchase-key-1" }
+  ]);
+  assert.throws(() => client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "0", reason: "采买", attachmentVersionIds: ["one", "two"]
+  }), ApiClientError);
+  assert.throws(() => client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "采买", attachmentVersionIds: ["same", "same"]
+  }), ApiClientError);
+});
+
+test("采买读取路径遵循财年服务端裁决，旧会话命令和成功前读取不会污染当前状态", async () => {
+  const oldMine = deferred();
+  let logins = 0;
+  let posts = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        logins += 1;
+        return success({ ...teacherSession(), sessionId: `self-session-${logins}` });
+      }
+      if (request.path === "/v1/finance/self-purchases/mine") return oldMine.promise;
+      if (request.path === "/v1/finance/drafts/draft-1/self-purchase-submit") {
+        posts += 1;
+        return success({ id: "draft-1", status: "COMPLETED", version: 2, replay: false });
+      }
+      if (request.path === "/v1/finance/self-purchases/managed") return success({ documents: [] });
+      if (request.path === "/v1/finance/self-purchases/draft%2F1") return success({ id: "draft/1", attachments: [] });
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const earlyMine = client.listOwnSelfPurchases();
+  const current = client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "采买", attachmentVersionIds: ["one", "two"]
+  });
+  await client.submitSelfPurchase(current);
+  oldMine.resolve(success({ documents: [] }));
+  await assert.rejects(earlyMine, StaleResponseError);
+  await client.getSelfPurchaseDetail("draft/1");
+  await client.listManagedSelfPurchases();
+
+  const stale = client.createSelfPurchaseSubmission({
+    documentId: "draft-2", expectedVersion: 1, amountCents: "1", reason: "采买", attachmentVersionIds: ["three", "four"]
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.submitSelfPurchase(stale), StaleResponseError);
+  assert.equal(posts, 1);
+});
+
+test("采买提交拒绝跨角色复用，并阻止同一冻结命令并发出站", async () => {
+  const pending = deferred();
+  let submissions = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+      if (request.path === "/v1/finance/drafts/draft-1/self-purchase-submit") {
+        submissions += 1;
+        return pending.promise;
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const stale = client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "采买", attachmentVersionIds: ["one", "two"]
+  });
+  await client.switchRole("ACADEMIC_PLANNER");
+  await assert.rejects(client.submitSelfPurchase(stale), StaleResponseError);
+  assert.equal(submissions, 0);
+
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const current = client.createSelfPurchaseSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "采买", attachmentVersionIds: ["one", "two"]
+  });
+  const first = client.submitSelfPurchase(current);
+  await assert.rejects(client.submitSelfPurchase(current), SubmissionInProgressError);
+  pending.resolve(success({ id: "draft-1", status: "COMPLETED", version: 2, replay: false }));
+  await first;
+  assert.equal(submissions, 1);
+});
+
+test("公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段", async () => {
+  const requests = [];
+  let createAttempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: (() => { let index = 0; return () => `fund-key-${++index}`; })(),
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession());
+      requests.push(request);
+      if (request.method === "GET") return success({ funds: [], currentAssignment: null });
+      if (request.path === "/v1/admin/company-funds") {
+        createAttempts += 1;
+        if (createAttempts === 1) throw new Error("network uncertain");
+        return success({ id: "fund-1", accountId: "account-1", accountCode: "company:fund:fund-1", fundCode: "HQ_OPERATING", displayName: "总部业务资金", status: "ACTIVE", version: 1, replay: true });
+      }
+      if (request.path.endsWith("/assignment")) return success({ id: "assignment-1", fundId: "fund-1", validFrom: "2026-09-21T00:00:00.000Z", previousAssignmentId: null, replay: false });
+      if (request.path.endsWith("/status")) return success({ id: "fund-1", accountId: "account-1", accountCode: "company:fund:fund-1", fundCode: "HQ_OPERATING", displayName: "总部业务资金", status: "INACTIVE", version: 2, replay: false });
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.deepEqual(await client.listCompanyFunds(), { funds: [], currentAssignment: null });
+  const create = client.createCompanyFundSubmission({
+    fundCode: "HQ_OPERATING", displayName: "总部业务资金", openingBalanceCents: "999", ownerId: "forged", accountCode: "forged"
+  });
+  await assert.rejects(client.createCompanyFund(create), /network uncertain/);
+  assert.equal((await client.createCompanyFund(create)).replay, true);
+  const assignment = client.createCompanyFundAssignmentSubmission({ fundId: "fund-1", expectedAssignmentId: null, reason: "首次指定", personId: "forged" });
+  const status = client.createCompanyFundStatusSubmission({ fundId: "fund-1", expectedVersion: 1, status: "INACTIVE", reason: "停用", accountId: "forged" });
+  assert.equal((await client.assignCompanyFund(assignment)).fundId, "fund-1");
+  assert.equal((await client.setCompanyFundStatus(status)).status, "INACTIVE");
+  assert.equal(Object.isFrozen(create.draft), true);
+  assert.deepEqual(requests.map((request) => request.path), [
+    "/v1/admin/company-funds", "/v1/admin/company-funds", "/v1/admin/company-funds", "/v1/admin/company-funds/fund-1/assignment", "/v1/admin/company-funds/fund-1/status"
+  ]);
+  assert.deepEqual(requests[1].body, { fundCode: "HQ_OPERATING", displayName: "总部业务资金", idempotencyKey: "fund-key-1" });
+  assert.deepEqual(requests[3].body, { expectedAssignmentId: null, reason: "首次指定", idempotencyKey: "fund-key-2" });
+  assert.deepEqual(requests[4].body, { expectedVersion: 1, status: "INACTIVE", reason: "停用", idempotencyKey: "fund-key-3" });
+  assert.equal(requests[1].body.openingBalanceCents, undefined);
+  assert.equal(requests[1].body.ownerId, undefined);
+});
+
+test("HQ和带局部资源的管理员不能读取或提交公司资金配置，403清角色上下文", async () => {
+  let calls = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession());
+      calls += 1;
+      return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "role" } } };
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.listCompanyFunds(), RoleSelectionRequiredError);
+  assert.equal(client.currentSession?.currentRoleContext, null);
+  assert.equal(calls, 1);
+
+  const hq = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+    throw new Error("configuration request must not be sent");
+  } });
+  await hq.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(hq.listCompanyFunds(), ApiClientError);
+  const localAdmin = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("SYSTEM_ADMIN", { campusId: "campus-1" }));
+    throw new Error("configuration request must not be sent");
+  } });
+  await localAdmin.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => localAdmin.createCompanyFundSubmission({ fundCode: "HQ_LOCAL", displayName: "局部管理员" }), ApiClientError);
 });

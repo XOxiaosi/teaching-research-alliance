@@ -113,11 +113,6 @@ test("真实 PostgreSQL：附件槽版本、共同幂等与恢复列表保持不
     await transitionPending(pool, withdrawal.id);
     const receiptV1 = await attachments.reserve(hqA, withdrawal.id, receipt("receipt-v1.pdf", 3), "receipt-v1", at);
     await markReady(pool, receiptV1.versionId, 3, "a".repeat(64));
-    await pool.query(
-      `INSERT INTO finance_withdrawal_attachment_binding(finance_document_id,stage,purpose,finance_attachment_version_id,document_version,bound_by_person_id,bound_at,created_at)
-       VALUES($1::uuid,'COMPLETION','PAYMENT_RECEIPT',$2::uuid,2,$3::uuid,$4::timestamptz,$4::timestamptz)`,
-      [withdrawal.id, receiptV1.versionId, ids.hqA, at.toISOString()]
-    );
     const receiptV2 = await attachments.reserveNextVersion(hqB, receiptV1.attachmentId, draft("receipt-v2.pdf", 4, "b".repeat(64)), "receipt-v2", at);
     assert.equal(receiptV2.versionNo, 2);
     assert.equal((await pool.query("SELECT uploaded_by_person_id::text AS uploaded_by_person_id FROM finance_attachment_version WHERE id=$1::uuid", [receiptV2.versionId])).rows[0].uploaded_by_person_id, ids.hqB);
@@ -128,8 +123,22 @@ test("真实 PostgreSQL：附件槽版本、共同幂等与恢复列表保持不
     await assert.rejects(uploader.upload(hqB, receiptV1.versionId, forbiddenChunks(), at), /FINANCE_ATTACHMENT_NOT_FOUND/);
     await assert.rejects(uploader.upload(hqA, receiptV2.versionId, forbiddenChunks(), at), /FINANCE_ATTACHMENT_NOT_FOUND/);
     assert.equal(consumed, false);
+    // Metadata fixture: revisions belong to PENDING_TRANSFER; bind the chosen READY
+    // version only after the transfer is recorded, exactly as the business service does.
+    await pool.query("UPDATE finance_document SET status='TRANSFERRED',version=3 WHERE id=$1::uuid", [withdrawal.id]);
+    await pool.query(
+      "INSERT INTO finance_withdrawal_transfer(finance_document_id,transferred_by_person_id,transferred_at,created_at) VALUES($1,$2,$3,$3)",
+      [withdrawal.id,ids.hqA,at.toISOString()]
+    );
+    await pool.query(
+      `INSERT INTO finance_withdrawal_attachment_binding(finance_document_id,stage,purpose,finance_attachment_version_id,document_version,bound_by_person_id,bound_at,created_at)
+       VALUES($1::uuid,'COMPLETION','PAYMENT_RECEIPT',$2::uuid,3,$3::uuid,$4::timestamptz,$4::timestamptz)`,
+      [withdrawal.id,receiptV1.versionId,ids.hqA,at.toISOString()]
+    );
+    await assert.rejects(attachments.reserveNextVersion(hqB,receiptV1.attachmentId,draft("receipt-v3.pdf",1),"completed-revision",at),/FINANCE_ATTACHMENT_NOT_READY/);
     const hqList = await attachments.listDocument(admin, withdrawal.id, at);
-    assert.deepEqual(hqList.attachments[0].versions[0].binding, { stage: "COMPLETION", documentVersion: 2, boundAt: at.toISOString() });
+    assert.deepEqual(hqList.attachments[0].versions[0].binding, { stage: "COMPLETION", documentVersion: 3, boundAt: at.toISOString() });
+    assert.equal(hqList.attachments[0].versions[1].binding,undefined);
 
     const limitedDocument = await drafts.create(teacher, { kind: "REIMBURSEMENT" }, "limited-version-draft", at);
     const limited = new PostgresFinanceAttachmentService(pool, { maxFileBytes: 10, maxDocumentBytes: 10, maxActiveVersions: 2 });

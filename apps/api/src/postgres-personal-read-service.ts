@@ -1,7 +1,8 @@
 import type { RoleContext } from "@teaching-research-alliance/contracts";
+import { financeYearBounds } from "./finance-year.js";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 
-const PERSONAL_SUBJECTS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER"] as const;
+const PERSONAL_SUBJECTS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const SETTLEMENT_CATEGORIES = [
   "referrer",
   "planningMentor",
@@ -129,6 +130,44 @@ export class PostgresPersonalReadService {
       for (const row of incomeResult.rows) {
         currentYearIncomeByCategory[row.category_key] = BigInt(row.amount_cents);
       }
+      const bounds = financeYearBounds(at);
+      const reimbursements = await client.query<Readonly<{ amount_cents: string; valid: boolean | null }>>(
+        `SELECT transfer.amount_cents::text AS amount_cents,
+                (document.kind='SELF_PURCHASE' AND document.status='COMPLETED'
+                 AND document.applicant_person_id=$1::uuid
+                 AND transfer.destination_person_id=$1::uuid
+                 AND transfer.destination_account_id=$2::uuid
+                 AND transfer.submitted_by_person_id=$1::uuid
+                 AND transfer.processing_mode='SYSTEM_RULE'
+                 AND source.owner_type='COMPANY' AND source.owner_id=transfer.source_fund_id
+                 AND source.account_code='company:fund:' || transfer.source_fund_id::text
+                 AND event.event_type='SELF_PURCHASE_AUTO_COMPLETED'
+                 AND event.event_key='self-purchase:' || document.id::text
+                 AND entries.total=2 AND entries.income=1 AND entries.expense=1) AS valid
+           FROM finance_self_purchase_transfer transfer
+           JOIN finance_document document ON document.id=transfer.finance_document_id
+           LEFT JOIN settlement_account source ON source.id=transfer.source_account_id
+           LEFT JOIN ledger_event event ON event.id=transfer.ledger_event_id
+           LEFT JOIN LATERAL (
+             SELECT count(*) AS total,
+                    count(*) FILTER (WHERE account_id=transfer.destination_account_id
+                      AND category_key='selfPurchaseIncome' AND amount_cents=transfer.amount_cents) AS income,
+                    count(*) FILTER (WHERE account_id=transfer.source_account_id
+                      AND category_key='selfPurchaseExpense' AND amount_cents=-transfer.amount_cents) AS expense
+               FROM ledger_entry WHERE event_id=transfer.ledger_event_id
+           ) entries ON true
+          WHERE (transfer.destination_person_id=$1::uuid OR transfer.destination_account_id=$2::uuid)
+            AND transfer.completed_at >= $3::timestamptz AND transfer.completed_at < $4::timestamptz`,
+        [context.personId, account.id, bounds.start, bounds.end]
+      );
+      let reimbursementIncome = 0n;
+      for (const row of reimbursements.rows) {
+        if (row.valid !== true || !/^[1-9][0-9]*$/.test(row.amount_cents)) {
+          throw new Error("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
+        }
+        reimbursementIncome += BigInt(row.amount_cents);
+      }
+      if (reimbursementIncome !== 0n) currentYearIncomeByCategory.reimbursementIncome = reimbursementIncome;
       return {
         personId: person.id,
         nickname: person.nickname,

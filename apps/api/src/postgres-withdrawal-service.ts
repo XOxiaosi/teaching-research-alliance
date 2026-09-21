@@ -22,7 +22,7 @@ export type WithdrawalTransferDraft = Readonly<{ expectedVersion: number; attach
 
 type DocumentRow = Readonly<{ id: string; applicant_person_id: string; kind: string; status: string; version: string }>;
 type AccountRow = Readonly<{ id: string; owner_type: "PERSON" | "VENUE" | "COMPANY"; owner_id: string; account_code: string; status: "ACTIVE" | "INACTIVE" }>;
-type AttachmentRow = Readonly<{ id: string; purpose: string; status: string; detected_media_type: AttachmentMediaType | null; actual_size_bytes: string | null; sha256: string | null }>;
+type AttachmentRow = Readonly<{ id: string; attachment_id: string; purpose: string; status: string; detected_media_type: AttachmentMediaType | null; actual_size_bytes: string | null; sha256: string | null }>;
 type IdempotencyRow = Readonly<{ request_hmac: string; hmac_key_id: string; finance_document_id: string; result_status: WithdrawalResult["status"]; result_document_version: string }>;
 type SubmissionRow = Readonly<{ source_account_id: string; amount_cents: string }>;
 
@@ -118,6 +118,9 @@ export class PostgresWithdrawalService {
       const debit = await this.postLedger(client, eventKey, "WITHDRAWAL_DEBIT", account, -amount, {
         documentId: document.id, sourceAccountId: account.id, amountCents: amount.toString()
       });
+      if (debit.status !== "POSTED" || debit.balances[account.account_code] !== prepared[0]!.balanceCents - amount) {
+        error("FINANCE_WITHDRAWAL_PERSISTENCE_INVALID");
+      }
       const nextVersion = expectedVersion + 1;
       await client.query("UPDATE finance_document SET status='PENDING_TRANSFER',version=$2::bigint,updated_at=$3::timestamptz WHERE id=$1::uuid", [document.id, nextVersion, at.toISOString()]);
       await client.query(
@@ -158,6 +161,9 @@ export class PostgresWithdrawalService {
       const reversal = await this.postLedger(client, eventKey, "WITHDRAWAL_REVERSAL", account, amount, {
         documentId: document.id, sourceAccountId: account.id, amountCents: amount.toString()
       });
+      if (reversal.status !== "POSTED" || reversal.balances[account.account_code] !== prepared[0]!.balanceCents + amount) {
+        error("FINANCE_WITHDRAWAL_PERSISTENCE_INVALID");
+      }
       const nextVersion = expectedVersion + 1;
       await client.query("UPDATE finance_document SET status='FINANCE_REVOKED',version=$2::bigint,updated_at=$3::timestamptz WHERE id=$1::uuid", [document.id, nextVersion, at.toISOString()]);
       await client.query(
@@ -281,12 +287,13 @@ export class PostgresWithdrawalService {
   }
   private async lockReadyAttachments(client: PostgresClient, documentId: string, ids: readonly string[], allowedPurposes: readonly string[], requiredPurposes: readonly string[]): Promise<readonly AttachmentRow[]> {
     const rows = (await client.query<AttachmentRow>(
-      `SELECT version.id::text AS id,attachment.purpose,version.status,version.detected_media_type,version.actual_size_bytes::text AS actual_size_bytes,version.sha256
+      `SELECT version.id::text AS id,attachment.id::text AS attachment_id,attachment.purpose,version.status,version.detected_media_type,version.actual_size_bytes::text AS actual_size_bytes,version.sha256
          FROM finance_attachment_version version JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
         WHERE attachment.finance_document_id=$1::uuid AND version.id=ANY($2::uuid[])
         FOR SHARE OF attachment,version`, [documentId, ids]
     )).rows;
-    if (rows.length !== ids.length || rows.some(row => row.status !== "READY" || !allowedPurposes.includes(row.purpose))) error("FINANCE_ATTACHMENT_NOT_READY");
+    if (rows.length !== ids.length || new Set(rows.map(row => row.attachment_id)).size !== rows.length
+      || rows.some(row => row.status !== "READY" || !allowedPurposes.includes(row.purpose))) error("FINANCE_ATTACHMENT_NOT_READY");
     if (requiredPurposes.some(purpose => !rows.some(row => row.purpose === purpose))) error("FINANCE_ATTACHMENT_NOT_READY");
     return rows;
   }
@@ -300,13 +307,13 @@ export class PostgresWithdrawalService {
       catch { error("ATTACHMENT_INTEGRITY_FAILED"); }
     }
   }
-  private async postLedger(client: PostgresClient, eventKey: string, eventType: string, account: AccountRow, amount: bigint, payload: unknown): Promise<{eventId:string}> {
+  private async postLedger(client: PostgresClient, eventKey: string, eventType: string, account: AccountRow, amount: bigint, payload: unknown): Promise<{eventId:string;status:"POSTED"|"REPLAY";balances:Readonly<Record<string,bigint>>}> {
     // A withdrawal command creates exactly one ledger event; its account was prepared before any balance decision.
     const bound = createPostgresLedgerTransaction(client);
     const posted = await postLedgerEvent({ transaction: work => work(bound) }, {
       eventKey, eventType, payloadHash: eventPayloadHash(payload), deltas: [{ accountKey: account.account_code, categoryKey: "withdrawal", amountCents: amount }]
     }, randomUUID);
-    return { eventId: posted.event.eventId };
+    return { eventId: posted.event.eventId, status: posted.status, balances: posted.balances };
   }
   private async bindAttachments(client: PostgresClient, documentId: string, stage: "SUBMISSION" | "COMPLETION", rows: readonly AttachmentRow[], documentVersion: number, actorId: string, at: Date): Promise<void> {
     for (const row of rows) await client.query(
