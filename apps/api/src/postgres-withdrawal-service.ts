@@ -5,6 +5,7 @@ import { FinanceSensitiveFieldCrypto, validateFinancialRecipient } from "./finan
 import { financeYearBounds } from "./finance-year.js";
 import { LocalAttachmentStore, type AttachmentMediaType } from "./local-attachment-store.js";
 import { createPostgresLedgerTransaction, type PostgresClient, type PostgresPool } from "./postgres-ledger-repository.js";
+import { prepareLedgerPosting, type PreparedLedgerAccount } from "./postgres-ledger-locks.js";
 
 export type WithdrawalResult = Readonly<{ id: string; status: "PENDING_TRANSFER" | "TRANSFERRED" | "FINANCE_REVOKED"; version: number; replay: boolean }>;
 export type WithdrawalSubmissionDraft = Readonly<{
@@ -103,16 +104,18 @@ export class PostgresWithdrawalService {
       if (document.kind !== "WITHDRAWAL" || document.status !== "DRAFT") error("FINANCE_WITHDRAWAL_STATE_CONFLICT");
       if (versionOf(document) !== expectedVersion) error("VERSION_CONFLICT");
 
-      const account = await this.lockActiveSourceAccount(client, normalizedSourceAccountId);
+      const candidate = await this.readSourceAccountCandidate(client, normalizedSourceAccountId);
+      const eventKey = `withdrawal-debit:${document.id}`;
+      const prepared = await prepareLedgerPosting(client, eventKey, [candidate.account_code]);
+      const account = this.preparedSourceAccount(prepared, candidate, normalizedSourceAccountId, true);
       const authorization = await this.assertSourceAuthorization(client, context, account, at);
-      const balance = await this.lockBalance(client, account.id);
-      if (balance < amount) error("INSUFFICIENT_BALANCE");
+      if (prepared[0]!.balanceCents < amount) error("INSUFFICIENT_BALANCE");
       const attachments = await this.lockReadyAttachments(client, document.id, selectedAttachments, SUBMISSION_ALLOWED_PURPOSES, SUBMISSION_PURPOSES);
       await this.verifyAttachments(attachments);
       const encrypted = this.crypto.encrypt({ recipientName: draft.recipientName, bankAccount: draft.bankAccount, ...(draft.bankName === undefined ? {} : { bankName: draft.bankName }) }, {
         documentId: document.id, applicantPersonId: document.applicant_person_id, sourceAccountId: account.id, amountCents: amount.toString()
       });
-      const debit = await this.postLedger(client, `withdrawal-debit:${document.id}`, "WITHDRAWAL_DEBIT", account, -amount, {
+      const debit = await this.postLedger(client, eventKey, "WITHDRAWAL_DEBIT", account, -amount, {
         documentId: document.id, sourceAccountId: account.id, amountCents: amount.toString()
       });
       const nextVersion = expectedVersion + 1;
@@ -147,12 +150,12 @@ export class PostgresWithdrawalService {
       const submission = this.one((await client.query<SubmissionRow>(
         "SELECT source_account_id::text AS source_account_id,amount_cents::text AS amount_cents FROM finance_withdrawal_submission WHERE finance_document_id=$1::uuid FOR SHARE", [document.id]
       )).rows, "FINANCE_WITHDRAWAL_PERSISTENCE_INVALID");
-      const account = this.one((await client.query<AccountRow>(
-        "SELECT id::text AS id,owner_type,owner_id::text AS owner_id,account_code,status FROM settlement_account WHERE id=$1::uuid FOR UPDATE", [submission.source_account_id]
-      )).rows, "SOURCE_ACCOUNT_NOT_FOUND");
-      await this.lockBalance(client, account.id);
+      const candidate = await this.readSourceAccountCandidate(client, submission.source_account_id);
+      const eventKey = `withdrawal-reversal:${document.id}`;
+      const prepared = await prepareLedgerPosting(client, eventKey, [candidate.account_code]);
+      const account = this.preparedSourceAccount(prepared, candidate, submission.source_account_id, false);
       const amount = BigInt(submission.amount_cents);
-      const reversal = await this.postLedger(client, `withdrawal-reversal:${document.id}`, "WITHDRAWAL_REVERSAL", account, amount, {
+      const reversal = await this.postLedger(client, eventKey, "WITHDRAWAL_REVERSAL", account, amount, {
         documentId: document.id, sourceAccountId: account.id, amountCents: amount.toString()
       });
       const nextVersion = expectedVersion + 1;
@@ -235,11 +238,27 @@ export class PostgresWithdrawalService {
     if (this.crypto.requestHmac(canonicalRequest, stored.hmac_key_id) !== stored.request_hmac) error("IDEMPOTENCY_REPLAY");
     return result(stored.finance_document_id, stored.result_status, versionOf({ version: stored.result_document_version }), true);
   }
-  private async lockActiveSourceAccount(client: PostgresClient, id: string): Promise<AccountRow> {
-    const account = this.one((await client.query<AccountRow>(
-      "SELECT id::text AS id,owner_type,owner_id::text AS owner_id,account_code,status FROM settlement_account WHERE id=$1::uuid FOR UPDATE", [id]
+  /** A non-locking candidate gives prepareLedgerPosting the stable account-code input; prepare then revalidates the locked row. */
+  private async readSourceAccountCandidate(client: PostgresClient, id: string): Promise<AccountRow> {
+    return this.one((await client.query<AccountRow>(
+      "SELECT id::text AS id,owner_type,owner_id::text AS owner_id,account_code,status FROM settlement_account WHERE id=$1::uuid", [id]
     )).rows, "SOURCE_ACCOUNT_NOT_FOUND");
-    if (account.status !== "ACTIVE" || (account.owner_type !== "PERSON" && account.owner_type !== "VENUE")) error("SOURCE_ACCOUNT_NOT_WITHDRAWABLE");
+  }
+  private preparedSourceAccount(
+    prepared: readonly PreparedLedgerAccount[],
+    candidate: AccountRow,
+    expectedId: string,
+    requireActive: boolean
+  ): AccountRow {
+    const locked = prepared.find((account) => account.accountCode === candidate.account_code);
+    if (locked === undefined) throw new Error("SOURCE_ACCOUNT_NOT_FOUND");
+    if (locked.id !== expectedId || locked.id !== candidate.id) throw new Error("SOURCE_ACCOUNT_NOT_FOUND");
+    const account: AccountRow = {
+      id: locked.id, owner_type: locked.ownerType, owner_id: locked.ownerId, account_code: locked.accountCode, status: locked.status
+    };
+    if (requireActive && (account.status !== "ACTIVE" || (account.owner_type !== "PERSON" && account.owner_type !== "VENUE"))) {
+      error("SOURCE_ACCOUNT_NOT_WITHDRAWABLE");
+    }
     return account;
   }
   private async assertSourceAuthorization(client: PostgresClient, context: RoleContext, account: AccountRow, at: Date): Promise<{kind: "PERSON_OWNER" | "VENUE_OWNER" | "VENUE_GRANT"; grantId?: string; snapshot: Record<string, unknown>}> {
@@ -259,13 +278,6 @@ export class PostgresWithdrawalService {
     )).rows[0];
     if (grant === undefined) throw new Error("FORBIDDEN_SCOPE");
     return { kind: "VENUE_GRANT", grantId: grant.id, snapshot: { authorizationKind: "VENUE_GRANT", venueId: account.owner_id, venueOwnerPersonId: venue.owner_person_id, grantId: grant.id, granteePersonId: grant.grantee_person_id, validFrom: new Date(grant.valid_from).toISOString(), validTo: grant.valid_to === null ? null : new Date(grant.valid_to).toISOString() } };
-  }
-  private async lockBalance(client: PostgresClient, accountId: string): Promise<bigint> {
-    await client.query("INSERT INTO account_balance_projection(account_id,balance_cents) VALUES ($1::uuid,0) ON CONFLICT (account_id) DO NOTHING", [accountId]);
-    const row = this.one((await client.query<{balance_cents:string}>(
-      "SELECT balance_cents::text AS balance_cents FROM account_balance_projection WHERE account_id=$1::uuid FOR UPDATE", [accountId]
-    )).rows, "SOURCE_ACCOUNT_NOT_FOUND");
-    return BigInt(row.balance_cents);
   }
   private async lockReadyAttachments(client: PostgresClient, documentId: string, ids: readonly string[], allowedPurposes: readonly string[], requiredPurposes: readonly string[]): Promise<readonly AttachmentRow[]> {
     const rows = (await client.query<AttachmentRow>(
@@ -289,6 +301,7 @@ export class PostgresWithdrawalService {
     }
   }
   private async postLedger(client: PostgresClient, eventKey: string, eventType: string, account: AccountRow, amount: bigint, payload: unknown): Promise<{eventId:string}> {
+    // A withdrawal command creates exactly one ledger event; its account was prepared before any balance decision.
     const bound = createPostgresLedgerTransaction(client);
     const posted = await postLedgerEvent({ transaction: work => work(bound) }, {
       eventKey, eventType, payloadHash: eventPayloadHash(payload), deltas: [{ accountKey: account.account_code, categoryKey: "withdrawal", amountCents: amount }]

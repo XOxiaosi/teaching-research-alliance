@@ -11,8 +11,21 @@ const createFakePool = ({ entryRowCount = 1 } = {}) => {
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
       if (sql.includes("pg_advisory_xact_lock")) return { rows: [], rowCount: 1 };
       if (sql.includes("FROM ledger_event le")) return { rows: [], rowCount: 0 };
+      if (sql.includes("FROM settlement_account WHERE account_code") && sql.includes("FOR NO KEY UPDATE")) {
+        return {
+          rows: [{
+            id: "00000000-0000-4000-8000-000000000010",
+            owner_type: "PERSON",
+            owner_id: "00000000-0000-4000-8000-000000000011",
+            account_code: values[0],
+            status: "ACTIVE"
+          }],
+          rowCount: 1
+        };
+      }
       if (sql.includes("INSERT INTO ledger_event")) return { rows: [], rowCount: 1 };
       if (sql.includes("INSERT INTO ledger_entry")) return { rows: [], rowCount: entryRowCount };
+      if (sql.includes("FROM account_balance_projection") && sql.includes("FOR UPDATE")) return { rows: [{ balance_cents: "0" }], rowCount: 1 };
       if (sql.includes("SELECT COALESCE")) return { rows: [{ balance_cents: "72000" }], rowCount: 1 };
       if (sql.includes("INSERT INTO account_balance_projection")) return { rows: [], rowCount: 1 };
       throw new Error(`UNEXPECTED_SQL:${sql}`);
@@ -36,7 +49,12 @@ test("PostgreSQL账本适配器使用参数化SQL并在成功后提交", async (
   assert.equal(normalizedSql[0], "BEGIN");
   assert.equal(normalizedSql.at(-2), "COMMIT");
   assert.equal(normalizedSql.at(-1), "RELEASE");
-  assert.equal(fake.calls.filter(call => call.sql.includes("pg_advisory_xact_lock")).length, 1);
+  const advisoryCalls = fake.calls.filter(call => call.sql.includes("pg_advisory_xact_lock"));
+  assert.equal(advisoryCalls.length, 2, "findEvent 与无条件 prepare 在同一事务中可重入同一事件锁");
+  assert.deepEqual(advisoryCalls.map(call => call.values), [
+    ["ledger-event:weekly-fee:postgres-1"],
+    ["ledger-event:weekly-fee:postgres-1"]
+  ]);
   const ledgerEntryCall = fake.calls.find((call) => call.sql.includes("INSERT INTO ledger_entry"));
   assert.deepEqual(ledgerEntryCall.values, ["00000000-0000-4000-8000-000000000001", "person-teacher", "teachingTeacher", "72000"]);
 });

@@ -34,3 +34,4 @@ export { LocalAttachmentStore } from "./local-attachment-store.js";
 export { FinanceSensitiveFieldCrypto } from "./finance-sensitive-field-crypto.js";
 export { PostgresWithdrawalService } from "./postgres-withdrawal-service.js";
 export { PostgresWithdrawalReadService } from "./postgres-withdrawal-read-service.js";
+export { PostgresCompanyFundService } from "./postgres-company-fund-service.js";

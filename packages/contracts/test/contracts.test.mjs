@@ -21,6 +21,11 @@ test("分区财务只读个人余额与收入汇总，不得到逐笔结算或�
   assert.equal(hasPermission("REGION_FINANCE", "EXPORT_FULL_BACKUP"), false);
 });
 
+test("财务业务账户配置只授予最高维护角色，不跟随财务办理权限",()=>{
+  for(const subject of ['SYSTEM_ADMIN','SYSTEM_OWNER'])assert.equal(permissionScope(subject,'MANAGE_COMPANY_FUNDS'),'GLOBAL');
+  for(const subject of ['HEADQUARTERS_FINANCE','REGION_FINANCE','TEACHING_TEACHER','CAMPUS_PRINCIPAL'])assert.equal(hasPermission(subject,'MANAGE_COMPANY_FUNDS'),false);
+});
+
 test("场地选用与共享查看/提现是独立能力", () => {
   assert.equal(hasPermission("TEACHING_TEACHER", "CREATE_WEEKLY_FEE"), true);
   assert.equal(hasPermission("TEACHING_TEACHER", "VIEW_SHARED_VENUE_BOARD"), true);

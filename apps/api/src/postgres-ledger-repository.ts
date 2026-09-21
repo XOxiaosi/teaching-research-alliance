@@ -4,6 +4,7 @@ import type {
   LedgerRepository,
   LedgerTransaction
 } from "@teaching-research-alliance/domain";
+import { prepareLedgerPosting } from "./postgres-ledger-locks.js";
 
 export type SqlQueryResult<Row> = Readonly<{
   rows: readonly Row[];
@@ -94,6 +95,8 @@ export const createPostgresLedgerTransaction = (client: PostgresClient): LedgerT
     },
     insertEvent: async (event) => {
       if (!UUID_PATTERN.test(event.eventId)) throw new Error("LEDGER_EVENT_ID_INVALID");
+      // This is deliberately unconditional: every ledger writer receives the same event/account/balance lock order.
+      await prepareLedgerPosting(client, event.eventKey, event.deltas.map((delta) => delta.accountKey));
       await client.query(
         `INSERT INTO ledger_event (id, event_key, event_type, payload_hash)
          VALUES ($1::uuid, $2, $3, $4)`,

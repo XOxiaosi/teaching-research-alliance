@@ -72,6 +72,12 @@ export type ApiServices = Readonly<{
     listOwn: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     getOwn: (context: RoleContext, id: string, at: Date) => unknown | Promise<unknown>;
   }>;
+  companyFunds?: Readonly<{
+    create: (context: RoleContext, draft: {fundCode:string;displayName:string;organizationUnitId?:string}, key:string, at:Date) => unknown | Promise<unknown>;
+    list: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
+    assign: (context:RoleContext, draft:{fundId:string;expectedAssignmentId:string|null;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+    setStatus: (context:RoleContext, id:string, draft:{expectedVersion:number;status:"ACTIVE"|"INACTIVE";reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
   financeAttachments?: Readonly<{
     reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     getOwnVersion: (context: RoleContext, versionId: string, at: Date) => unknown | Promise<unknown>;
@@ -120,6 +126,7 @@ const errorStatus = (code: string): number => {
   if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
   if (code === "FINANCE_SERVICE_UNAVAILABLE") return 503;
   if (code === "FINANCE_WITHDRAWAL_STATE_CONFLICT" || code === "INSUFFICIENT_BALANCE") return 409;
+  if (["COMPANY_FUND_CONFLICT","COMPANY_FUND_ASSIGNMENT_CONFLICT","COMPANY_FUND_INACTIVE"].includes(code)) return 409;
   if (code === "SOURCE_ACCOUNT_FORBIDDEN") return 403;
   if (["ATTACHMENT_STORAGE_UNAVAILABLE","ATTACHMENT_VALIDATOR_BUSY","ATTACHMENT_VALIDATION_TIMEOUT","ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION"].includes(code)) return 503;
   if (["ATTACHMENT_INTEGRITY_FAILED","ATTACHMENT_UNAVAILABLE"].includes(code)) return 500;
@@ -387,6 +394,31 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if(id==="pending-transfer")return success(await services.withdrawalReads.listPending(context));
       if(id==="managed")return success(await services.withdrawalReads.listManaged(context));
       return success(await services.withdrawalReads.getDetail(context,id,at));
+    }
+    const companyFundActionPath=request.path.match(/^\/v1\/admin\/company-funds\/([^/]+)\/(assignment|status)$/);
+    if((request.path==="/v1/admin/company-funds"&&(request.method==="GET"||request.method==="POST"))
+      ||(companyFundActionPath!==null&&request.method==="POST")){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.companyFunds)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(request.method==="GET")return success(await services.companyFunds.list(context,at));
+      if(companyFundActionPath===null){
+        if(Object.keys(body).some(key=>!["sessionId","fundCode","displayName","organizationUnitId","idempotencyKey"].includes(key)))throw new Error("INVALID_INPUT");
+        return success(await services.companyFunds.create(context,{
+          fundCode:requiredString(body,"fundCode"),displayName:requiredString(body,"displayName"),
+          ...(body.organizationUnitId===undefined?{}:{organizationUnitId:requiredString(body,"organizationUnitId")})
+        },requiredString(body,"idempotencyKey"),at));
+      }
+      if(companyFundActionPath[2]==="assignment"){
+        if(Object.keys(body).some(key=>!["sessionId","expectedAssignmentId","reason","idempotencyKey"].includes(key)))throw new Error("INVALID_INPUT");
+        if(body.expectedAssignmentId!==null&&(typeof body.expectedAssignmentId!=="string"||!body.expectedAssignmentId.trim()))throw new Error("INVALID_INPUT");
+        return success(await services.companyFunds.assign(context,{fundId:companyFundActionPath[1]!,expectedAssignmentId:body.expectedAssignmentId as string|null,
+          reason:requiredString(body,"reason")},requiredString(body,"idempotencyKey"),at));
+      }
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","status","reason","idempotencyKey"].includes(key))
+        ||(body.status!=="ACTIVE"&&body.status!=="INACTIVE")||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error("INVALID_INPUT");
+      return success(await services.companyFunds.setStatus(context,companyFundActionPath[1]!,{expectedVersion:body.expectedVersion,status:body.status,
+        reason:requiredString(body,"reason")},requiredString(body,"idempotencyKey"),at));
     }
     const attachmentReservePath = request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/attachment-uploads$/);
     if (attachmentReservePath !== null && request.method === "POST") {

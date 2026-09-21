@@ -46,7 +46,7 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
   return createServer(async (request, response) => {
     try {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-      if(pathname.startsWith("/v1/finance/")){
+      if(pathname.startsWith("/v1/finance/")||pathname.startsWith("/v1/admin/company-funds")){
         response.setHeader("cache-control","private, no-store");
         response.setHeader("x-content-type-options","nosniff");
       }
