@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {PNG} from 'pngjs';
 import {PostgresPersonalReadService,PostgresCompanyFundService,PostgresSelfPurchaseService,
   PostgresFinanceDraftService,PostgresFinanceAttachmentService,PostgresFinanceAttachmentUploadService,
-  PostgresLedgerRepository,LocalAttachmentStore} from '../../dist/main.js';
+  PostgresLedgerRepository,PostgresSelfPurchaseReversalService,LocalAttachmentStore} from '../../dist/main.js';
 import {postLedgerEvent} from '@teaching-research-alliance/domain';
 import {createTestDatabase} from './postgres-test-database.mjs';
 
@@ -40,17 +40,20 @@ test('个人概览按采买完成财年计报销收入，累计余额独立，�
       return document.id;
     };
     const oldDocument=await purchase('old','1000',previousYear),newDocument=await purchase('new','10000',currentYear);
+    const reversals=new PostgresSelfPurchaseReversalService(pool);
+    const oldVersion=(await pool.query('SELECT version::int AS version FROM finance_document WHERE id=$1',[oldDocument])).rows[0].version;
+    await reversals.reverse(adminContext,oldDocument,{expectedVersion:oldVersion,reason:'跨财年撤销'},'old-reverse',currentYear);
     const reads=new PostgresPersonalReadService(pool);
     for(const subject of ['PLANNING_MENTOR','TEACHING_TEACHER','ACADEMIC_PLANNER']){
       const current=await reads.getOwnOverview({...personal,subject},currentYear);
-      assert.equal(current.balanceCents,13000n);assert.deepEqual(current.currentYearIncomeByCategory,{reimbursementIncome:10000n});
+      assert.equal(current.balanceCents,12000n);assert.deepEqual(current.currentYearIncomeByCategory,{reimbursementIncome:10000n},'旧财年撤销不能生成本年负收入');
     }
-    const old=await reads.getOwnOverview(personal,previousYear);assert.equal(old.balanceCents,13000n);assert.deepEqual(old.currentYearIncomeByCategory,{reimbursementIncome:1000n});
-    const next=await reads.getOwnOverview(personal,new Date('2027-08-31T16:00:00Z'));assert.equal(next.balanceCents,13000n);assert.deepEqual(next.currentYearIncomeByCategory,{});
+    const old=await reads.getOwnOverview(personal,previousYear);assert.equal(old.balanceCents,12000n);assert.deepEqual(old.currentYearIncomeByCategory,{});
+    const next=await reads.getOwnOverview(personal,new Date('2027-08-31T16:00:00Z'));assert.equal(next.balanceCents,12000n);assert.deepEqual(next.currentYearIncomeByCategory,{});
     await assert.rejects(reads.getOwnOverview({...personal,subject:'HEADQUARTERS_FINANCE',scope:'GLOBAL'},currentYear),/FORBIDDEN_SCOPE/);
     await assert.rejects(reads.getOwnOverview({...personal,personId:other},currentYear),/PERSONAL_ACCOUNT_NOT_FOUND/);
     await postLedgerEvent(new PostgresLedgerRepository(pool),{eventKey:'synthetic-wage-deduction',eventType:'SYNTHETIC_DEDUCTION',payloadHash:'synthetic',deltas:[{accountKey:`person:${person}`,categoryKey:'cashWageDeduction',amountCents:-500n}]},randomUUID);
-    const after=await reads.getOwnOverview(personal,currentYear);assert.equal(after.balanceCents,12500n);assert.deepEqual(after.currentYearIncomeByCategory,{reimbursementIncome:10000n},'个人概览不展示工资项目或公司支出');
+    const after=await reads.getOwnOverview(personal,currentYear);assert.equal(after.balanceCents,11500n);assert.deepEqual(after.currentYearIncomeByCategory,{reimbursementIncome:10000n},'个人概览不展示工资项目或公司支出');
     // A current-year mismatched recipient must not disappear silently when its actual account is still ours.
     await pool.query('ALTER TABLE finance_self_purchase_transfer DISABLE TRIGGER USER');
     await pool.query('UPDATE finance_self_purchase_transfer SET destination_person_id=$2,submitted_by_person_id=$2 WHERE finance_document_id=$1',[newDocument,other]);

@@ -43,6 +43,7 @@ export const ACTIONS = [
   "SUBMIT_OWN_SELF_PURCHASE",
   "READ_OWN_SELF_PURCHASE",
   "READ_MANAGED_SELF_PURCHASE",
+  "REVERSE_MANAGED_SELF_PURCHASE",
   "VIEW_REGION_PERSONAL_SUMMARY",
   "VIEW_CAMPUS_SCOPE_SETTLEMENT",
   "VIEW_GROUP_SCOPE_SETTLEMENT",
@@ -134,6 +135,9 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("HEADQUARTERS_FINANCE", "READ_MANAGED_SELF_PURCHASE", "GLOBAL"),
   rule("SYSTEM_ADMIN", "READ_MANAGED_SELF_PURCHASE", "GLOBAL"),
   rule("SYSTEM_OWNER", "READ_MANAGED_SELF_PURCHASE", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "REVERSE_MANAGED_SELF_PURCHASE", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "REVERSE_MANAGED_SELF_PURCHASE", "GLOBAL"),
+  rule("SYSTEM_OWNER", "REVERSE_MANAGED_SELF_PURCHASE", "GLOBAL"),
   rule("ACADEMIC_PLANNER", "READ_OWN_WITHDRAWAL", "SELF"),
   rule("ACADEMIC_PLANNER", "CREATE_PERSONAL_WITHDRAWAL", "SELF"),
   rule("PLANNING_MENTOR", "READ_OWN_WITHDRAWAL", "SELF"),
@@ -260,6 +264,7 @@ export type EndpointContract = Readonly<{
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "POST", path: "/v1/finance/drafts/:documentId/self-purchase-submit", action: "SUBMIT_OWN_SELF_PURCHASE", responseVersion: "self-purchase.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/self-purchases/:documentId/reverse", action: "REVERSE_MANAGED_SELF_PURCHASE", responseVersion: "self-purchase.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/finance/self-purchases/mine", action: "READ_OWN_SELF_PURCHASE", responseVersion: "self-purchases.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/finance/self-purchases/managed", action: "READ_MANAGED_SELF_PURCHASE", responseVersion: "self-purchases.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/finance/self-purchases/:documentId", action: "READ_OWN_SELF_PURCHASE", alternativeActions: ["READ_MANAGED_SELF_PURCHASE"], responseVersion: "self-purchase-detail.v1", requiresRoleContext: true },

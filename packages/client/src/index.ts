@@ -381,6 +381,17 @@ export type SelfPurchaseSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type SelfPurchaseReversalDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+}>;
+
+export type SelfPurchaseReversalSubmission = Readonly<{
+  draft: SelfPurchaseReversalDraft;
+  idempotencyKey: string;
+}>;
+
 export type SelfPurchaseResult = Readonly<{
   id: string;
   status: "COMPLETED";
@@ -388,13 +399,23 @@ export type SelfPurchaseResult = Readonly<{
   replay: boolean;
 }>;
 
+export type SelfPurchaseReversalResult = Readonly<{
+  id: string;
+  status: "REVERSED";
+  version: number;
+  replay: boolean;
+}>;
+
+export type SelfPurchaseStatus = "COMPLETED" | "REVERSED";
+
 export type SelfPurchaseSummary = Readonly<{
   id: string;
-  status: "COMPLETED";
+  status: SelfPurchaseStatus;
   version: number;
   amountCents: string;
   reason: string;
   applicantPersonId: string;
+  applicantDisplayName: string;
   sourceFund: Readonly<{ id: string; displayName: string }>;
   processingMode: "SYSTEM_RULE";
   submittedAt: string;
@@ -412,12 +433,19 @@ export type SelfPurchaseAttachment = Readonly<{
 
 export type SelfPurchaseDetail = SelfPurchaseSummary & Readonly<{
   attachments: readonly SelfPurchaseAttachment[];
+  reversal?: Readonly<{
+    reason: string;
+    reversedAt: string;
+  }>;
   management?: Readonly<{
     roleAssignmentId: string;
     companyFundAssignmentId: string;
     sourceAccountId: string;
     destinationAccountId: string;
     ledgerEventId: string;
+    reversedByPersonId?: string;
+    reversalActorSubject?: "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER";
+    reversalLedgerEventId?: string;
   }>;
 }>;
 
@@ -555,7 +583,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -786,6 +814,12 @@ const validateSelfPurchaseDraft = (draft: SelfPurchaseSubmissionDraft): void => 
   validateWithdrawalAmount(draft.amountCents);
   validateFinancialText(draft.reason, "reason", 1_000);
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateSelfPurchaseReversalDraft = (draft: SelfPurchaseReversalDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
 };
 
 const validateCompanyFundCreateDraft = (draft: CompanyFundCreateDraft): void => {
@@ -1211,6 +1245,28 @@ export class TeacherApiClient {
     return submission;
   }
 
+  /** A completed automatic procurement transfer may only be reversed by a strict GLOBAL finance context. */
+  public createSelfPurchaseReversalSubmission(
+    draft: SelfPurchaseReversalDraft
+  ): SelfPurchaseReversalSubmission {
+    validateSelfPurchaseReversalDraft(draft);
+    this.requireSelfPurchaseReversalManager();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        reason: draft.reason
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   public createCompanyFundSubmission(draft: CompanyFundCreateDraft): CompanyFundCreateSubmission {
     validateCompanyFundCreateDraft(draft);
     this.requireCompanyFundAdministrator();
@@ -1562,6 +1618,33 @@ export class TeacherApiClient {
     }
   }
 
+  public async reverseSelfPurchase(
+    submission: SelfPurchaseReversalSubmission
+  ): Promise<SelfPurchaseReversalResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireSelfPurchaseReversalManager();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<SelfPurchaseReversalResult>(
+        "POST",
+        `/v1/finance/self-purchases/${encodeURIComponent(submission.draft.documentId)}/reverse`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
     return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
       fundCode: submission.draft.fundCode,
@@ -1615,6 +1698,18 @@ export class TeacherApiClient {
   private requireCompanyFundAdministrator(): void {
     const context = this.session?.currentRoleContext;
     if ((context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
+      || context.scope !== "GLOBAL"
+      || context.regionId !== undefined
+      || context.campusId !== undefined
+      || context.venueId !== undefined) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** The API remains authoritative for the active HQ assignment; this only prevents impossible UI commands. */
+  private requireSelfPurchaseReversalManager(): void {
+    const context = this.session?.currentRoleContext;
+    if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
       || context.scope !== "GLOBAL"
       || context.regionId !== undefined
       || context.campusId !== undefined

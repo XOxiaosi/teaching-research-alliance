@@ -11,6 +11,7 @@ import {createApiServer,SessionService,LocalAttachmentStore,PostgresFinanceDraft
   PostgresCompanyFundService} from '../../dist/main.js';
 import {PostgresSelfPurchaseService} from '../../dist/postgres-self-purchase-service.js';
 import {PostgresSelfPurchaseReadService} from '../../dist/postgres-self-purchase-read-service.js';
+import {PostgresSelfPurchaseReversalService} from '../../dist/postgres-self-purchase-reversal-service.js';
 import {createTestDatabase} from './postgres-test-database.mjs';
 
 test('财务本人采买真实HTTP：真实任职、两份原件、业务扣豆与本人加豆同时完成',async()=>{
@@ -34,7 +35,8 @@ test('财务本人采买真实HTTP：真实任职、两份原件、业务扣豆�
     for(let i=0;i<3;i++){sessions.login(`1360000000${i}`,'synthetic-only',at);sessions.switchRole(`purchase-token-${i+1}`,i===2?'SYSTEM_ADMIN':'TEACHING_TEACHER',at);}
     server=createApiServer({sessions,weeklyFees:{},financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),
       financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,store),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,store),
-      selfPurchases:new PostgresSelfPurchaseService(pool,store),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),now:()=>at});
+      selfPurchases:new PostgresSelfPurchaseService(pool,store),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),
+      selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),now:()=>at});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
     const base=`http://127.0.0.1:${server.address().port}/v1/finance`;
     const request=(path,body,who=1)=>fetch(base+path,{method:body===undefined?'GET':'POST',headers:{authorization:`Bearer purchase-token-${who}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -64,6 +66,7 @@ test('财务本人采买真实HTTP：真实任职、两份原件、业务扣豆�
     const mine=await success(await request('/self-purchases/mine'));assert.equal(mine.documents.length,1);
     const detailResponse=await request(`/self-purchases/${draft.id}`);assert.equal(detailResponse.headers.get('cache-control'),'private, no-store');
     const detail=await success(detailResponse);assert.equal(detail.processingMode,'SYSTEM_RULE');assert.equal(detail.amountCents,'10000');assert.equal(detail.attachments.length,2);
+    assert.equal(detail.applicantDisplayName,`purchase-http-${finance}`);
     assert.equal((await request(`/self-purchases/${draft.id}`,undefined,2)).status,404);
     assert.equal((await request('/self-purchases/managed')).status,403);
     assert.equal((await success(await request('/self-purchases/managed',undefined,3))).documents.length,1);
@@ -71,6 +74,15 @@ test('财务本人采买真实HTTP：真实任职、两份原件、业务扣豆�
     assert.deepEqual(attachmentList.attachments.flatMap(slot=>slot.versions).map(version=>version.binding.stage),['SUBMISSION','SUBMISSION']);
     const download=await fetch(`${base}/attachments/${versions[0]}/content`,{headers:{authorization:'Bearer purchase-token-1'}});assert.equal(download.status,200);assert.deepEqual(Buffer.from(await download.arrayBuffer()),bytes);
     assert.equal((await request(`/drafts/${draft.id}/attachment-uploads`,{purpose:'SUPPORTING_DOCUMENT',originalFilename:'late.png',declaredMediaType:'image/png',declaredSizeBytes:bytes.length,idempotencyKey:'late'})).status,409);
+    const reversePath=`/self-purchases/${draft.id}/reverse`;
+    const reversal={expectedVersion:submitted.version,reason:'合成重复采买登记更正',idempotencyKey:'purchase-reverse'};
+    assert.equal((await fetch(base+reversePath,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(reversal)})).status,401);
+    assert.equal((await request(reversePath,reversal)).status,403,'个人身份不能撤销已完成划拨');
+    for(const extra of ['amountCents','sourceAccountId','destinationAccountId','attachmentVersionIds','bankAccount']){
+      assert.equal((await request(reversePath,{...reversal,[extra]:'forbidden'},3)).status,400);
+    }
+    const stale=await request(reversePath,{...reversal,expectedVersion:1},3);
+    assert.equal(stale.status,409);assert.equal((await stale.json()).error.code,'VERSION_CONFLICT');
     at=new Date('2027-08-31T16:00:00Z');
     assert.equal((await success(await request('/self-purchases/mine'))).documents.length,0);
     assert.equal((await request(`/self-purchases/${draft.id}`)).status,404);
@@ -78,5 +90,25 @@ test('财务本人采买真实HTTP：真实任职、两份原件、业务扣豆�
     assert.equal((await success(await request(path,command))).replay,true);
     assert.equal((await success(await request(`/self-purchases/${draft.id}`,undefined,3))).status,'COMPLETED');
     assert.equal((await pool.query('SELECT count(*)::int n FROM ledger_event')).rows[0].n,1);
+    const reversed=await success(await request(reversePath,reversal,3));
+    assert.equal(reversed.status,'REVERSED');assert.equal(reversed.version,submitted.version+1);
+    assert.equal((await success(await request(reversePath,reversal,3))).replay,true);
+    const changed=await request(reversePath,{...reversal,reason:'different'},3);
+    assert.equal(changed.status,409);assert.equal((await changed.json()).error.code,'IDEMPOTENCY_REPLAY');
+    assert.equal((await request(reversePath,{...reversal,idempotencyKey:'another-reverse'},3)).status,409);
+    const reversedDetail=await success(await request(`/self-purchases/${draft.id}`,undefined,3));
+    assert.equal(reversedDetail.status,'REVERSED');assert.equal(reversedDetail.amountCents,'10000');
+    assert.equal(reversedDetail.applicantDisplayName,`purchase-http-${finance}`);
+    assert.equal(reversedDetail.reversal.reason,reversal.reason);assert.equal(reversedDetail.attachments.length,2);
+    assert.equal((await success(await request('/self-purchases/managed',undefined,3))).documents[0].status,'REVERSED');
+    assert.equal((await request(`/self-purchases/${draft.id}`)).status,404);
+    assert.equal((await success(await request(path,command))).replay,true,'原成功申请的重试只确认旧命令，不重新划拨');
+    const originalEvidence=await success(await request(`/documents/${draft.id}/attachments`,undefined,3));
+    assert.deepEqual(originalEvidence.attachments.flatMap(slot=>slot.versions).map(version=>version.binding.documentVersion),[submitted.version,submitted.version]);
+    const adminDownload=await fetch(`${base}/attachments/${versions[0]}/content`,{headers:{authorization:'Bearer purchase-token-3'}});
+    assert.equal(adminDownload.status,200);assert.deepEqual(Buffer.from(await adminDownload.arrayBuffer()),bytes);
+    const finalBalances=await pool.query('SELECT account_id::text,balance_cents::text FROM account_balance_projection WHERE account_id=ANY($1::uuid[])',[[fund.accountId,personalAccount]]);
+    assert.deepEqual(Object.fromEntries(finalBalances.rows.map(row=>[row.account_id,row.balance_cents])),{[fund.accountId]:'5000',[personalAccount]:'2000'});
+    assert.equal((await pool.query('SELECT count(*)::int n FROM ledger_event')).rows[0].n,2);
   }finally{if(server)await new Promise(resolve=>server.close(resolve));await db.close();await rm(root,{recursive:true,force:true});}
 });

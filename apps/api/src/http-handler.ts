@@ -81,6 +81,9 @@ export type ApiServices = Readonly<{
   selfPurchases?: Readonly<{
     submit: (context:RoleContext, id:string, draft:{expectedVersion:number;amountCents:string;reason:string;attachmentVersionIds:readonly string[]}, key:string, at:Date) => unknown | Promise<unknown>;
   }>;
+  selfPurchaseReversals?: Readonly<{
+    reverse: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
   selfPurchaseReads?: Readonly<{
     listOwn: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
     listManaged: (context:RoleContext) => unknown | Promise<unknown>;
@@ -416,6 +419,17 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         ||!Array.isArray(body.attachmentVersionIds)||!body.attachmentVersionIds.every(id=>typeof id==="string"))throw new Error("INVALID_INPUT");
       return success(await services.selfPurchases.submit(context,selfPurchaseSubmitPath[1]!,{
         expectedVersion:body.expectedVersion,amountCents:requiredString(body,"amountCents"),reason:requiredString(body,"reason"),attachmentVersionIds:body.attachmentVersionIds as string[]
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const selfPurchaseReversePath=request.path.match(/^\/v1\/finance\/self-purchases\/([^/]+)\/reverse$/);
+    if(selfPurchaseReversePath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.selfPurchaseReversals)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","reason","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error("INVALID_INPUT");
+      return success(await services.selfPurchaseReversals.reverse(context,selfPurchaseReversePath[1]!,{
+        expectedVersion:body.expectedVersion,reason:requiredString(body,"reason")
       },requiredString(body,"idempotencyKey"),at));
     }
     const selfPurchaseReadPath=request.path.match(/^\/v1\/finance\/self-purchases\/([^/]+)$/);

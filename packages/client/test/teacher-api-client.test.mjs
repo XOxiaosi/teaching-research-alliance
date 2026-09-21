@@ -1051,6 +1051,82 @@ test("采买提交拒绝跨角色复用，并阻止同一冻结命令并发出�
   assert.equal(submissions, 1);
 });
 
+test("采买撤销冻结命令以同键重试，只允许严格GLOBAL办理人且作废旧读取", async () => {
+  const oldList = deferred();
+  const requests = [];
+  let attempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "self-reversal-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+      requests.push(request);
+      if (request.path === "/v1/finance/self-purchases/managed") return oldList.promise;
+      if (request.path === "/v1/finance/self-purchases/draft-1/reverse") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "REVERSED", version: 3, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const earlyRead = client.listManagedSelfPurchases();
+  const reversal = client.createSelfPurchaseReversalSubmission({
+    documentId: "draft-1", expectedVersion: 2, reason: " 采购取消 ", amountCents: "999", actorPersonId: "forged"
+  });
+  assert.equal(Object.isFrozen(reversal), true);
+  assert.equal(Object.isFrozen(reversal.draft), true);
+  await assert.rejects(client.reverseSelfPurchase(reversal), /network uncertain/);
+  assert.equal(client.submissionStatus(reversal), "FAILED");
+  assert.deepEqual(await client.reverseSelfPurchase(reversal), { id: "draft-1", status: "REVERSED", version: 3, replay: true });
+  oldList.resolve(success({ documents: [] }));
+  await assert.rejects(earlyRead, StaleResponseError);
+  assert.deepEqual(requests.slice(1), [
+    {
+      method: "POST", path: "/v1/finance/self-purchases/draft-1/reverse", headers: requests[1].headers,
+      body: { expectedVersion: 2, reason: " 采购取消 ", idempotencyKey: "self-reversal-key-1" }
+    },
+    {
+      method: "POST", path: "/v1/finance/self-purchases/draft-1/reverse", headers: requests[2].headers,
+      body: { expectedVersion: 2, reason: " 采购取消 ", idempotencyKey: "self-reversal-key-1" }
+    }
+  ]);
+  assert.equal(requests[1].body.amountCents, undefined);
+  assert.equal(requests[1].body.actorPersonId, undefined);
+});
+
+test("采买撤销拒绝个人、局部HQ和跨会话复用的冻结命令", async () => {
+  const personalClient = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession());
+    throw new Error("personal reversal must not be sent");
+  } });
+  await personalClient.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => personalClient.createSelfPurchaseReversalSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "取消" }), ApiClientError);
+
+  let logins = 0;
+  let posts = 0;
+  const client = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") {
+      logins += 1;
+      return success({ ...administratorSession("HEADQUARTERS_FINANCE"), sessionId: `hq-session-${logins}` });
+    }
+    if (request.path === "/v1/finance/self-purchases/draft-1/reverse") posts += 1;
+    throw new Error("old reversal must not be sent");
+  } });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createSelfPurchaseReversalSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "取消" });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(client.reverseSelfPurchase(submission), StaleResponseError);
+  assert.equal(posts, 0);
+
+  const localHq = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE", { venueId: "venue-1" }));
+    throw new Error("local reversal must not be sent");
+  } });
+  await localHq.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => localHq.createSelfPurchaseReversalSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "取消" }), ApiClientError);
+});
+
 test("公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段", async () => {
   const requests = [];
   let createAttempts = 0;

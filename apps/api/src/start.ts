@@ -12,6 +12,7 @@ import { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-
 import { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
 import { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
 import { PostgresSelfPurchaseService } from "./postgres-self-purchase-service.js";
+import { PostgresSelfPurchaseReversalService } from "./postgres-self-purchase-reversal-service.js";
 import { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-service.js";
 import { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-service.js";
 import { createApiServer } from "./http-server.js";
@@ -45,6 +46,7 @@ const server = createApiServer({
   financeDrafts: new PostgresFinanceDraftService(pool),
   companyFunds: new PostgresCompanyFundService(pool),
   selfPurchaseReads: new PostgresSelfPurchaseReadService(pool),
+  selfPurchaseReversals: new PostgresSelfPurchaseReversalService(pool),
   ...(attachmentStore ? {selfPurchases: new PostgresSelfPurchaseService(pool,attachmentStore)} : {}),
   financeAttachments: new PostgresFinanceAttachmentService(pool),
   ...(attachmentStore ? { financeAttachmentUploads: new PostgresFinanceAttachmentUploadService(pool, attachmentStore), financeAttachmentReads: new PostgresFinanceAttachmentReadService(pool, attachmentStore) } : {}),

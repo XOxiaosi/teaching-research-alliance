@@ -30,12 +30,16 @@ test("本人采买从个人入口提交，财务管理读取独立授权",()=>{
   for(const subject of ['TEACHING_TEACHER','ACADEMIC_PLANNER','PLANNING_MENTOR']){
     assert.equal(permissionScope(subject,'SUBMIT_OWN_SELF_PURCHASE'),'SELF');
     assert.equal(hasPermission(subject,'READ_MANAGED_SELF_PURCHASE'),false);
+    assert.equal(hasPermission(subject,'REVERSE_MANAGED_SELF_PURCHASE'),false);
   }
   for(const subject of ['HEADQUARTERS_FINANCE','SYSTEM_ADMIN','SYSTEM_OWNER']){
     assert.equal(permissionScope(subject,'READ_MANAGED_SELF_PURCHASE'),'GLOBAL');
+    assert.equal(permissionScope(subject,'REVERSE_MANAGED_SELF_PURCHASE'),'GLOBAL');
     assert.equal(hasPermission(subject,'SUBMIT_OWN_SELF_PURCHASE'),false);
   }
   assert.equal(hasPermission('REGION_FINANCE','READ_MANAGED_SELF_PURCHASE'),false);
+  for(const subject of ['REGION_FINANCE','CAMPUS_PRINCIPAL','GROUP_LEADER','TEACHING_MENTOR'])assert.equal(hasPermission(subject,'REVERSE_MANAGED_SELF_PURCHASE'),false);
+  assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/self-purchases/:documentId/reverse').action,'REVERSE_MANAGED_SELF_PURCHASE');
   assert.deepEqual(ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/self-purchases/:documentId').alternativeActions,['READ_MANAGED_SELF_PURCHASE']);
 });
 

@@ -4,11 +4,12 @@ import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.
 
 export type SelfPurchaseSummary = Readonly<{
   id: string;
-  status: "COMPLETED";
+  status: "COMPLETED" | "REVERSED";
   version: number;
   amountCents: string;
   reason: string;
   applicantPersonId: string;
+  applicantDisplayName: string;
   sourceFund: Readonly<{ id: string; displayName: string }>;
   processingMode: "SYSTEM_RULE";
   submittedAt: string;
@@ -24,12 +25,19 @@ export type SelfPurchaseDetail = SelfPurchaseSummary & Readonly<{
     sizeBytes: number;
     sha256: string;
   }>[];
+  reversal?: Readonly<{
+    reason: string;
+    reversedAt: string;
+  }>;
   management?: Readonly<{
     roleAssignmentId: string;
     companyFundAssignmentId: string;
     sourceAccountId: string;
     destinationAccountId: string;
     ledgerEventId: string;
+    reversedByPersonId?: string;
+    reversalActorSubject?: "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER";
+    reversalLedgerEventId?: string;
   }>;
 }>;
 
@@ -39,6 +47,7 @@ type SummaryRow = Readonly<{
   status: string;
   version: string;
   applicant_person_id: string;
+  applicant_display_name: string | null;
   transfer_document_id: string | null;
   role_assignment_id: string | null;
   company_fund_assignment_id: string | null;
@@ -83,6 +92,30 @@ type SummaryRow = Readonly<{
   source_ledger_entries: string | null;
   destination_ledger_entries: string | null;
   other_ledger_entries: string | null;
+  reversal_document_id: string | null;
+  reversal_source_document_version: string | null;
+  reversal_result_document_version: string | null;
+  reversal_source_account_id: string | null;
+  reversal_destination_account_id: string | null;
+  reversal_amount_cents: string | null;
+  reversal_reason: string | null;
+  reversal_ledger_event_id: string | null;
+  reversal_ledger_event_type: string | null;
+  reversal_ledger_event_key: string | null;
+  reversed_by_person_id: string | null;
+  reversal_actor_subject_code: string | null;
+  reversal_actor_scope_type: string | null;
+  reversal_authorization_snapshot: unknown;
+  reversal_original_authorization_matches: boolean | null;
+  reversed_at: string | null;
+  reversal_source_before_cents: string | null;
+  reversal_source_after_cents: string | null;
+  reversal_destination_before_cents: string | null;
+  reversal_destination_after_cents: string | null;
+  reversal_ledger_entry_count: string | null;
+  reversal_source_ledger_entries: string | null;
+  reversal_destination_ledger_entries: string | null;
+  reversal_other_ledger_entries: string | null;
 }>;
 
 type AttachmentRow = Readonly<{
@@ -167,7 +200,7 @@ const snapshotNullableTime = (record: Record<string, unknown>, field: string): s
 
 const summarySelect = `
   SELECT document.id::text AS id,document.kind AS document_kind,document.status,document.version::text AS version,
-         document.applicant_person_id::text AS applicant_person_id,
+         document.applicant_person_id::text AS applicant_person_id,applicant.nickname AS applicant_display_name,
          transfer.finance_document_id::text AS transfer_document_id,
          transfer.role_assignment_id::text AS role_assignment_id,
          transfer.company_fund_assignment_id::text AS company_fund_assignment_id,
@@ -191,8 +224,23 @@ const summarySelect = `
          to_char(fund_assignment.valid_from AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_from,
          to_char(fund_assignment.valid_to AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_to,
          ledger_counts.entry_count::text AS ledger_entry_count,ledger_counts.source_entries::text AS source_ledger_entries,
-         ledger_counts.destination_entries::text AS destination_ledger_entries,ledger_counts.other_entries::text AS other_ledger_entries
+         ledger_counts.destination_entries::text AS destination_ledger_entries,ledger_counts.other_entries::text AS other_ledger_entries,
+         reversal.finance_document_id::text AS reversal_document_id,
+         reversal.source_document_version::text AS reversal_source_document_version,reversal.result_document_version::text AS reversal_result_document_version,
+         reversal.source_account_id::text AS reversal_source_account_id,reversal.destination_account_id::text AS reversal_destination_account_id,
+         reversal.amount_cents::text AS reversal_amount_cents,reversal.reason AS reversal_reason,
+         reversal.reversal_ledger_event_id::text AS reversal_ledger_event_id,reversal_event.event_type AS reversal_ledger_event_type,
+         reversal_event.event_key AS reversal_ledger_event_key,reversal.reversed_by_person_id::text AS reversed_by_person_id,
+         reversal.actor_subject_code AS reversal_actor_subject_code,reversal.actor_scope_type AS reversal_actor_scope_type,
+         reversal.authorization_snapshot AS reversal_authorization_snapshot,
+         (reversal.authorization_snapshot->'originalTransferAuthorization'=transfer.authorization_snapshot) AS reversal_original_authorization_matches,
+         to_char(reversal.reversed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS reversed_at,
+         reversal.source_before_cents::text AS reversal_source_before_cents,reversal.source_after_cents::text AS reversal_source_after_cents,
+         reversal.destination_before_cents::text AS reversal_destination_before_cents,reversal.destination_after_cents::text AS reversal_destination_after_cents,
+         reversal_counts.entry_count::text AS reversal_ledger_entry_count,reversal_counts.source_entries::text AS reversal_source_ledger_entries,
+         reversal_counts.destination_entries::text AS reversal_destination_ledger_entries,reversal_counts.other_entries::text AS reversal_other_ledger_entries
     FROM finance_document document
+    JOIN person applicant ON applicant.id=document.applicant_person_id
     LEFT JOIN finance_self_purchase_transfer transfer ON transfer.finance_document_id=document.id
     LEFT JOIN company_finance_fund fund ON fund.id=transfer.source_fund_id
     LEFT JOIN settlement_account source ON source.id=transfer.source_account_id
@@ -200,6 +248,8 @@ const summarySelect = `
     LEFT JOIN role_assignment role ON role.id=transfer.role_assignment_id
     LEFT JOIN company_finance_fund_assignment fund_assignment ON fund_assignment.id=transfer.company_fund_assignment_id
     LEFT JOIN ledger_event ledger_event ON ledger_event.id=transfer.ledger_event_id
+    LEFT JOIN finance_self_purchase_reversal reversal ON reversal.finance_document_id=document.id
+    LEFT JOIN ledger_event reversal_event ON reversal_event.id=reversal.reversal_ledger_event_id
     LEFT JOIN LATERAL (
       SELECT count(*) AS entry_count,
              count(*) FILTER (WHERE entry.account_id=transfer.source_account_id AND entry.category_key='selfPurchaseExpense' AND entry.amount_cents=-transfer.amount_cents) AS source_entries,
@@ -207,7 +257,14 @@ const summarySelect = `
              count(*) FILTER (WHERE entry.account_id NOT IN (transfer.source_account_id,transfer.destination_account_id)) AS other_entries
         FROM ledger_entry entry WHERE entry.event_id=transfer.ledger_event_id
     ) ledger_counts ON true
-   WHERE document.kind='SELF_PURCHASE' AND document.status='COMPLETED'`;
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS entry_count,
+             count(*) FILTER (WHERE entry.account_id=reversal.source_account_id AND entry.category_key='selfPurchaseExpenseReversal' AND entry.amount_cents=reversal.amount_cents) AS source_entries,
+             count(*) FILTER (WHERE entry.account_id=reversal.destination_account_id AND entry.category_key='selfPurchaseIncomeReversal' AND entry.amount_cents=-reversal.amount_cents) AS destination_entries,
+             count(*) FILTER (WHERE entry.account_id NOT IN (reversal.source_account_id,reversal.destination_account_id)) AS other_entries
+        FROM ledger_entry entry WHERE entry.event_id=reversal.reversal_ledger_event_id
+    ) reversal_counts ON true
+   WHERE document.kind='SELF_PURCHASE' AND document.status IN ('COMPLETED','REVERSED')`;
 
 const attachmentSelect = `
   SELECT version.id::text AS version_id,binding.purpose AS binding_purpose,attachment.purpose AS attachment_purpose,
@@ -224,13 +281,14 @@ const toSummary = (row: SummaryRow): SelfPurchaseSummary => {
   const ids = [row.id,row.applicant_person_id,row.transfer_document_id,row.role_assignment_id,row.company_fund_assignment_id,
     row.source_fund_id,row.source_account_id,row.destination_person_id,row.destination_account_id,row.ledger_event_id,
     row.submitted_by_person_id,row.source_owner_id,row.destination_owner_id,row.role_person_id,row.fund_assignment_fund_id];
-  if (!ids.every((id) => id !== null && UUID.test(id)) || row.document_kind !== "SELF_PURCHASE" || row.status !== "COMPLETED"
+  if (!ids.every((id) => id !== null && UUID.test(id)) || row.document_kind !== "SELF_PURCHASE"
+    || (row.status !== "COMPLETED" && row.status !== "REVERSED")
     || row.transfer_document_id !== row.id || row.processing_mode !== "SYSTEM_RULE" || row.applicant_person_id !== row.destination_person_id
     || row.applicant_person_id !== row.submitted_by_person_id || row.source_owner_type !== "COMPANY" || row.source_owner_id !== row.source_fund_id
     || row.destination_owner_type !== "PERSON" || row.destination_owner_id !== row.destination_person_id
     || row.fund_assignment_fund_id !== row.source_fund_id || row.fund_assignment_subject !== "HEADQUARTERS_FINANCE"
     || row.fund_assignment_scope !== "GLOBAL" || row.fund_assignment_scope_id !== null || row.fund_assignment_responsibility !== "FINANCE_OPERATING_SOURCE"
-    || row.source_fund_display_name === null || !row.reason?.trim()) invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
+    || row.source_fund_display_name === null || row.applicant_display_name === null || !row.reason?.trim()) invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
   const amount = validCents(row.amount_cents, true);
   const submittedAt = validTimestamp(row.submitted_at);
   const completedAt = validTimestamp(row.completed_at);
@@ -269,9 +327,56 @@ const toSummary = (row: SummaryRow): SelfPurchaseSummary => {
     || row.ledger_entry_count !== "2" || row.source_ledger_entries !== "1" || row.destination_ledger_entries !== "1" || row.other_ledger_entries !== "0") {
     invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
   }
+  if (row.status === "COMPLETED") {
+    if (row.reversal_document_id !== null || row.reversal_source_document_version !== null || row.reversal_result_document_version !== null
+      || row.reversal_source_account_id !== null || row.reversal_destination_account_id !== null || row.reversal_amount_cents !== null
+      || row.reversal_reason !== null || row.reversal_ledger_event_id !== null || row.reversal_ledger_event_type !== null
+      || row.reversal_ledger_event_key !== null || row.reversed_by_person_id !== null || row.reversal_actor_subject_code !== null
+      || row.reversal_actor_scope_type !== null || row.reversal_authorization_snapshot !== null || row.reversed_at !== null
+      || row.reversal_source_before_cents !== null || row.reversal_source_after_cents !== null
+      || row.reversal_destination_before_cents !== null || row.reversal_destination_after_cents !== null
+      || (row.reversal_ledger_entry_count !== null && row.reversal_ledger_entry_count !== "0")
+      || (row.reversal_source_ledger_entries !== null && row.reversal_source_ledger_entries !== "0")
+      || (row.reversal_destination_ledger_entries !== null && row.reversal_destination_ledger_entries !== "0")
+      || (row.reversal_other_ledger_entries !== null && row.reversal_other_ledger_entries !== "0")) {
+      invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
+    }
+  } else {
+    const reversalIds = [row.reversal_document_id,row.reversal_source_account_id,row.reversal_destination_account_id,
+      row.reversal_ledger_event_id,row.reversed_by_person_id];
+    const sourceDocumentVersion = parseVersion(row.reversal_source_document_version ?? "");
+    const resultDocumentVersion = parseVersion(row.reversal_result_document_version ?? "");
+    const reversalAmount = validCents(row.reversal_amount_cents, true);
+    const reversedAt = validTimestamp(row.reversed_at);
+    if (!reversalIds.every((id) => id !== null && UUID.test(id)) || row.reversal_document_id !== row.id
+      || sourceDocumentVersion + 1 !== resultDocumentVersion || resultDocumentVersion !== parseVersion(row.version)
+      || row.reversal_source_account_id !== row.source_account_id || row.reversal_destination_account_id !== row.destination_account_id
+      || reversalAmount !== amount || row.reversal_reason === null || !row.reversal_reason.trim()
+      || row.reversal_ledger_event_type !== "SELF_PURCHASE_TRANSFER_REVERSED"
+      || row.reversal_ledger_event_key !== `self-purchase-reversal:${row.id}`
+      || !["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(row.reversal_actor_subject_code ?? "")
+      || row.reversal_actor_scope_type !== "GLOBAL"
+      || row.reversal_original_authorization_matches !== true
+      || validCents(row.reversal_source_before_cents) + reversalAmount !== validCents(row.reversal_source_after_cents)
+      || validCents(row.reversal_destination_before_cents) - reversalAmount !== validCents(row.reversal_destination_after_cents)
+      || row.reversal_ledger_entry_count !== "2" || row.reversal_source_ledger_entries !== "1"
+      || row.reversal_destination_ledger_entries !== "1" || row.reversal_other_ledger_entries !== "0"
+      || new Date(reversedAt).getTime() < new Date(completedAt).getTime()) {
+      invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
+    }
+    const reversalAuthorization = snapshot(row.reversal_authorization_snapshot);
+    if (snapshotId(reversalAuthorization, "originalLedgerEventId") !== row.ledger_event_id
+      || snapshotId(reversalAuthorization, "actorPersonId") !== row.reversed_by_person_id
+      || snapshotString(reversalAuthorization, "actorSubjectCode") !== row.reversal_actor_subject_code
+      || snapshotString(reversalAuthorization, "actorScopeType") !== "GLOBAL"
+      || snapshotString(reversalAuthorization, "processingMode") !== "MANUAL") {
+      invalid("FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE");
+    }
+  }
   return {
-    id: validUuid(row.id), status: "COMPLETED", version: parseVersion(row.version), amountCents: amount.toString(), reason: row.reason!.trim(),
-    applicantPersonId: validUuid(row.applicant_person_id), sourceFund: { id: validUuid(row.source_fund_id), displayName: row.source_fund_display_name! },
+    id: validUuid(row.id), status: row.status, version: parseVersion(row.version), amountCents: amount.toString(), reason: row.reason!.trim(),
+    applicantPersonId: validUuid(row.applicant_person_id), applicantDisplayName: row.applicant_display_name,
+    sourceFund: { id: validUuid(row.source_fund_id), displayName: row.source_fund_display_name! },
     processingMode: "SYSTEM_RULE", submittedAt, completedAt
   };
 };
@@ -340,7 +445,7 @@ export class PostgresSelfPurchaseReadService {
         `SELECT document.id::text AS id,document.applicant_person_id::text AS applicant_person_id,
                 to_char(transfer.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS completed_at
            FROM finance_document document LEFT JOIN finance_self_purchase_transfer transfer ON transfer.finance_document_id=document.id
-          WHERE document.id=$1::uuid AND document.kind='SELF_PURCHASE' AND document.status='COMPLETED' FOR SHARE OF document`,
+          WHERE document.id=$1::uuid AND document.kind='SELF_PURCHASE' AND document.status IN ('COMPLETED','REVERSED') FOR SHARE OF document`,
         [documentId]
       );
       const basic = document.rows[0];
@@ -356,22 +461,34 @@ export class PostgresSelfPurchaseReadService {
       let attachments: SelfPurchaseDetail["attachments"];
       try {
         summary = toSummary(row);
-        attachments = toAttachments((await client.query<AttachmentRow>(attachmentSelect, [documentId])).rows, summary.version);
+        const attachmentDocumentVersion = summary.status === "REVERSED"
+          ? parseVersion(row.reversal_source_document_version ?? "")
+          : summary.version;
+        attachments = toAttachments((await client.query<AttachmentRow>(attachmentSelect, [documentId])).rows, attachmentDocumentVersion);
       } catch (error) {
         if (error instanceof Error && error.message === "FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE") {
           return await fail("SELF_PURCHASE_DETAIL_INTEGRITY_FAILED", "COMPLETED_RECORD_INVALID", error.message);
         }
         throw error;
       }
-      await insertAudit(client, context, documentId, "SELF_PURCHASE_DETAIL_READ", "AUTHORIZED_COMPLETED_RECORD_READ", at);
+      await insertAudit(client, context, documentId, "SELF_PURCHASE_DETAIL_READ", "AUTHORIZED_RECORD_READ", at);
       await client.query("COMMIT");
       open = false;
       return {
         ...summary,
         attachments,
+        ...(summary.status === "REVERSED" ? { reversal: {
+          reason: row.reversal_reason!.trim(), reversedAt: validTimestamp(row.reversed_at)
+        } } : {}),
         ...(managed ? { management: {
           roleAssignmentId: validUuid(row.role_assignment_id), companyFundAssignmentId: validUuid(row.company_fund_assignment_id),
-          sourceAccountId: validUuid(row.source_account_id), destinationAccountId: validUuid(row.destination_account_id), ledgerEventId: validUuid(row.ledger_event_id)
+          sourceAccountId: validUuid(row.source_account_id), destinationAccountId: validUuid(row.destination_account_id),
+          ledgerEventId: validUuid(row.ledger_event_id),
+          ...(summary.status === "REVERSED" ? {
+            reversedByPersonId: validUuid(row.reversed_by_person_id),
+            reversalActorSubject: row.reversal_actor_subject_code as "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER",
+            reversalLedgerEventId: validUuid(row.reversal_ledger_event_id)
+          } : {})
         } } : {})
       };
     } catch (error) {

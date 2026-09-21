@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, randomBytes } from "node:crypto";
 import { DEFAULT_RATE_POLICY_VALUES } from "@teaching-research-alliance/domain";
 import { createTestDatabase } from "../apps/api/test/integration/postgres-test-database.mjs";
-import { createApiServer, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, hashPassword } from "../apps/api/dist/main.js";
+import { createApiServer, PostgresSelfPurchaseReversalService, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, hashPassword } from "../apps/api/dist/main.js";
 
 // Explicitly synthetic, isolated, disposable local demonstration data.
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL_REQUIRED");
@@ -83,15 +83,17 @@ try {
       `INSERT INTO teacher_profile (person_id, business_identity, region_id, campus_id, employment_status)
        VALUES ($1::uuid, 'ACADEMIC_PLANNER', $2::uuid, $3::uuid, 'ACTIVE'),
               ($4::uuid, 'TEACHING_TEACHER', $2::uuid, $3::uuid, 'ACTIVE'),
-              ($5::uuid, 'TEACHING_TEACHER', $2::uuid, $3::uuid, 'ACTIVE')`,
-      [ids.planner, ids.region, ids.campus, ids.teacher, ids.teacherB]
+              ($5::uuid, 'TEACHING_TEACHER', $2::uuid, $3::uuid, 'ACTIVE'),
+              ($6::uuid, 'TEACHING_TEACHER', $2::uuid, $3::uuid, 'ACTIVE')`,
+      [ids.planner, ids.region, ids.campus, ids.teacher, ids.teacherB, ids.platformFinance]
     );
     await pool.query(
       `INSERT INTO person_campus_assignment (person_id, campus_id, region_id, valid_from, created_by)
        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid),
               ($6::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid),
-              ($7::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid)`,
-      [ids.planner, ids.campus, ids.region, validFrom, ids.admin, ids.teacher, ids.teacherB]
+              ($7::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid),
+              ($8::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid)`,
+      [ids.planner, ids.campus, ids.region, validFrom, ids.admin, ids.teacher, ids.teacherB, ids.platformFinance]
     );
     await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "CAMPUS", ids.campus, ids.admin);
     await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "ASSOCIATED_TEACHERS", ids.planner, ids.admin);
@@ -100,6 +102,8 @@ try {
     await addRole(pool, ids.teacher, "TEACHING_TEACHER", "SELF", ids.teacher, ids.admin);
     await addRole(pool, ids.teacherB, "TEACHING_TEACHER", "SELF", ids.teacherB, ids.admin);
     await addRole(pool, ids.platformFinance, "HEADQUARTERS_FINANCE", "GLOBAL", null, ids.admin);
+    await addRole(pool, ids.platformFinance, "TEACHING_TEACHER", "SELF", ids.platformFinance, ids.admin);
+    await addRole(pool, ids.admin, "SYSTEM_ADMIN", "GLOBAL", null, ids.admin);
     await addRole(pool, ids.regionFinance, "REGION_FINANCE", "REGION", ids.region, ids.admin);
     await addRelationship(pool, ids.planner, "PLANNING_MENTOR", ids.planningMentor);
     await addRelationship(pool, ids.teacher, "GROUP_LEADER", ids.groupLeader);
@@ -147,19 +151,20 @@ try {
     await pool.query("INSERT INTO referral_case(id,teacher_student_record_id,referrer_person_id,receiver_person_id,referrer_identity,status,submitted_at,unaccepted_expires_at) VALUES ($1,$2,$3,$4,'ACADEMIC_PLANNER','PENDING',$5,$6)", [ids.referral,ids.student,ids.planner,ids.teacher,at,new Date(at.getTime()+21*86400000)]);
     const password = "Local-demo-only-2026";
     const hash = await hashPassword(password);
-    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"]]) {
+    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"]]) {
       await pool.query("INSERT INTO user_account(person_id,phone_normalized,password_hash,login_status) VALUES ($1,$2,$3,'ACTIVE')", [personId,phone,hash]);
     }
     await pool.query("UPDATE person SET nickname='演示授课老师' WHERE id=$1", [ids.teacher]);
     await pool.query("UPDATE person SET nickname='演示规划师' WHERE id=$1", [ids.planner]);
     await pool.query("UPDATE person SET nickname='演示总部财务' WHERE id=$1", [ids.platformFinance]);
+    await pool.query("UPDATE person SET nickname='演示管理员' WHERE id=$1", [ids.admin]);
     attachmentRoot=await mkdtemp(join(tmpdir(),"alliance-demo-attachments-"));
     const attachmentStore=await LocalAttachmentStore.create(attachmentRoot,fileURLToPath(new URL("../",import.meta.url)));
     const financeCrypto=new FinanceSensitiveFieldCrypto("synthetic-demo",{"synthetic-demo":randomBytes(32).toString("hex")});
-    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),now:()=>at});
+    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),now:()=>at});
     await new Promise((resolve,reject) => { server.once('error',reject); server.listen(port,'127.0.0.1',resolve); });
     console.log(`合成演示API http://127.0.0.1:${port}；业务时钟固定为北京时间2026-09-21 12:00；正常退出时删除本次独立演示数据。`);
-    console.log(`授课老师：13800000001；规划师：13800000002；总部财务：13800000003；合成演示密码：${password}`);
+    console.log(`授课老师：13800000001；规划师：13800000002；总部财务：13800000003；管理员：13800000004；合成演示密码：${password}`);
 } catch(error) {
   await close();
   throw error;
