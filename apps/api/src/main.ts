@@ -11,3 +11,4 @@ export { handleRequest } from "./http-handler.js";
 export { PostgresLedgerRepository } from "./postgres-ledger-repository.js";
 export { createPostgresPool } from "./postgres-pool.js";
 export { createApiServer } from "./http-server.js";
+export { SettlementPostingService } from "./settlement-posting-service.js";
