@@ -290,3 +290,12 @@ test("个人读取使用稳定404错误码，未装配服务返回500且不泄�
   assert.equal(missing.status, 404);
   assert.equal(missing.body.error.code, "PERSONAL_ACCOUNT_NOT_FOUND");
 });
+
+ test("unexpected database errors never expose internal details", async () => {
+  const result = await handleRequest({method: "POST", path: "/v1/session", body: {phoneNormalized: "13800000000", credentialDigest: "bad"}}, {
+    sessions: {login() { throw new Error('relation user_session password_hash does not exist'); }},
+    weeklyFees: {}, now: () => now
+  });
+  assert.equal(result.status, 500);
+  assert.deepEqual(result.body.error, {code: "INTERNAL_ERROR", message: "INTERNAL_ERROR"});
+ });

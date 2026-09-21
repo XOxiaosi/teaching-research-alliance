@@ -1,12 +1,13 @@
 import {
   API_CONTRACT_VERSION,
+  API_ERROR_CODES,
   type HttpMethod,
   type PermissionSubject,
   type RoleContext
 } from "@teaching-research-alliance/contracts";
 import type { RatePolicyDraft, WeeklyFeeDraft } from "@teaching-research-alliance/domain";
 import { RatePolicyService } from "@teaching-research-alliance/domain";
-import { SessionService, type SessionView } from "./session-service.js";
+import { type SessionView } from "./session-service.js";
 
 export type ApiRequest = Readonly<{
   method: HttpMethod;
@@ -33,8 +34,15 @@ export type WeeklyFeeApiService = Readonly<{
   ) => unknown | Promise<unknown>;
 }>;
 
+export type SessionApiService = Readonly<{
+  credentialField?: "password";
+  login: (phone: string, credential: string, at: Date) => SessionView | Promise<SessionView>;
+  get: (sessionId: string, at: Date) => SessionView | Promise<SessionView>;
+  switchRole: (sessionId: string, subject: PermissionSubject, at: Date) => SessionView | Promise<SessionView>;
+}>;
+
 export type ApiServices = Readonly<{
-  sessions: SessionService;
+  sessions: SessionApiService;
   weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
   personal?: Readonly<{
@@ -60,7 +68,7 @@ const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(
 const errorStatus = (code: string): number => {
   if (code === "INTERNAL_ERROR") return 500;
   if (code === "UNAUTHENTICATED") return 401;
-  if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED") return 403;
+  if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED" || code === "ROLE_CONTEXT_NOT_ASSIGNED" || code === "ROLE_CONTEXT_AMBIGUOUS") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;
   if (code === "PERIOD_LOCKED" || code === "IDEMPOTENCY_REPLAY" || code === "VERSION_CONFLICT") return 409;
   return 400;
@@ -72,14 +80,13 @@ const success = (data: unknown): ApiResponse => ({
 });
 
 const failure = (error: unknown): ApiResponse => {
-  const message = error instanceof Error ? error.message : "INVALID_INPUT";
-  if (["PERSONAL_SERVICE_UNAVAILABLE", "PERSON_AMBIGUOUS", "PERSONAL_ACCOUNT_AMBIGUOUS"].includes(message)) {
-    return { status: 500, body: { version: API_CONTRACT_VERSION, error: { code: "INTERNAL_ERROR", message: "INTERNAL_ERROR" } } };
-  }
-  const [code] = message.split(":", 1);
+  const rawCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
+  const inputErrors = ["INVALID_WEEKLY_FEE", "PERIOD_MONTH_MISMATCH", "VENUE_NOT_ACTIVE", "REFERRAL_NOT_ACCEPTABLE"];
+  const code = rawCode && (API_ERROR_CODES as readonly string[]).includes(rawCode)
+    ? rawCode : rawCode && inputErrors.includes(rawCode) ? "INVALID_INPUT" : "INTERNAL_ERROR";
   return {
-    status: errorStatus(code ?? "INVALID_INPUT"),
-    body: { version: API_CONTRACT_VERSION, error: { code: code ?? "INVALID_INPUT", message } }
+    status: errorStatus(code),
+    body: { version: API_CONTRACT_VERSION, error: { code, message: code } }
   };
 };
 
@@ -189,7 +196,7 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
     const body = request.sessionId === undefined ? parsedBody : { ...parsedBody, sessionId: request.sessionId };
     if (request.method === "GET" && (request.path === "/v1/me" || request.path === "/v1/venues/available")) {
       if (typeof body.sessionId !== "string" || body.sessionId.trim() === "") throw new Error("UNAUTHENTICATED");
-      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), services.now());
       const context = currentContext(session);
       if (services.personal === undefined) throw new Error("PERSONAL_SERVICE_UNAVAILABLE");
       return success(request.path === "/v1/me"
@@ -197,15 +204,15 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         : await services.personal.listAvailableVenues(context));
     }
     if (request.method === "POST" && request.path === "/v1/session") {
-      const view = services.sessions.login(
+      const view = await services.sessions.login(
         requiredString(body, "phoneNormalized"),
-        requiredString(body, "credentialDigest"),
+        requiredString(body, services.sessions.credentialField ?? "credentialDigest"),
         services.now()
       );
       return success(sessionData(view));
     }
     if (request.method === "POST" && request.path === "/v1/role-contexts/switch") {
-      const view = services.sessions.switchRole(
+      const view = await services.sessions.switchRole(
         sessionIdFrom(body),
         subjectFrom(requiredString(body, "subject")),
         services.now()
@@ -214,26 +221,26 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
     }
     if (request.method === "POST" && request.path === "/v1/admin/rates/preview") {
       if (services.ratePolicies === undefined) throw new Error("RATE_POLICY_SERVICE_UNAVAILABLE");
-      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), services.now());
       return success(services.ratePolicies.preview(currentContext(session).subject, ratePolicyDraft(body)));
     }
     if (request.method === "POST" && request.path === "/v1/admin/rates/publish") {
       if (services.ratePolicies === undefined) throw new Error("RATE_POLICY_SERVICE_UNAVAILABLE");
-      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), services.now());
       return success(services.ratePolicies.publish(currentContext(session).subject, requiredString(body, "previewId")));
     }
     const acceptPath = request.path.match(/^\/v1\/referrals\/([^/]+)\/accept$/);
     if (request.method === "POST" && acceptPath !== null) {
       const referralId = acceptPath[1];
       if (referralId === undefined || referralId.trim() === "") throw new Error("INVALID_INPUT:referralId");
-      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), services.now());
       return success(await services.weeklyFees.acceptReferral(currentContext(session), referralId));
     }
     const weeklyFeePath = request.path.match(/^\/v1\/referrals\/([^/]+)\/weekly-fees$/);
     if (request.method === "POST" && weeklyFeePath !== null) {
       const referralCaseId = weeklyFeePath[1];
       if (referralCaseId === undefined || referralCaseId.trim() === "") throw new Error("INVALID_INPUT:referralCaseId");
-      const session = services.sessions.get(sessionIdFrom(body), services.now());
+      const session = await services.sessions.get(sessionIdFrom(body), services.now());
       const idempotencyKey = requiredString(body, "idempotencyKey");
       return success(await services.weeklyFees.recordWeeklyFee(
         currentContext(session),

@@ -16,3 +16,6 @@ export { PostgresIdentityRepository } from "./postgres-identity-repository.js";
 export { PostgresWeeklySettlementService } from "./postgres-weekly-settlement-service.js";
 export { PostgresWeeklyFeeService } from "./postgres-weekly-fee-service.js";
 export { PostgresPersonalReadService } from "./postgres-personal-read-service.js";
+
+export { PostgresSessionService } from "./postgres-session-service.js";
+export { hashPassword, verifyPassword } from "./password.js";

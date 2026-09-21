@@ -68,11 +68,11 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
         ...(bearer?.[1] === undefined ? {} : { sessionId: bearer[1] }) }, services);
       writeJson(response, result.status, result.body);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "INVALID_INPUT";
-      const code = message.split(":", 1)[0] ?? "INVALID_INPUT";
-      writeJson(response, 400, {
+      const message = error instanceof Error ? error.message : "";
+      const code = ["INVALID_JSON", "REQUEST_BODY_TOO_LARGE"].includes(message) ? message : "INTERNAL_ERROR";
+      writeJson(response, code === "INTERNAL_ERROR" ? 500 : 400, {
         version: API_CONTRACT_VERSION,
-        error: { code, message }
+        error: { code, message: code }
       });
     }
   });
