@@ -12,7 +12,11 @@ for (const file of files) {
   if (!Number.isInteger(number) || number <= previous) throw new Error(`MIGRATION_ORDER:${file}`);
   previous = number;
   const sql = await readFile(join(directory.pathname, file), "utf8");
-  if (!sql.includes("CREATE TABLE") || !sql.includes("created_at")) throw new Error(`MIGRATION_SHAPE:${file}`);
+  const createsTable = /\bCREATE\s+TABLE\b/i.test(sql);
+  const altersTable = /\bALTER\s+TABLE\b/i.test(sql);
+  if ((!createsTable && !altersTable) || (createsTable && !sql.includes("created_at"))) {
+    throw new Error(`MIGRATION_SHAPE:${file}`);
+  }
 }
 const organizationMigration = await readFile(join(directory.pathname, "0002_organization_relationships.sql"), "utf8");
 for (const required of ["person_campus_assignment", "btree_gist", "EXCLUDE USING gist", "one_default_venue_per_owner"]) {
@@ -33,5 +37,9 @@ for (const required of ["weekly_fee_entry_version", "weekly_fee_idempotency", "w
 const settlementMigration = await readFile(join(directory.pathname, "0006_settlement_snapshots.sql"), "utf8");
 for (const required of ["rate_policy_version", "settlement_calculation_run", "weekly_fee_allocation_snapshot", "sequence_no", "snapshot_json", "context_json"]) {
   if (!settlementMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
+}
+const systemEventsMigration = await readFile(join(directory.pathname, "0010_referral_system_events.sql"), "utf8");
+for (const required of ["referral_case_event_actor_consistency", "actor_type = 'SYSTEM' AND actor_person_id IS NULL", "referral_case_event_immutable", "referral_case_unaccepted_expiry_lookup"]) {
+  if (!systemEventsMigration.includes(required)) throw new Error(`MIGRATION_CONSTRAINT:${required}`);
 }
 console.log(`checked ${files.length} migration(s)`);

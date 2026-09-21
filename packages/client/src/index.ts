@@ -76,6 +76,32 @@ export type ReferralCreationResult = Readonly<{
   replay: boolean;
 }>;
 
+/** The receiving teacher may optionally select an allowed venue when accepting a referral. */
+export type ReferralAcceptanceDraft = Readonly<{
+  referralId: string;
+  venueId?: string;
+  expectedVersion: number;
+}>;
+
+/**
+ * An acceptance submission is bound to the current session and role generation when
+ * it is created. It cannot be replayed after an identity or role change.
+ */
+export type ReferralAcceptanceSubmission = Readonly<{
+  draft: ReferralAcceptanceDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReferralAcceptanceResult = Readonly<{
+  referralId: string;
+  version: number;
+  venueId: string;
+  venueOwnerPersonId: string;
+  isSelfUse: boolean;
+  acceptedAt: string;
+  replay: boolean;
+}>;
+
 export type SentReferralWeeklyFee = Readonly<{
   entryId: string;
   teachingWeekId: string;
@@ -144,6 +170,22 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralAcceptanceSubmission;
+
+/**
+ * Submission ownership deliberately excludes the response generation. A successful
+ * write invalidates reads, but must not make a network-failed retry unsafe for the
+ * same signed-in person and role.
+ */
+type SubmissionScope = Readonly<{
+  sessionId: string;
+  accountId: string;
+  personId: string;
+  roleSubject: PermissionSubject | null;
+  rolePersonId: string | null;
+  epoch: number;
+}>;
+
 const isSuccess = (status: number): boolean => status >= 200 && status < 300;
 
 const requireNonBlank = (value: string, field: string): void => {
@@ -204,6 +246,24 @@ const validateReferralCreationDraft = (draft: ReferralCreationDraft): void => {
   }
 };
 
+const validateReferralAcceptanceDraft = (draft: ReferralAcceptanceDraft): void => {
+  requireNonBlank(draft.referralId, "referralId");
+  if (draft.venueId !== undefined) requireNonBlank(draft.venueId, "venueId");
+  if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 1) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  }
+};
+
+const sameRoleContext = (left: RoleContext | null, right: RoleContext | null): boolean =>
+  left?.subject === right?.subject && left?.personId === right?.personId;
+
+const sameSubmissionScope = (left: SessionSnapshot | null, right: SessionSnapshot): boolean =>
+  left !== null
+  && left.sessionId === right.sessionId
+  && left.accountId === right.accountId
+  && left.personId === right.personId
+  && sameRoleContext(left.currentRoleContext, right.currentRoleContext);
+
 let fallbackIdSequence = 0;
 
 const defaultIdempotencyKeyFactory = (): string => {
@@ -219,9 +279,11 @@ const defaultIdempotencyKeyFactory = (): string => {
  * session is the only authority for requests; callers may inspect, never mutate it.
  */
 export class TeacherApiClient {
-  private readonly submissionStatuses = new WeakMap<WeeklyFeeSubmission | ReferralCreationSubmission, SubmissionStatus>();
+  private readonly submissionStatuses = new WeakMap<Submission, SubmissionStatus>();
+  private readonly submissionScopes = new WeakMap<Submission, SubmissionScope>();
   private session: SessionSnapshot | null = null;
   private epoch = 0;
+  private submissionScopeEpoch = 0;
 
   public constructor(private readonly options: TeacherApiClientOptions) {}
 
@@ -306,24 +368,19 @@ export class TeacherApiClient {
     return this.authenticatedRequest<readonly SentReferral[]>("GET", "/v1/referrals/sent");
   }
 
-  public async acceptReferral<T = unknown>(referralId: string): Promise<T> {
-    requireNonBlank(referralId, "referralId");
-    const result = await this.authenticatedRequest<T>("POST", `/v1/referrals/${encodeURIComponent(referralId)}/accept`);
-    this.advanceResponseGeneration();
-    return result;
-  }
-
   /**
    * A submission is immutable. Retry the same object after an uncertain network failure;
    * create a new object after editing any field so the old idempotency key is never reused.
    */
   public createWeeklyFeeSubmission(draft: WeeklyFeeDraftInput): WeeklyFeeSubmission {
     validateWeeklyFeeDraft(draft);
+    const scope = this.captureSubmissionScope();
     const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
     return submission;
   }
 
@@ -333,21 +390,40 @@ export class TeacherApiClient {
    */
   public createReferralSubmission(draft: ReferralCreationDraft): ReferralCreationSubmission {
     validateReferralCreationDraft(draft);
+    const scope = this.captureSubmissionScope();
     const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
     return submission;
   }
 
-  public submissionStatus(submission: WeeklyFeeSubmission | ReferralCreationSubmission): SubmissionStatus {
+  /**
+   * Capture the active authentication generation with this immutable submission.
+   * A retry is safe only while the same person and role generation remain active.
+   */
+  public createReferralAcceptanceSubmission(draft: ReferralAcceptanceDraft): ReferralAcceptanceSubmission {
+    validateReferralAcceptanceDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const frozenDraft = Object.freeze({ ...draft });
+    const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public submissionStatus(submission: Submission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
   }
 
   public async recordWeeklyFee<T = unknown>(submission: WeeklyFeeSubmission): Promise<T> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
       const result = await this.authenticatedRequest<T>(
@@ -367,6 +443,7 @@ export class TeacherApiClient {
   public async createReferral(submission: ReferralCreationSubmission): Promise<ReferralCreationResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
       const result = await this.authenticatedRequest<ReferralCreationResult>("POST", "/v1/referrals", {
@@ -382,9 +459,65 @@ export class TeacherApiClient {
     }
   }
 
+  public async acceptReferral(submission: ReferralAcceptanceSubmission): Promise<ReferralAcceptanceResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const body = {
+        ...(submission.draft.venueId === undefined ? {} : { venueId: submission.draft.venueId }),
+        expectedVersion: submission.draft.expectedVersion,
+        idempotencyKey: submission.idempotencyKey
+      };
+      const result = await this.authenticatedRequest<ReferralAcceptanceResult>(
+        "POST",
+        `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/accept`,
+        body
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   private requireAuthentication(): Authentication {
     if (this.session === null) throw new ApiClientError(401, "UNAUTHENTICATED");
     return { sessionId: this.session.sessionId, epoch: this.epoch };
+  }
+
+  private captureSubmissionScope(): SubmissionScope {
+    const session = this.session;
+    if (session === null) throw new ApiClientError(401, "UNAUTHENTICATED");
+    return {
+      sessionId: session.sessionId,
+      accountId: session.accountId,
+      personId: session.personId,
+      roleSubject: session.currentRoleContext?.subject ?? null,
+      rolePersonId: session.currentRoleContext?.personId ?? null,
+      epoch: this.submissionScopeEpoch
+    };
+  }
+
+  private requireCurrentSubmissionScope(submission: Submission): void {
+    const scope = this.submissionScopes.get(submission);
+    const session = this.session;
+    if (
+      scope === undefined
+      || session === null
+      || scope.epoch !== this.submissionScopeEpoch
+      || scope.sessionId !== session.sessionId
+      || scope.accountId !== session.accountId
+      || scope.personId !== session.personId
+      || scope.roleSubject !== (session.currentRoleContext?.subject ?? null)
+      || scope.rolePersonId !== (session.currentRoleContext?.personId ?? null)
+    ) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw new StaleResponseError();
+    }
   }
 
   private async authenticatedRequest<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
@@ -425,6 +558,7 @@ export class TeacherApiClient {
   }
 
   private installSession(session: SessionSnapshot): void {
+    if (!sameSubmissionScope(this.session, session)) this.submissionScopeEpoch += 1;
     this.session = session;
     this.epoch += 1;
   }
@@ -432,6 +566,7 @@ export class TeacherApiClient {
   private clearSessionState(): void {
     this.session = null;
     this.epoch += 1;
+    this.submissionScopeEpoch += 1;
   }
 
   private clearRoleState(): void {
@@ -439,6 +574,7 @@ export class TeacherApiClient {
       this.session = { ...this.session, currentRoleContext: null };
     }
     this.epoch += 1;
+    this.submissionScopeEpoch += 1;
   }
 
   /** A successful write may change overview values and record versions, so earlier reads become stale. */

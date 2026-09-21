@@ -23,3 +23,4 @@ export { PostgresTeachingReadService } from "./postgres-teaching-read-service.js
 export { PostgresReferralCreationService } from "./postgres-referral-creation-service.js";
 export { PostgresSentReferralReadService } from "./postgres-sent-referral-read-service.js";
 export { PostgresReferralAcceptanceService } from "./postgres-referral-acceptance-service.js";
+export { PostgresReferralExpiryService } from "./postgres-referral-expiry-service.js";
