@@ -27,3 +27,7 @@ export { PostgresReferralExpiryService } from "./postgres-referral-expiry-servic
 export { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";
 export { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
 export { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-service.js";
+
+export { PostgresFinanceAttachmentUploadService } from "./postgres-finance-attachment-upload-service.js";
+export { PostgresFinanceAttachmentReadService } from "./postgres-finance-attachment-read-service.js";
+export { LocalAttachmentStore } from "./local-attachment-store.js";

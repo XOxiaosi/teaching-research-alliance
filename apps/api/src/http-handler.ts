@@ -79,6 +79,9 @@ export type ApiServices = Readonly<{
   financeAttachmentUploads?: Readonly<{
     upload: (context: RoleContext, versionId: string, chunks: AsyncIterable<Uint8Array>, at: Date) => unknown | Promise<unknown>;
   }>;
+  financeAttachmentReads?: Readonly<{
+    readOwn: (context: RoleContext, versionId: string, at: Date) => Promise<Readonly<{bytes:Buffer;mediaType:string;originalFilename:string;sha256:string;sizeBytes:number}>>;
+  }>;
   teaching?: Readonly<{
     listReceivedReferrals: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listOpenTeachingWeeks: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
@@ -101,6 +104,9 @@ const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(
 
 const errorStatus = (code: string): number => {
   if (code === "INTERNAL_ERROR") return 500;
+  if (["ATTACHMENT_STORAGE_UNAVAILABLE","ATTACHMENT_VALIDATOR_BUSY","ATTACHMENT_VALIDATION_TIMEOUT","ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION"].includes(code)) return 503;
+  if (["ATTACHMENT_INTEGRITY_FAILED","ATTACHMENT_UNAVAILABLE"].includes(code)) return 500;
+  if (["FINANCE_ATTACHMENT_NOT_READY","FINANCE_ATTACHMENT_FAILED"].includes(code)) return 409;
   if (code === "UNAUTHENTICATED") return 401;
   if (code === "FORBIDDEN_SCOPE" || code === "ROLE_CONTEXT_REQUIRED" || code === "ROLE_CONTEXT_NOT_ASSIGNED" || code === "ROLE_CONTEXT_AMBIGUOUS") return 403;
   if (code.endsWith("_NOT_FOUND")) return 404;

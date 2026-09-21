@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { API_CONTRACT_VERSION, type HttpMethod } from "@teaching-research-alliance/contracts";
-import { handleRequest, type ApiServices } from "./http-handler.js";
+import { handleRequest, failure, type ApiServices } from "./http-handler.js";
 
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
 
@@ -62,6 +62,47 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
       const bearer = authorization?.match(/^Bearer ([^\s]+)$/i);
       if (authorization !== undefined && !bearer) {
         writeJson(response, 401, { version: API_CONTRACT_VERSION, error: { code: "UNAUTHENTICATED", message: "UNAUTHENTICATED" } });
+        return;
+      }
+      const contentPath=pathname.match(/^\/v1\/finance\/attachment-uploads\/([^/]+)\/content$/);
+      if(method==="POST"&&contentPath!==null){
+        // This binary route bypasses the JSON parser and its separate 1 MiB limit.
+        response.setHeader("connection","close");
+        const deadline=setTimeout(()=>request.destroy(new Error("ATTACHMENT_UPLOAD_TIMEOUT")),30_000);
+        try{
+          if(!bearer?.[1])throw new Error("UNAUTHENTICATED");
+          const at=services.now();
+          const session=await services.sessions.get(bearer[1],at);
+          if(!session.currentRoleContext)throw new Error("ROLE_CONTEXT_REQUIRED");
+          if(!services.financeAttachmentUploads)throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+          const contentType=request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase();
+          if(!["application/octet-stream","application/pdf","image/png","image/jpeg"].includes(contentType??""))throw new Error("INVALID_INPUT");
+          const data=await services.financeAttachmentUploads.upload(session.currentRoleContext,contentPath[1]!,request,at);
+          writeJson(response,200,{version:API_CONTRACT_VERSION,data});
+        }catch(error){
+          const result=failure(error);
+          if(!response.destroyed)writeJson(response,result.status,result.body);
+        }finally{clearTimeout(deadline);}
+        return;
+      }
+      const downloadPath=pathname.match(/^\/v1\/finance\/attachments\/([^/]+)\/content$/);
+      if(method==="GET"&&downloadPath!==null){
+        response.setHeader("cache-control","private, no-store");
+        response.setHeader("x-content-type-options","nosniff");
+        try{
+          if(!bearer?.[1])throw new Error("UNAUTHENTICATED");
+          const at=services.now();
+          const session=await services.sessions.get(bearer[1],at);
+          if(!session.currentRoleContext)throw new Error("ROLE_CONTEXT_REQUIRED");
+          if(!services.financeAttachmentReads)throw new Error("ATTACHMENT_STORAGE_UNAVAILABLE");
+          const data=await services.financeAttachmentReads.readOwn(session.currentRoleContext,downloadPath[1]!,at);
+          const filename=encodeURIComponent(data.originalFilename).replace(/['()*]/g,char=>`%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+          response.statusCode=200;
+          response.setHeader("content-type",data.mediaType);
+          response.setHeader("content-length",data.bytes.length);
+          response.setHeader("content-disposition",`attachment; filename*=UTF-8''${filename}`);
+          response.end(data.bytes);
+        }catch(error){const result=failure(error);writeJson(response,result.status,result.body);}
         return;
       }
       const result = await handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes),

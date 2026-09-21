@@ -112,3 +112,54 @@ test("真实HTTP监听器提供健康检查并序列化周费用金额", async (
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+test('附件二进制流独立于JSON上限，仍验证会话并隐藏内部异常',async()=>{
+ const services=createServices();let calls=0;
+ services.sessions.login('13800000001','digest-server',now);
+ services.sessions.switchRole('session-server','TEACHING_TEACHER',now);
+ const payload=Buffer.alloc(1_048_577,7);
+ services.financeAttachmentUploads={upload:async(context,version,chunks)=>{
+  calls++;assert.equal(context.personId,'teacher-server');
+  if(version==='forbidden')throw new Error('FORBIDDEN_SCOPE');
+  if(version==='internal')throw new Error('private database and filesystem details');
+  let size=0;for await(const chunk of chunks){size+=chunk.length;assert.ok(chunk.every(byte=>byte===7));}
+  assert.equal(size,payload.length);return {versionId:version,status:'READY',actualSizeBytes:size};
+ }};
+ const server=createApiServer(services);const baseUrl=await listen(server);
+ const post=(version,body=payload,headers={authorization:'Bearer session-server','content-type':'application/octet-stream'})=>fetch(`${baseUrl}/v1/finance/attachment-uploads/${version}/content`,{method:'POST',headers,body});
+ try{
+  const response=await post('synthetic-version');assert.equal(response.status,200);assert.equal((await response.json()).data.actualSizeBytes,payload.length);
+  assert.equal((await post('unauthenticated',Buffer.from('small'),{'content-type':'application/octet-stream'})).status,401);
+  assert.equal((await post('invalid-type',Buffer.from('small'),{authorization:'Bearer session-server','content-type':'multipart/form-data'})).status,400);
+  assert.equal(calls,1);
+  assert.equal((await post('forbidden',Buffer.from('small'))).status,403);
+  const internal=await post('internal',Buffer.from('small'));assert.equal(internal.status,500);
+  assert.deepEqual((await internal.json()).error,{code:'INTERNAL_ERROR',message:'INTERNAL_ERROR'});
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
+test('附件下载完成授权后才发送原件，禁缓存并安全编码文件名',async()=>{
+ const services=createServices();let calls=0;
+ services.sessions.login('13800000001','digest-server',now);
+ services.sessions.switchRole('session-server','TEACHING_TEACHER',now);
+ const bytes=Buffer.from('%PDF- synthetic download');
+ services.financeAttachmentReads={readOwn:async(context,version)=>{
+  calls++;assert.equal(context.personId,'teacher-server');
+  if(version==='corrupt')throw new Error('ATTACHMENT_INTEGRITY_FAILED');
+  return {bytes,mediaType:'application/pdf',originalFilename:"凭证'(1).pdf",sha256:'synthetic',sizeBytes:bytes.length};
+ }};
+ const server=createApiServer(services);const baseUrl=await listen(server);
+ try{
+  const url=`${baseUrl}/v1/finance/attachments/synthetic/content`;
+  assert.equal((await fetch(url)).status,401);assert.equal(calls,0);
+  const response=await fetch(url,{headers:{authorization:'Bearer session-server'}});
+  assert.equal(response.status,200);assert.equal(response.headers.get('x-content-type-options'),'nosniff');
+  assert.equal(response.headers.get('cache-control'),'private, no-store');
+  assert.equal(response.headers.get('content-type'),'application/pdf');
+  assert.match(response.headers.get('content-disposition'),/^attachment; filename\*=UTF-8''/);
+  assert.match(response.headers.get('content-disposition'),/%27%281%29\.pdf$/);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+  const corrupt=await fetch(`${baseUrl}/v1/finance/attachments/corrupt/content`,{headers:{authorization:'Bearer session-server'}});
+  assert.equal(corrupt.status,500);assert.equal((await corrupt.json()).error.code,'ATTACHMENT_INTEGRITY_FAILED');
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
