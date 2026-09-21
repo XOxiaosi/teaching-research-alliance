@@ -7,3 +7,4 @@ export const health = (): Readonly<{ service: string; status: "ok" }> => ({
 
 export { SessionService } from "./session-service.js";
 export { WeeklyFeeService } from "./weekly-fee-service.js";
+export { handleRequest } from "./http-handler.js";

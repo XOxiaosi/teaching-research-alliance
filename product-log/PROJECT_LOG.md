@@ -15,7 +15,7 @@
 | 当前任务状态 | DEV-001/002已完成；DEV-003身份关系与登录职责上下文、DEV-004周费用数据边界及内存服务、DEV-005动态费率与九项分配、DEV-006账本纯函数基础已完成首批，HTTP/数据库持久化/结算入账/页面尚未接通 |
 | 已有实现 | TypeScript monorepo、权限/接口契约、最大余数分币基础库、15档动态费率与九项分配纯函数、周费用输入校验与版本历史、登录/职责切换内存服务、推荐接收与周费用幂等内存服务、账本差额与事件幂等基础、API/worker/两端入口、身份账户/组织关系/生源周费用迁移、本地检查入口 |
 | 技术状态 | 依赖锁定于package-lock；纯契约与金额测试可运行；本机没有PostgreSQL/Docker，迁移仅静态检查 |
-| 验证概况 | `npm run check`通过（24项测试）；`npm run db:check`通过（3个迁移）；`git diff --check`通过；无真实数据库/真机验收 |
+| 验证概况 | `npm run check`通过（25项测试）；`npm run db:check`通过（3个迁移）；`git diff --check`通过；无真实数据库/真机验收 |
 | 当前检查入口 | `npm run check`、`npm run db:check`、`git diff --check` |
 | 长任务目标及结束条件 | 持续完成开发计划F01–F14；当前工作包以基础契约可复用、空库迁移可执行和首个闭环可验证为阶段目标 |
 | 当前可执行任务 | 将内存服务接入HTTP请求和持久化边界；接入DEV-005管理员费率配置发布；补齐DEV-006账本持久化与余额投影；随后接DEV-010首批页面 |
@@ -543,4 +543,9 @@
 
 - `apps/api/src/session-service.ts`新增可替换凭据校验边界的内存会话服务：登录只返回当前有效职责，角色切换按生效时间重新校验，账号撤销立即使已有会话失效；不合并多个职责的权限。
 - `apps/api/src/weekly-fee-service.ts`新增推荐接收和周费用登记首批：只有被接收教师可以登记，选择全部正常场地目录中的场地；同一推荐与教学周只有一个当前累计版本，修正追加版本历史；结算月份、教学周状态、场地状态和幂等请求均在服务层校验。
-- 新增2项服务测试，`npm run check`通过，TypeScript构建与24项Node测试通过；`npm run db:check`和`git diff --check`继续通过。当前仍是内存适配器，未接HTTP路由、PostgreSQL仓储、认证哈希、事务账本或真实端设备。
+- 新增3项服务测试，`npm run check`通过，TypeScript构建与25项Node测试通过；`npm run db:check`和`git diff --check`继续通过。当前仍是内存适配器，未接HTTP路由、PostgreSQL仓储、认证哈希、事务账本或真实端设备。
+
+## 2026-09-20 · DEV-003/004 HTTP 请求处理边界
+
+- `apps/api/src/http-handler.ts`把登录、职责切换、推荐接收和周费用登记接到统一请求/响应边界：请求体字段、路径参数、金额字符串、会话职责和幂等键均先校验；错误统一映射为版本化响应和 HTTP 状态码。
+- 新增HTTP处理器联调测试，`npm run check`通过，TypeScript构建与25项Node测试通过；当前仍未启动真实HTTP监听器，也未接PostgreSQL仓储、认证哈希和账本事务。

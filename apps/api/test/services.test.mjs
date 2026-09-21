@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SessionService, WeeklyFeeService } from "../dist/main.js";
+import { SessionService, WeeklyFeeService, handleRequest } from "../dist/main.js";
 
 const now = new Date("2026-09-20T10:00:00.000Z");
 const teacherContext = { subject: "TEACHING_TEACHER", personId: "teacher-1" };
@@ -89,4 +89,74 @@ test("教师接收推荐后可在正常场地登记周累计费用，并按版�
     settlementMonth: "2026-09-01",
     grossAmountCents: 130000n
   }, "request-2"), /IDEMPOTENCY_REPLAY/);
+});
+
+test("HTTP请求处理器复用服务层并统一返回版本和错误码", () => {
+  const sessions = new SessionService({
+    accounts: [{
+      accountId: "account-1",
+      personId: "teacher-1",
+      phoneNormalized: "13800000000",
+      credentialDigest: "digest-1",
+      status: "ACTIVE"
+    }],
+    assignments: [{ personId: "teacher-1", subject: "TEACHING_TEACHER", scope: "SELF", validFrom: new Date("2026-01-01") }],
+    sessionIdFactory: () => "session-http"
+  });
+  const weeklyFees = new WeeklyFeeService({
+    referrals: [{ id: "ref-http", receiverPersonId: "teacher-1", status: "PENDING" }],
+    teachingWeeks: [{ id: "week-http", settlementMonth: "2026-09-01", status: "OPEN" }],
+    venues: [{ id: "venue-http", status: "ACTIVE" }]
+  });
+  const services = { sessions, weeklyFees, now: () => now };
+  const login = handleRequest({
+    method: "POST",
+    path: "/v1/session",
+    body: { phoneNormalized: "13800000000", credentialDigest: "digest-1" }
+  }, services);
+  assert.equal(login.status, 200);
+  assert.equal(login.body.version, "2026-09-20.dev-001");
+  assert.equal(login.body.data?.sessionId, "session-http");
+  const switched = handleRequest({
+    method: "POST",
+    path: "/v1/role-contexts/switch",
+    body: { sessionId: "session-http", subject: "TEACHING_TEACHER" }
+  }, services);
+  assert.equal(switched.status, 200);
+  const accepted = handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/accept",
+    body: { sessionId: "session-http" }
+  }, services);
+  assert.equal(accepted.status, 200);
+  const recorded = handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/weekly-fees",
+    body: {
+      sessionId: "session-http",
+      teachingWeekId: "week-http",
+      venueId: "venue-http",
+      settlementMonth: "2026-09-01",
+      grossAmountCents: "100000",
+      idempotencyKey: "http-request-1"
+    }
+  }, services);
+  assert.equal(recorded.status, 200);
+  assert.equal(recorded.body.data?.version, 1);
+  const invalid = handleRequest({
+    method: "POST",
+    path: "/v1/referrals/ref-http/weekly-fees",
+    body: {
+      sessionId: "session-http",
+      teachingWeekId: "week-http",
+      venueId: "venue-http",
+      settlementMonth: "2026-09-01",
+      grossAmountCents: "100000",
+      idempotencyKey: "http-request-1"
+    }
+  }, services);
+  assert.equal(invalid.status, 200);
+  const missing = handleRequest({ method: "GET", path: "/v1/unknown", body: {} }, services);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error?.code, "NOT_FOUND");
 });
