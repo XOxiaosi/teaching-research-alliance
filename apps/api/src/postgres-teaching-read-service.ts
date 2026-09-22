@@ -26,6 +26,7 @@ type ReferralFeeRow = Readonly<{
   venue_id: string | null;
   venue_name: string | null;
   is_self_use_snapshot: boolean | null;
+  refund_status: "REFUNDED" | "ACTIVE" | null;
 }>;
 
 type OpenWeekRow = Readonly<{
@@ -50,6 +51,7 @@ export type TeachingWeeklyFeeView = Readonly<{
   venueId: string;
   venueName: string;
   isSelfUseSnapshot: boolean;
+  refundStatus: "REFUNDED" | "ACTIVE";
 }>;
 
 export type ReceivedReferralView = Readonly<{
@@ -93,6 +95,18 @@ export class PostgresTeachingReadService {
     assertValidDate(at);
     const client = await this.pool.connect();
     try {
+      // Older isolated upgrade tests intentionally stop before migration 0021. Keep the
+      // teaching read model usable there; a fully migrated database always takes the refund path.
+      const refundTable = await client.query<{ present: boolean }>(
+        "SELECT to_regclass(current_schema() || '.weekly_fee_refund_effect') IS NOT NULL AS present"
+      );
+      const hasRefundTable = refundTable.rows[0]?.present === true;
+      const refundJoin = hasRefundTable
+        ? "LEFT JOIN weekly_fee_refund_effect refund ON refund.weekly_fee_entry_id = fee.id"
+        : "";
+      const refundStatus = hasRefundTable
+        ? "CASE WHEN fee.id IS NULL THEN NULL WHEN refund.weekly_fee_entry_id IS NOT NULL THEN 'REFUNDED' ELSE 'ACTIVE' END"
+        : "CASE WHEN fee.id IS NULL THEN NULL ELSE 'ACTIVE' END";
       const result = await client.query<ReferralFeeRow>(
         `SELECT referral.id::text AS referral_id,
                 student.id::text AS student_record_id,
@@ -113,7 +127,8 @@ export class PostgresTeachingReadService {
                 fee.version::text AS fee_version,
                 fee.venue_id::text AS venue_id,
                 venue.name AS venue_name,
-                fee.is_self_use_snapshot
+                fee.is_self_use_snapshot,
+                ${refundStatus} AS refund_status
            FROM referral_case referral
            JOIN teacher_student_record student ON student.id = referral.teacher_student_record_id
            LEFT JOIN LATERAL (
@@ -133,6 +148,7 @@ export class PostgresTeachingReadService {
             )
            LEFT JOIN teaching_week week ON week.id = fee.teaching_week_id
            LEFT JOIN venue ON venue.id = fee.venue_id
+           ${refundJoin}
           WHERE referral.receiver_person_id = $1::uuid
             AND (
               referral.status IN ('PENDING', 'ACCEPTED', 'REACTIVATED')
@@ -181,6 +197,7 @@ export class PostgresTeachingReadService {
           || row.venue_id === null
           || row.venue_name === null
           || row.is_self_use_snapshot === null
+          || row.refund_status === null
         ) throw new Error("WEEKLY_FEE_READ_MODEL_CORRUPT");
         referral.weeklyFees.push({
           entryId: row.fee_entry_id,
@@ -192,7 +209,8 @@ export class PostgresTeachingReadService {
           version: Number(row.fee_version),
           venueId: row.venue_id,
           venueName: row.venue_name,
-          isSelfUseSnapshot: row.is_self_use_snapshot
+          isSelfUseSnapshot: row.is_self_use_snapshot,
+          refundStatus: row.refund_status
         });
       }
       return [...referrals.values()];

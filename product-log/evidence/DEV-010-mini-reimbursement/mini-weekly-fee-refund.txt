@@ -1,0 +1,28 @@
+TAP version 13
+# Subtest: 小程序退款周费用保留原金额，金额和场地锁定但学生与教学周仍可切换
+ok 1 - 小程序退款周费用保留原金额，金额和场地锁定但学生与教学周仍可切换
+  ---
+  duration_ms: 2530.800998
+  type: 'test'
+  ...
+# Subtest: 小程序保存遇合成 WEEKLY_FEE_REFUNDED 后刷新退款状态并禁编辑
+ok 2 - 小程序保存遇合成 WEEKLY_FEE_REFUNDED 后刷新退款状态并禁编辑
+  ---
+  duration_ms: 1424.208565
+  type: 'test'
+  ...
+# Subtest: 小程序报销管理入口只对严格 GLOBAL 总部财务、管理员和系统所有者可见
+ok 3 - 小程序报销管理入口只对严格 GLOBAL 总部财务、管理员和系统所有者可见
+  ---
+  duration_ms: 2056.555444
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15928.491329

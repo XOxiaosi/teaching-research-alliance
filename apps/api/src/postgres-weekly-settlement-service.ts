@@ -43,10 +43,35 @@ export class PostgresWeeklySettlementService {
       const trigger = source.rows[0];
       if (!trigger) throw new Error("WEEKLY_FEE_NOT_FOUND");
       const affected = await client.query<{ id: string; version: string }>(
-        `SELECT entry.id::text, entry.version::text FROM weekly_fee_entry entry
-         JOIN referral_case referral ON referral.id = entry.referral_case_id
-         WHERE entry.settlement_month = $1::date AND referral.receiver_person_id = ANY($2::uuid[])
-         ORDER BY entry.id FOR UPDATE OF entry`, [draft.settlementMonth, [trigger.referrer_person_id, trigger.receiver_person_id]]);
+        `WITH affected_person AS (
+           SELECT unnest($2::uuid[]) AS person_id
+           UNION
+           SELECT refund_referral.receiver_person_id
+             FROM weekly_fee_refund_effect refund
+             JOIN weekly_fee_entry refunded_entry ON refunded_entry.id = refund.weekly_fee_entry_id
+             JOIN referral_case refund_referral ON refund_referral.id = refunded_entry.referral_case_id
+            WHERE refunded_entry.settlement_month = $1::date
+           UNION
+           SELECT refund_referral.referrer_person_id
+             FROM weekly_fee_refund_effect refund
+             JOIN weekly_fee_entry refunded_entry ON refunded_entry.id = refund.weekly_fee_entry_id
+             JOIN referral_case refund_referral ON refund_referral.id = refunded_entry.referral_case_id
+            WHERE refunded_entry.settlement_month = $1::date
+         )
+         SELECT entry.id::text, entry.version::text
+           FROM weekly_fee_entry entry
+           JOIN referral_case referral ON referral.id = entry.referral_case_id
+          WHERE entry.settlement_month = $1::date
+            AND referral.receiver_person_id IN (SELECT person_id FROM affected_person)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM weekly_fee_refund_effect refund
+               WHERE refund.weekly_fee_entry_id = entry.id
+            )
+          ORDER BY entry.id
+          FOR UPDATE OF entry`,
+        [draft.settlementMonth, [trigger.referrer_person_id, trigger.receiver_person_id]]
+      );
       const snapshots = [];
       const deltas = [];
       for (const entry of affected.rows) {

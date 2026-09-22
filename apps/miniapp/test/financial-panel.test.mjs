@@ -40,6 +40,7 @@ const taroPlugin = {
            export const Text=({children,...props})=>React.createElement("span",props,children);
            export const Button=({children,...props})=>React.createElement("button",props,children);
            export const Input=({password,maxlength,onInput,...props})=>React.createElement("input",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});
+           export const Textarea=({maxlength,onInput,...props})=>React.createElement("textarea",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});
            export const Picker=({children,range=[],value=0,onChange,disabled,...props})=>React.createElement("div",props,React.createElement("select",{disabled,value:String(value),onChange:(event)=>onChange?.({detail:{value:event.currentTarget.value}})},range.map((item,index)=>React.createElement("option",{key:index,value:String(index)},String(item)))),children);
            export const ScrollView=({children,scrollY,...props})=>React.createElement("div",props,children);`
     }));
@@ -289,6 +290,7 @@ test("未知提现时父级刷新、退出和角色切换都锁定，原冻结�
       if (path === "/v1/venues/available") return { statusCode: 200, data: { version: "test", data: [] } };
       if (path === "/v1/finance/withdrawals/sources") return { statusCode: 200, data: { version: "test", data: [{ accountId: "source-1", sourceType: "PERSON", label: "个人账户", balanceCents: "10000" }] } };
       if (path === "/v1/finance/drafts/mine") return { statusCode: 200, data: { version: "test", data: [draft] } };
+      if (path === "/v1/finance/reimbursements/mine") return { statusCode: 200, data: { version: "test", data: { documents: [] } } };
       if (path === "/v1/finance/withdrawals/mine") return { statusCode: 200, data: { version: "test", data: [] } };
       if (path === "/v1/finance/documents/draft-1/attachments") return { statusCode: 200, data: { version: "test", data: { documentId: "draft-1", attachments: [attachment("slot-support", "SUPPORTING_DOCUMENT", [ready("version-1", 1, "old.png")]), attachment("slot-screenshot", "APPLICATION_SCREENSHOT", [ready("version-3", 1, "screen.png")])] } } };
       if (path === "/v1/finance/drafts/draft-1/withdrawal-submit") {
@@ -324,6 +326,72 @@ test("未知提现时父级刷新、退出和角色切换都锁定，原冻结�
       await click(button(container, "安全重试提交"));
       assert.equal(submitBodies.length, 2);
       assert.equal(submitBodies[0].idempotencyKey, submitBodies[1].idempotencyKey);
+      await act(async () => root.unmount());
+    });
+  } finally { await rm(indexBundle.directory, { recursive: true, force: true }); }
+});
+
+test("报销未知结果独立锁住父导航，提现刷新不会解除锁定或清除余额", async () => {
+  const indexBundle = await bundleIndexPage();
+  const reimbursementDraft = { ...draft, id: "parent-reimbursement", kind: "REIMBURSEMENT" };
+  const submitBodies = [];
+  let overviewReads = 0;
+  let navigationRequests = 0;
+  let withdrawalReads = 0;
+  const response = (data) => ({ statusCode: 200, data: { version: "test", data } });
+  globalThis.__miniappTaro = {
+    request: async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/v1/session" && request.method === "POST") return response(session);
+      if (path === "/v1/session" || path === "/v1/session/logout" || path === "/v1/role-contexts/switch") { navigationRequests++; return response(session); }
+      if (path === "/v1/me") { overviewReads++; return response({ nickname: "合成老师", balanceCents: "10000", currentYearIncomeByCategory: {} }); }
+      if (["/v1/teaching/referrals", "/v1/teaching/weeks", "/v1/venues/available"].includes(path)) return response([]);
+      if (path === "/v1/finance/withdrawals/sources") { withdrawalReads++; return response([]); }
+      if (path === "/v1/finance/withdrawals/mine") return response([]);
+      if (path === "/v1/finance/reimbursements/mine") return response({ documents: [] });
+      if (path === "/v1/finance/drafts/mine") return response(submitBodies.length < 2 ? [reimbursementDraft] : []);
+      if (path === "/v1/finance/drafts/parent-reimbursement") return response(reimbursementDraft);
+      if (path === "/v1/finance/documents/parent-reimbursement/attachments") return response({ documentId: reimbursementDraft.id, attachments: [
+        attachment("parent-support", "SUPPORTING_DOCUMENT", [ready("parent-support-v1", 1, "support.png")]),
+        attachment("parent-screen", "APPLICATION_SCREENSHOT", [ready("parent-screen-v1", 1, "screen.png")])
+      ] });
+      if (path === "/v1/finance/drafts/parent-reimbursement/reimbursement-submit") {
+        submitBodies.push(request.data);
+        if (submitBodies.length === 1) throw new Error("synthetic response loss");
+        return response({ id: reimbursementDraft.id, status: "PENDING_APPROVAL", version: 2, replay: true });
+      }
+      throw new Error(`unexpected reimbursement parent request ${path}`);
+    }
+  };
+  try {
+    await withDom(async (container) => {
+      const root = createRoot(container);
+      await act(async () => root.render(React.createElement(indexBundle.module.default)));
+      await input(container.querySelectorAll("input")[0], "13800000000");
+      await input(container.querySelectorAll("input")[1], "password");
+      await click(button(container, "登录"));
+      await click(button(container, "继续填写报销"));
+      await input(container.querySelector('[placeholder="正数，最多两位小数"]'), "20.00");
+      await input(container.querySelector('[placeholder="说明本次报销用途"]'), "合成教材报销");
+      await click(button(container, "确认提交报销申请"));
+      assert.equal(submitBodies.length, 1);
+      assert.equal(button(container, "刷新").disabled, true);
+      assert.equal(button(container, "退出").disabled, true);
+      assert.equal(container.querySelector("select").disabled, true);
+      const initialWithdrawalReads = withdrawalReads;
+      await click(button(container, "刷新提现记录"));
+      assert.ok(withdrawalReads > initialWithdrawalReads);
+      assert.equal(button(container, "刷新").disabled, true, "withdrawal false callback must not unlock reimbursement");
+      assert.equal(button(container, "退出").disabled, true);
+      assert.equal(container.querySelector("select").disabled, true);
+      assert.equal(container.querySelector(".balance-value").textContent, "100.00");
+      assert.equal(overviewReads, 1, "non-money requests do not refresh or clear overview");
+      await click(button(container, "刷新")); await click(button(container, "退出"));
+      assert.equal(navigationRequests, 0);
+      await click(button(container, "安全重试原报销申请"));
+      assert.deepEqual(submitBodies[1], submitBodies[0]);
+      assert.equal(button(container, "刷新").disabled, false);
+      assert.equal(container.querySelector(".balance-value").textContent, "100.00");
       await act(async () => root.unmount());
     });
   } finally { await rm(indexBundle.directory, { recursive: true, force: true }); }

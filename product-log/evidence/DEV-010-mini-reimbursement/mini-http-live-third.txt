@@ -1,0 +1,66 @@
+{
+  "failureView": "普通报销管理查看普通报销申请、审核结果与原件。仅全局总部财务可审核，管理员和系统所有者仅可查看。刷新报销记录43.21 豆审核通过·待划拨 · 演示授课老师查看报销详情12.34 豆已驳回 · 演示授课老师查看报销详情39.17 豆待审核 · 演示授课老师查看报销详情",
+  "trace": {
+    "submits": [
+      {
+        "body": {
+          "expectedVersion": 1,
+          "amountCents": "3917",
+          "reason": "MINI_REIMBURSE_LIVE_1790039508310",
+          "attachmentVersionIds": [
+            "6ed3b58b-ceac-4793-9dcc-7b6de2b1a399",
+            "0fd4d5b2-7000-4211-a197-7528d98815f3"
+          ],
+          "idempotencyKey": "be6754dc-8018-42c3-ba2b-4b897851c227"
+        },
+        "result": {
+          "id": "2a7513f9-ed86-48ec-82e9-1c1a1fc94bed",
+          "status": "PENDING_APPROVAL",
+          "version": 2,
+          "replay": false
+        },
+        "status": 200
+      },
+      {
+        "body": {
+          "expectedVersion": 1,
+          "amountCents": "3917",
+          "reason": "MINI_REIMBURSE_LIVE_1790039508310",
+          "attachmentVersionIds": [
+            "6ed3b58b-ceac-4793-9dcc-7b6de2b1a399",
+            "0fd4d5b2-7000-4211-a197-7528d98815f3"
+          ],
+          "idempotencyKey": "be6754dc-8018-42c3-ba2b-4b897851c227"
+        },
+        "result": {
+          "id": "2a7513f9-ed86-48ec-82e9-1c1a1fc94bed",
+          "status": "PENDING_APPROVAL",
+          "version": 2,
+          "replay": true
+        },
+        "status": 200
+      }
+    ],
+    "reviews": [],
+    "uploadedVersions": [
+      "6ed3b58b-ceac-4793-9dcc-7b6de2b1a399",
+      "0fd4d5b2-7000-4211-a197-7528d98815f3"
+    ],
+    "downloadedVersions": []
+  }
+}
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: button exists
+    at click (file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:83:10)
+    at file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:141:9 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: undefined,
+  expected: true,
+  operator: '=='
+}
+
+Node.js v22.16.0

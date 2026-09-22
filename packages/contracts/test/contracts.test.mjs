@@ -98,3 +98,18 @@ test("端点契约包含分区汇总、关系预览和全正常场地目录", ()
     assert.equal(hasPermission("ACADEMIC_PLANNER",action),false);
   }
  });
+
+test('student refunds separate teaching applicants, headquarters approval, and global read access',()=>{
+ for(const action of ['SUBMIT_OWN_REFUND','READ_OWN_REFUND']){
+  assert.equal(permissionScope('TEACHING_TEACHER',action),'SELF');
+  for(const subject of ['ACADEMIC_PLANNER','PLANNING_MENTOR','REGION_FINANCE','CAMPUS_PRINCIPAL'])assert.equal(hasPermission(subject,action),false);
+ }
+ assert.equal(permissionScope('HEADQUARTERS_FINANCE','REVIEW_REFUND'),'GLOBAL');
+ for(const subject of ['SYSTEM_ADMIN','SYSTEM_OWNER']){
+  assert.equal(permissionScope(subject,'READ_MANAGED_REFUND'),'GLOBAL');
+  assert.equal(hasPermission(subject,'REVIEW_REFUND'),false);
+ }
+ for(const subject of ['TEACHING_TEACHER','REGION_FINANCE','CAMPUS_PRINCIPAL'])assert.equal(hasPermission(subject,'READ_MANAGED_REFUND'),false);
+ for(const action of ['approve','reject'])assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===`/v1/finance/refunds/:documentId/${action}`).action,'REVIEW_REFUND');
+ assert.deepEqual(ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/refunds/:documentId').alternativeActions,['READ_MANAGED_REFUND']);
+});

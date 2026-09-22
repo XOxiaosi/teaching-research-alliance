@@ -14,6 +14,7 @@ import {
 import { taroTransport } from "../../services";
 import { ReferralPanel } from "./referral-panel";
 import { FinancialPanel } from "./financial-panel";
+import { ReimbursementPanel } from "./reimbursement-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -23,6 +24,7 @@ type Overview = Readonly<{
 }>;
 
 type Fee = Readonly<{
+  refundStatus?: "ACTIVE" | "REFUNDED";
   teachingWeekId: string;
   grossAmountCents: string;
   version: number;
@@ -90,6 +92,7 @@ const statusLabels: Readonly<Record<string, string>> = {
 const messages: Readonly<Record<string, string>> = {
   UNAUTHENTICATED: "登录已失效，请重新登录。",
   VERSION_CONFLICT: "这笔费用已有新版本，请刷新后重新填写。",
+  WEEKLY_FEE_REFUNDED: "这笔周费用已退款，不能再修改。请选择其他费用记录。",
   PERIOD_LOCKED: "该期间已关闭，暂时不能修改。",
   FORBIDDEN_SCOPE: "当前身份没有访问权限，请重新选择身份。",
   VENUE_CHANGE_REQUIRED: "已有费用使用了其他场地，请先处理场地变更，或选择与已有费用一致的场地。",
@@ -122,14 +125,19 @@ export default function IndexPage(): ReactNode {
   const [selectedVenueId, setSelectedVenueId] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [financeBusy,setFinanceBusy]=useState(false);
-  const [financeUnconfirmed,setFinanceUnconfirmed]=useState(false);
+  const [withdrawalBusy,setWithdrawalBusy]=useState(false);
+  const [withdrawalUnconfirmed,setWithdrawalUnconfirmed]=useState(false);
+  const [reimbursementBusy,setReimbursementBusy]=useState(false);
+  const [reimbursementUnconfirmed,setReimbursementUnconfirmed]=useState(false);
+  const financeBusy = withdrawalBusy || reimbursementBusy;
+  const financeUnconfirmed = withdrawalUnconfirmed || reimbursementUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
 
   const clearTeachingState = (): void => {
-    setFinanceBusy(false);setFinanceUnconfirmed(false);
+    setWithdrawalBusy(false);setWithdrawalUnconfirmed(false);
+    setReimbursementBusy(false);setReimbursementUnconfirmed(false);
     setOverview(null);
     setReferrals([]);
     setShowArchived(false);
@@ -230,6 +238,10 @@ export default function IndexPage(): ReactNode {
       .find((referral) => referral.referralId === selectedReferralId)
       ?.weeklyFees.find((item) => item.teachingWeekId === selectedWeekId);
     const referral = referrals.find((item) => item.referralId === selectedReferralId);
+    if (fee?.refundStatus === "REFUNDED") {
+      setNotice(messages.WEEKLY_FEE_REFUNDED ?? "这笔周费用已退款，不能再修改。");
+      return;
+    }
     if (referral?.referralStatus === "ARCHIVED" && fee === undefined) {
       throw new Error("ARCHIVED_NEW_FEE");
     }
@@ -265,6 +277,13 @@ export default function IndexPage(): ReactNode {
     : Math.max(session.roleContexts.findIndex((role) => role.subject === session.currentRoleContext?.subject), 0);
   const roleChoices = session?.roleContexts.map((role) => roleLabels[role.subject] ?? role.subject) ?? [];
   const selectedReferral = referrals.find((referral) => referral.referralId === selectedReferralId);
+  const selectedFee = selectedReferral?.weeklyFees.find((fee) => fee.teachingWeekId === selectedWeekId);
+  const feeRefunded = selectedFee?.refundStatus === "REFUNDED";
+  const currentContext = session?.currentRoleContext;
+  const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentContext?.subject ?? "");
+  const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
+    && currentContext.campusId === undefined && currentContext.venueId === undefined
+    && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext.subject);
   const visibleReferrals=referrals.filter(referral=>(referral.referralStatus==="ARCHIVED")===showArchived);
   const selectableWeeks = selectedReferral?.referralStatus === "ARCHIVED"
     ? weeks.filter((week) => selectedReferral.weeklyFees.some((fee) => fee.teachingWeekId === week.weekId))
@@ -277,7 +296,7 @@ export default function IndexPage(): ReactNode {
     <ScrollView scrollY className="page-shell">
       <View className="page-header">
         <Text className="eyebrow">TEACHING ALLIANCE</Text>
-        <Text className="page-title">{session === null ? "欢迎回来" : "我的教学"}</Text>
+        <Text className="page-title">{session === null ? "欢迎回来" : managedFinance ? "财务管理" : isTeacher(session) ? "我的教学" : "我的工作台"}</Text>
         {session !== null && (
           <Button
             className="quiet-button"
@@ -435,7 +454,7 @@ export default function IndexPage(): ReactNode {
                 <View className="panel">
                   <Text className="panel-title">{selectedReferral.studentDisplayName} · 周累计费用</Text>
                   <Text className="panel-description">
-                    填写本周所有课程的累计金额。保存后系统按新旧金额差额更新账户。
+                    {feeRefunded ? "这笔周费用已退款，保留原登记金额供核对，不能再修改。" : "填写本周所有课程的累计金额。保存后系统按新旧金额差额更新账户。"}
                   </Text>
                   <Text className="field-label">教学周</Text>
                   <Picker
@@ -455,7 +474,7 @@ export default function IndexPage(): ReactNode {
                     mode="selector"
                     range={["请选择场地",...venues.map((venue) => `${venue.name}${venue.isOwn ? "（本人场地，免费）" : ""}`)]}
                     value={venues.findIndex((venue) => venue.id === selectedVenueId)+1}
-                    disabled={busy || venues.length === 0}
+                    disabled={busy || feeRefunded || venues.length === 0}
                     onChange={(event) => {
                       const venue = venues[Number(event.detail.value)-1];
                       setSelectedVenueId(venue?.id ?? "");
@@ -463,22 +482,22 @@ export default function IndexPage(): ReactNode {
                   >
                     <View className="picker-value"><Text>{venues.find((venue) => venue.id === selectedVenueId)?.name ?? "请选择场地"}</Text><Text>⌄</Text></View>
                   </Picker>
-                  {["PENDING","REACTIVATED"].includes(selectedReferral.referralStatus)&&<Button className="quiet-button" disabled={busy||!selectedVenueId} onClick={()=>void run(acceptSelectedReferral)}>接收并使用此场地</Button>}
+                  {["PENDING","REACTIVATED"].includes(selectedReferral.referralStatus)&&<Button className="quiet-button" disabled={busy||feeRefunded||!selectedVenueId} onClick={()=>void run(acceptSelectedReferral)}>接收并使用此场地</Button>}
                   <Text className="field-label">本周累计 / 欢乐豆</Text>
                   <Input
                     className="text-input"
                     type="digit"
                     value={amount}
                     placeholder="例如 1000.00"
-                    disabled={busy}
+                    disabled={busy || feeRefunded}
                     onInput={(event) => setAmount(event.detail.value)}
                   />
                   <Button
                     className="primary-button"
-                    disabled={busy}
+                    disabled={busy || feeRefunded}
                     onClick={() => { void run(saveWeeklyFee); }}
                   >
-                    {busy ? "正在保存…" : "保存周累计费用"}
+                    {feeRefunded ? "已退款，不可修改" : busy ? "正在保存…" : "保存周累计费用"}
                   </Button>
                 </View>
               )}
@@ -517,8 +536,24 @@ export default function IndexPage(): ReactNode {
               }}
               onSubmitted={load}
               onDataMayChange={()=>setOverview(null)}
-              onBusyChange={setFinanceBusy}
-              onUnconfirmedChange={setFinanceUnconfirmed}
+              onBusyChange={setWithdrawalBusy}
+              onUnconfirmedChange={setWithdrawalUnconfirmed}
+            />
+          )}
+
+          {(personalFinance || managedFinance) && (
+            <ReimbursementPanel
+              key={`reimbursement:${session.sessionId}:${JSON.stringify(session.currentRoleContext)}`}
+              client={client}
+              session={session}
+              mode={personalFinance ? "personal" : "managed"}
+              onInvalidated={() => {
+                clearTeachingState();
+                setSession(client.currentSession);
+                setNotice("登录或身份已失效，请重新登录或选择身份。");
+              }}
+              onBusyChange={setReimbursementBusy}
+              onUnconfirmedChange={setReimbursementUnconfirmed}
             />
           )}
 
@@ -531,7 +566,7 @@ export default function IndexPage(): ReactNode {
       )}
 
       <View className="page-footer">
-        <Text>本地开发预览 · 当前提供教师录费和个人概览，完整业务仍在开发。</Text>
+        <Text>本地开发预览 · 提供周费用、个人财务与报销审核，完整业务仍在开发。</Text>
       </View>
     </ScrollView>
   );

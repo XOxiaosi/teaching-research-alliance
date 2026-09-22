@@ -1,0 +1,27 @@
+{
+  "failureView": "普通报销申请提交完整原件后等待总部财务人工审核；申请本身不会划拨欢乐豆。刷新报销记录报销草稿已创建。请填写金额、原因并上传两份申请原件。报销草稿新建报销申请报销草稿388b617a-4903-401a-ad4d-4cb926af7de2正在填写填写报销申请报销金额 / 欢乐豆报销原因报销业务单据PDF、PNG 或 JPEG，最大 20 MB。选择原件上传报销业务单据报销申请截图PDF、PNG 或 JPEG，最大 20 MB。选择原件上传报销申请截图确认提交报销申请",
+  "trace": {
+    "submits": [],
+    "reviews": [],
+    "uploadedVersions": [],
+    "downloadedVersions": []
+  }
+}
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+  assert.ok(node)
+
+    at input (file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:88:10)
+    at file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:118:9 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: null,
+  expected: true,
+  operator: '=='
+}
+
+Node.js v22.16.0

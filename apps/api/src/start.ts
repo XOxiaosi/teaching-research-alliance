@@ -1,3 +1,6 @@
+import { PostgresRefundSubmissionService } from "./postgres-refund-submission-service.js";
+import { PostgresRefundReviewService } from "./postgres-refund-review-service.js";
+import { PostgresRefundReadService } from "./postgres-refund-read-service.js";
 import { PostgresReimbursementSubmissionService } from "./postgres-reimbursement-submission-service.js";
 import { PostgresReimbursementReviewService } from "./postgres-reimbursement-review-service.js";
 import { PostgresReimbursementReadService } from "./postgres-reimbursement-read-service.js";
@@ -48,6 +51,8 @@ const server = createApiServer({
   referralLifecycle: new PostgresReferralLifecycleService(pool),
   financeDrafts: new PostgresFinanceDraftService(pool),
   companyFunds: new PostgresCompanyFundService(pool),
+  refundReads: new PostgresRefundReadService(pool),
+  ...(attachmentStore ? {refunds:new PostgresRefundSubmissionService(pool,attachmentStore),refundReviews:new PostgresRefundReviewService(pool,attachmentStore)} : {}),
   reimbursementReads: new PostgresReimbursementReadService(pool),
   ...(attachmentStore ? {reimbursements:new PostgresReimbursementSubmissionService(pool,attachmentStore),reimbursementReviews:new PostgresReimbursementReviewService(pool,attachmentStore)} : {}),
   selfPurchaseReads: new PostgresSelfPurchaseReadService(pool),

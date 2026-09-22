@@ -18,6 +18,7 @@ export type FeeReferral = Readonly<{
   referralStatus: string;
   initialVenueId?: string | null;
   weeklyFees: readonly Readonly<{
+    refundStatus?: "ACTIVE" | "REFUNDED";
     teachingWeekId: string;
     grossAmountCents: string;
     version: number;
@@ -52,6 +53,7 @@ type Field = "week" | "referral" | "venue" | "amount";
 type FieldErrors = Partial<Record<Field, string>>;
 
 const errorMessages: Readonly<Record<string, string>> = {
+  WEEKLY_FEE_REFUNDED: "这笔周费用已退款，保留原登记金额供核对，不能再修改。",
   PERIOD_LOCKED: "该期间已关闭，请重新读取可录入期间。需要补录时请联系系统管理员。",
   PERIOD_MONTH_MISMATCH: "期间信息已发生变化，请刷新后重新选择。",
   VENUE_NOT_ACTIVE: "所选场地已不可用，请选择其他正常使用的场地。",
@@ -89,6 +91,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
   const week = weeks.find((item) => item.weekId === weekId);
   const referral = referrals.find((item) => item.referralId === referralId);
   const previous = referral?.weeklyFees.find((item) => item.teachingWeekId === weekId);
+  const refunded = previous?.refundStatus === "REFUNDED";
   const relevant = referrals.filter((item) => item.referralStatus !== "ARCHIVED"
     || item.weeklyFees.some((fee) => fee.teachingWeekId === weekId));
   const recorded = week === undefined ? [] : relevant.flatMap((item) => item.weeklyFees.filter((fee) => fee.teachingWeekId === weekId));
@@ -146,11 +149,11 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
       if (error instanceof ApiClientError && error.status >= 400 && error.status < 500) {
         setUncertainSubmission(null);
         onUnconfirmedChange(false);
-        if (error.code === "VERSION_CONFLICT") {
+        if (error.code === "VERSION_CONFLICT" || error.code === "WEEKLY_FEE_REFUNDED") {
           setReceipt("");
           setReceiptDetails(null);
           setNotice("该费用已被其他操作更新。正在读取最新值，请重新选择学生课程后核对再保存。");
-          await refresh("已读取最新费用。请重新选择学生课程，核对服务器金额后再修改。");
+          await refresh(error.code === "WEEKLY_FEE_REFUNDED" ? "这笔周费用已退款，不能再修改。已读取最新状态，可重新选择记录查看。" : "已读取最新费用。请重新选择学生课程，核对服务器金额后再修改。");
           return;
         }
         const explanation = errorMessages[error.code] ?? "服务器未接受本次保存，请核对资料后重试。";
@@ -171,6 +174,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
   };
 
   const save = async (): Promise<void> => {
+    if (refunded) { setNotice(errorMessages.WEEKLY_FEE_REFUNDED ?? "这笔周费用已退款，不能再修改。"); return; }
     const nextErrors: FieldErrors = {};
     if (week === undefined) nextErrors.week = "请选择要录入的教学期间。";
     if (referral === undefined) nextErrors.referral = "请选择学生及对应课程。";
@@ -201,7 +205,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
     {loaded && weeks.length === 0 && <p className="fee-empty">暂无开放的教学期间。需要补录时，请联系系统管理员开放原期间。</p>}
     {loaded && referrals.length === 0 && <p className="fee-empty">暂无分配给你的学生课程记录，收到推荐后可在这里录入费用。</p>}
     {loaded && venues.length === 0 && <p className="fee-empty">暂无正常使用中的场地，请先完成场地资料维护。</p>}
-    {loaded && hasInputs && <form className="fee-form" noValidate onSubmit={(event) => { event.preventDefault(); if (!locked) void run(save); }}>
+    {loaded && hasInputs && <form className="fee-form" noValidate onSubmit={(event) => { event.preventDefault(); if (!locked && !refunded) void run(save); }}>
       <div className="fee-fields">
         <div className="fee-field"><label htmlFor="fee-week">教学期间</label><select id="fee-week" disabled={locked} value={weekId} aria-invalid={errors.week !== undefined} aria-describedby={errors.week === undefined ? undefined : "fee-week-error"} onChange={(event) => selectRecord("", event.target.value)}>
           <option value="">请选择教学期间</option>{weeks.map((item) => <option key={item.weekId} value={item.weekId}>{item.periodLabel} · {item.startsOn} 至 {item.endsOn}</option>)}
@@ -212,17 +216,19 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
       </div>
       {week !== undefined && <>
         <p className="fee-period-note">所选期间：{week.startsOn} 至 {week.endsOn} · 结算月份：{week.settlementMonth.slice(0, 7)}</p>
-        <dl className="fee-metrics"><div><dt>已录记录</dt><dd>{recorded.length}</dd></div><div><dt>待录记录</dt><dd>{Math.max(0, relevant.length - recorded.length)}</dd></div><div><dt>期间累计 / 欢乐豆</dt><dd>{formatCentsAsBeans(total.toString())}</dd></div></dl>
+        <dl className="fee-metrics"><div><dt>已录记录</dt><dd>{recorded.length}</dd></div><div><dt>待录记录</dt><dd>{Math.max(0, relevant.length - recorded.length)}</dd></div><div><dt>原登记累计 / 欢乐豆</dt><dd>{formatCentsAsBeans(total.toString())}</dd></div></dl>
+        {recorded.some((fee) => fee.refundStatus === "REFUNDED") && <p className="fee-period-note">原登记累计包含已退款记录的历史金额。</p>}
       </>}
       <div className="fee-fields">
-        <div className="fee-field"><label htmlFor="fee-venue">实际授课场地</label><select id="fee-venue" disabled={locked || referral === undefined} value={venueId} aria-invalid={errors.venue !== undefined} aria-describedby={errors.venue === undefined ? undefined : "fee-venue-error"} onChange={(event) => { setVenueId(event.target.value); clearFeedback(); }}>
+        <div className="fee-field"><label htmlFor="fee-venue">实际授课场地</label><select id="fee-venue" disabled={locked || refunded || referral === undefined} value={venueId} aria-invalid={errors.venue !== undefined} aria-describedby={errors.venue === undefined ? undefined : "fee-venue-error"} onChange={(event) => { setVenueId(event.target.value); clearFeedback(); }}>
           <option value="">请选择实际授课场地</option>{venues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isOwn ? "（自有场地，场地费为 0）" : ""}</option>)}
         </select>{fieldError("venue")}</div>
-        <div className="fee-field"><label htmlFor="fee-amount">本期间累计金额</label><input id="fee-amount" disabled={locked || referral === undefined} value={amount} inputMode="decimal" placeholder="例如 1500.00" aria-invalid={errors.amount !== undefined} aria-describedby={errors.amount === undefined ? "fee-amount-help" : "fee-amount-error"} onChange={(event) => { setAmount(event.target.value); clearFeedback(); }} />{fieldError("amount")}</div>
+        <div className="fee-field"><label htmlFor="fee-amount">本期间累计金额</label><input id="fee-amount" disabled={locked || refunded || referral === undefined} value={amount} inputMode="decimal" placeholder="例如 1500.00" aria-invalid={errors.amount !== undefined} aria-describedby={errors.amount === undefined ? "fee-amount-help" : "fee-amount-error"} onChange={(event) => { setAmount(event.target.value); clearFeedback(); }} />{fieldError("amount")}</div>
       </div>
+      {refunded && <p className="fee-notice" role="status">这笔周费用已退款，保留原登记金额供核对，不能再修改。</p>}
       <p id="fee-amount-help" className="fee-amount-help">填写这条学生课程记录的期间累计金额，金额为 0 时请明确填 0；空白不会保存。</p>
       {referral !== undefined && <div className="fee-comparison"><span>已登记累计：<strong>{previous === undefined ? "尚未填写" : `${formatCentsAsBeans(previous.grossAmountCents)} 欢乐豆`}</strong></span><span>本次填写：<strong>{amount === "" ? "尚未填写" : `${amount} 欢乐豆`}</strong></span></div>}
-      <div className="fee-actions"><Button type="submit" disabled={locked || week === undefined || referral === undefined}>{busy ? "正在处理…" : previous === undefined ? "保存累计费用" : "更新累计费用"}</Button><small>更正已有累计值后，系统按新旧结果的差额更新账户。</small></div>
+      <div className="fee-actions"><Button type="submit" disabled={locked || refunded || week === undefined || referral === undefined}>{refunded ? "已退款，不可修改" : busy ? "正在处理…" : previous === undefined ? "保存累计费用" : "更新累计费用"}</Button><small>更正已有累计值后，系统按新旧结果的差额更新账户。</small></div>
     </form>}
     <div className="fee-feedback" aria-live="polite" aria-atomic="true">{receipt !== "" && <p className="fee-receipt">{receipt}</p>}{notice !== "" && <p className="fee-notice">{notice}</p>}</div>
     {receiptDetails !== null && <details className="fee-receipt-details"><summary>查看保存凭证 · 费用版本 {receiptDetails.version}</summary><p>本次结算记录：{receiptDetails.runId}</p></details>}

@@ -84,6 +84,18 @@ export type ApiServices = Readonly<{
   selfPurchaseReversals?: Readonly<{
     reverse: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
   }>;
+  refunds?: Readonly<{
+    submit: (context:RoleContext, id:string, draft:{expectedVersion:number;weeklyFeeEntryIds:readonly string[];reason:string;attachmentVersionIds:readonly string[]}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
+  refundReviews?: Readonly<{
+    approve: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+    reject: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
+  refundReads?: Readonly<{
+    listOwn: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
+    listManaged: (context:RoleContext) => unknown | Promise<unknown>;
+    getDetail: (context:RoleContext, id:string, at:Date) => unknown | Promise<unknown>;
+  }>;
   reimbursements?: Readonly<{
     submit: (context:RoleContext, id:string, draft:{expectedVersion:number;amountCents:string;reason:string;attachmentVersionIds:readonly string[]}, key:string, at:Date) => unknown | Promise<unknown>;
   }>;
@@ -146,8 +158,8 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
-  if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE"||code==="FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE")return 500;
-  if(code==="REIMBURSEMENT_STATE_CONFLICT")return 409;
+  if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE"||code==="FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE"||code==="FINANCE_REFUND_DATA_UNAVAILABLE")return 500;
+  if(["REIMBURSEMENT_STATE_CONFLICT","REFUND_STATE_CONFLICT","WEEKLY_FEE_REFUNDED"].includes(code))return 409;
   if(code==="HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED")return 403;
   if(["SELF_PURCHASE_STATE_CONFLICT","HEADQUARTERS_FINANCE_ASSIGNMENT_AMBIGUOUS","COMPANY_FUND_ASSIGNMENT_NOT_FOUND"].includes(code))return 409;
   if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
@@ -421,6 +433,40 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if(id==="pending-transfer")return success(await services.withdrawalReads.listPending(context));
       if(id==="managed")return success(await services.withdrawalReads.listManaged(context));
       return success(await services.withdrawalReads.getDetail(context,id,at));
+    }
+    const refundSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/refund-submit$/);
+    if(refundSubmitPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.refunds)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","weeklyFeeEntryIds","reason","attachmentVersionIds","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1
+        ||!Array.isArray(body.weeklyFeeEntryIds)||!body.weeklyFeeEntryIds.every(id=>typeof id==="string")
+        ||!Array.isArray(body.attachmentVersionIds)||!body.attachmentVersionIds.every(id=>typeof id==="string"))throw new Error("INVALID_INPUT");
+      return success(await services.refunds.submit(context,refundSubmitPath[1]!,{
+        expectedVersion:body.expectedVersion,weeklyFeeEntryIds:body.weeklyFeeEntryIds as string[],reason:requiredString(body,"reason"),attachmentVersionIds:body.attachmentVersionIds as string[]
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const refundReviewPath=request.path.match(/^\/v1\/finance\/refunds\/([^/]+)\/(approve|reject)$/);
+    if(refundReviewPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.refundReviews)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","reason","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error("INVALID_INPUT");
+      return success(await services.refundReviews[refundReviewPath[2] as "approve"|"reject"](context,refundReviewPath[1]!,{
+        expectedVersion:body.expectedVersion,reason:requiredString(body,"reason")
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const refundReadPath=request.path.match(/^\/v1\/finance\/refunds\/([^/]+)$/);
+    if(refundReadPath!==null&&request.method==="GET"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.refundReads)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const id=refundReadPath[1]!;
+      if(id==="mine")return success(await services.refundReads.listOwn(context,at));
+      if(id==="managed")return success(await services.refundReads.listManaged(context));
+      return success(await services.refundReads.getDetail(context,id,at));
     }
     const reimbursementSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/reimbursement-submit$/);
     if(reimbursementSubmitPath!==null&&request.method==="POST"){

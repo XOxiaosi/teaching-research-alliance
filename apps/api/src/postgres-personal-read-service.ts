@@ -110,12 +110,15 @@ export class PostgresPersonalReadService {
                   (line ->> 'cents')::bigint AS amount_cents
              FROM latest_snapshot snapshot
              JOIN weekly_fee_entry fee ON fee.id = snapshot.weekly_fee_entry_id
+             LEFT JOIN weekly_fee_refund_effect refund
+               ON refund.weekly_fee_entry_id = fee.id
              JOIN teaching_week week ON week.id = fee.teaching_week_id
              JOIN academic_period period ON period.id = week.academic_period_id
              JOIN academic_year_plan year_plan ON year_plan.id = period.academic_year_plan_id
              CROSS JOIN LATERAL jsonb_array_elements(snapshot.snapshot_json -> 'lines') line
             WHERE ($2::timestamptz AT TIME ZONE 'Asia/Shanghai')::date
                   BETWEEN year_plan.starts_on AND year_plan.ends_on
+              AND refund.weekly_fee_entry_id IS NULL
               AND line ->> 'key' = ANY($3::text[])
               AND snapshot.context_json -> 'accounts' -> (line ->> 'key') ->> 'accountId' = $1
          )

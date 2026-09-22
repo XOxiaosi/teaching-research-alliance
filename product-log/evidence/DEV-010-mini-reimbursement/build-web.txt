@@ -1,0 +1,18 @@
+
+> teaching-research-alliance@0.1.0 build:web
+> npm run build:web --workspace @teaching-research-alliance/web
+
+
+> @teaching-research-alliance/web@0.1.0 build:web
+> vite build
+
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 31 modules transformed.
+rendering chunks...
+computing gzip size...
+build/index.html                   0.37 kB │ gzip:   0.30 kB
+build/assets/index-Cd3xnTBv.css   22.72 kB │ gzip:   5.90 kB
+build/assets/index-BpRMUEje.js   380.83 kB │ gzip: 108.61 kB
+
+✓ built in 1.68s

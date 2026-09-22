@@ -1,0 +1,18 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+  assert.ok(node)
+
+    at input (file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:88:10)
+    at file:///private/var/folders/lj/zmp2qnbd5wl7s69p8tw8_p540000gn/T/alliance-mini-reimbursement-xmle0swv/apps/miniapp/test/integration/reimbursement-live.mjs:118:9 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: null,
+  expected: true,
+  operator: '=='
+}
+
+Node.js v22.16.0

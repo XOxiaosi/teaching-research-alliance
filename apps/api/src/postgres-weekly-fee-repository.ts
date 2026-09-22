@@ -309,6 +309,17 @@ export class PostgresWeeklyFeeRepository {
       [draft.referralCaseId, draft.teachingWeekId]
     );
     const previous = current.rows[0];
+    if (previous !== undefined) {
+      const refunded = await client.query<{ refunded: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+             FROM weekly_fee_refund_effect
+            WHERE weekly_fee_entry_id = $1::uuid
+         ) AS refunded`,
+        [previous.id]
+      );
+      if (refunded.rows[0]?.refunded === true) throw new Error("WEEKLY_FEE_REFUNDED");
+    }
     if (referral.status === "ARCHIVED" && previous === undefined) throw new Error("REFERRAL_ARCHIVED");
     if (draft.expectedVersion !== undefined && draft.expectedVersion !== Number(previous?.version ?? 0)) {
       throw new Error("VERSION_CONFLICT");

@@ -1,0 +1,142 @@
+{
+  "baseline": "980089c / reimbursement API 690001e",
+  "validation": "React/Taro HTTP adapter against local synthetic PostgreSQL API; not WeChat device",
+  "documentId": "19482c35-d774-4617-b258-c9e39f9daa38",
+  "reason": "MINI_REIMBURSE_LIVE_1790039583986",
+  "before": {
+    "personId": "d0dfd96d-5d31-42b0-a16f-f0e69309439f",
+    "nickname": "演示授课老师",
+    "balanceCents": "134000",
+    "currentYearIncomeByCategory": {
+      "teachingTeacher": "144000"
+    }
+  },
+  "afterSubmit": {
+    "personId": "d0dfd96d-5d31-42b0-a16f-f0e69309439f",
+    "nickname": "演示授课老师",
+    "balanceCents": "134000",
+    "currentYearIncomeByCategory": {
+      "teachingTeacher": "144000"
+    }
+  },
+  "afterReview": {
+    "personId": "d0dfd96d-5d31-42b0-a16f-f0e69309439f",
+    "nickname": "演示授课老师",
+    "balanceCents": "134000",
+    "currentYearIncomeByCategory": {
+      "teachingTeacher": "144000"
+    }
+  },
+  "detail": {
+    "id": "19482c35-d774-4617-b258-c9e39f9daa38",
+    "status": "APPROVED",
+    "version": 3,
+    "amountCents": "3917",
+    "reason": "MINI_REIMBURSE_LIVE_1790039583986",
+    "applicantPersonId": "d0dfd96d-5d31-42b0-a16f-f0e69309439f",
+    "applicantDisplayName": "演示授课老师",
+    "submittedAt": "2026-09-21T04:00:00.000Z",
+    "attachments": [
+      {
+        "versionId": "ad3fb078-b612-4d3d-a7b7-35c8f6b5bf88",
+        "purpose": "APPLICATION_SCREENSHOT",
+        "originalFilename": "application_screenshot.image",
+        "mediaType": "image/png",
+        "sizeBytes": 74,
+        "sha256": "0abc0b2e70b436996e19700644aa232ce745575c8b44402141b6118f9f33c9f6"
+      },
+      {
+        "versionId": "51ef3fbf-7523-4595-856e-871c44a8d875",
+        "purpose": "SUPPORTING_DOCUMENT",
+        "originalFilename": "supporting_document.image",
+        "mediaType": "image/png",
+        "sizeBytes": 74,
+        "sha256": "0abc0b2e70b436996e19700644aa232ce745575c8b44402141b6118f9f33c9f6"
+      }
+    ],
+    "decision": {
+      "decision": "APPROVED",
+      "reason": "MINI_LIVE_APPROVE",
+      "decidedAt": "2026-09-21T04:00:00.000Z"
+    }
+  },
+  "trace": {
+    "submits": [
+      {
+        "body": {
+          "expectedVersion": 1,
+          "amountCents": "3917",
+          "reason": "MINI_REIMBURSE_LIVE_1790039583986",
+          "attachmentVersionIds": [
+            "51ef3fbf-7523-4595-856e-871c44a8d875",
+            "ad3fb078-b612-4d3d-a7b7-35c8f6b5bf88"
+          ],
+          "idempotencyKey": "501c0dac-f371-4490-93bb-c71c654ecb5d"
+        },
+        "result": {
+          "id": "19482c35-d774-4617-b258-c9e39f9daa38",
+          "status": "PENDING_APPROVAL",
+          "version": 2,
+          "replay": false
+        },
+        "status": 200
+      },
+      {
+        "body": {
+          "expectedVersion": 1,
+          "amountCents": "3917",
+          "reason": "MINI_REIMBURSE_LIVE_1790039583986",
+          "attachmentVersionIds": [
+            "51ef3fbf-7523-4595-856e-871c44a8d875",
+            "ad3fb078-b612-4d3d-a7b7-35c8f6b5bf88"
+          ],
+          "idempotencyKey": "501c0dac-f371-4490-93bb-c71c654ecb5d"
+        },
+        "result": {
+          "id": "19482c35-d774-4617-b258-c9e39f9daa38",
+          "status": "PENDING_APPROVAL",
+          "version": 2,
+          "replay": true
+        },
+        "status": 200
+      }
+    ],
+    "reviews": [
+      {
+        "body": {
+          "expectedVersion": 2,
+          "reason": "MINI_LIVE_APPROVE",
+          "idempotencyKey": "4f02350c-ae71-485d-8c15-0767491c6517"
+        },
+        "result": {
+          "id": "19482c35-d774-4617-b258-c9e39f9daa38",
+          "status": "APPROVED",
+          "version": 3,
+          "replay": false
+        },
+        "status": 200
+      },
+      {
+        "body": {
+          "expectedVersion": 2,
+          "reason": "MINI_LIVE_APPROVE",
+          "idempotencyKey": "4f02350c-ae71-485d-8c15-0767491c6517"
+        },
+        "result": {
+          "id": "19482c35-d774-4617-b258-c9e39f9daa38",
+          "status": "APPROVED",
+          "version": 3,
+          "replay": true
+        },
+        "status": 200
+      }
+    ],
+    "uploadedVersions": [
+      "51ef3fbf-7523-4595-856e-871c44a8d875",
+      "ad3fb078-b612-4d3d-a7b7-35c8f6b5bf88"
+    ],
+    "downloadedVersions": [
+      "51ef3fbf-7523-4595-856e-871c44a8d875"
+    ]
+  }
+}

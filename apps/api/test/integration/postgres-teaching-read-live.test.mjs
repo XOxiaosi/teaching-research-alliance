@@ -120,7 +120,8 @@ test("教师只读取本人接收生源的当前周费用和开放教学周", as
         version: 2,
         venueId,
         venueName: "教师自有场地",
-        isSelfUseSnapshot: true
+        isSelfUseSnapshot: true,
+        refundStatus: "ACTIVE"
       }]
     });
 

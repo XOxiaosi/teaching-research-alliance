@@ -1359,3 +1359,143 @@ test("普通报销冻结提交和审核都拒绝跨会话复用，且不会发�
   assert.equal(posts, 0);
   assert.throws(() => reviewer.createReimbursementReviewSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "审核", decision: "APPROVED" }), ApiClientError);
 });
+
+test("退款提交冻结费用与原件数组，允许授课老师的个人组织范围并以原键安全重试", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const weeklyFeeEntryIds = ["fee-1", "fee-2"];
+  const attachmentVersionIds = ["evidence-1", "screenshot-1"];
+  const campusTeacher = {
+    ...teacherSession(),
+    roleContexts: [{ subject: "TEACHING_TEACHER", personId: "person-1", scope: "CAMPUS", campusId: "campus-1" }],
+    currentRoleContext: { subject: "TEACHING_TEACHER", personId: "person-1", scope: "CAMPUS", campusId: "campus-1" }
+  };
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "refund-submit-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(campusTeacher);
+      if (request.path === "/v1/finance/drafts/draft-1/refund-submit") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "PENDING_APPROVAL", version: 2, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createRefundSubmission({
+    documentId: "draft-1", expectedVersion: 1, reason: " 学生退费 ", weeklyFeeEntryIds, attachmentVersionIds,
+    amountCents: "999", sourceAccountId: "forged", parentBankAccount: "forged"
+  });
+  weeklyFeeEntryIds.push("fee-later"); attachmentVersionIds.push("attachment-later");
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.equal(Object.isFrozen(submission.draft.weeklyFeeEntryIds), true);
+  assert.equal(Object.isFrozen(submission.draft.attachmentVersionIds), true);
+  await assert.rejects(client.submitRefund(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.submitRefund(submission), { id: "draft-1", status: "PENDING_APPROVAL", version: 2, replay: true });
+  assert.deepEqual(bodies, [
+    { expectedVersion: 1, reason: " 学生退费 ", weeklyFeeEntryIds: ["fee-1", "fee-2"], attachmentVersionIds: ["evidence-1", "screenshot-1"], idempotencyKey: "refund-submit-key-1" },
+    { expectedVersion: 1, reason: " 学生退费 ", weeklyFeeEntryIds: ["fee-1", "fee-2"], attachmentVersionIds: ["evidence-1", "screenshot-1"], idempotencyKey: "refund-submit-key-1" }
+  ]);
+  assert.equal(bodies[0].amountCents, undefined);
+  assert.equal(bodies[0].sourceAccountId, undefined);
+  assert.throws(() => client.createRefundSubmission({ documentId: "draft-1", expectedVersion: 1, reason: "退款", weeklyFeeEntryIds: ["same", "same"], attachmentVersionIds: ["one", "two"] }), ApiClientError);
+  assert.throws(() => client.createRefundSubmission({ documentId: "draft-1", expectedVersion: 1, reason: "退款", weeklyFeeEntryIds: ["fee-1"], attachmentVersionIds: ["one"] }), ApiClientError);
+});
+
+test("退款审核冻结动作、作废早期读取，并拒绝管理员审核和旧身份命令", async () => {
+  const oldRead = deferred();
+  const requests = [];
+  let attempts = 0;
+  const reviewInput = { documentId: "draft-1", expectedVersion: 2, reason: " 退款条件成立 ", decision: "APPROVE" };
+  const reviewer = new TeacherApiClient({
+    idempotencyKeyFactory: () => "refund-review-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+      requests.push(request);
+      if (request.path === "/v1/me") return oldRead.promise;
+      if (request.path === "/v1/finance/refunds/draft-1/approve") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "REFUNDED", version: 3, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await reviewer.login({ phoneNormalized: "13800000000", password: "password" });
+  const earlyRead = reviewer.getOwnOverview();
+  const review = reviewer.createRefundReviewSubmission(reviewInput);
+  reviewInput.decision = "REJECT"; reviewInput.reason = "篡改";
+  assert.equal(Object.isFrozen(review), true);
+  assert.equal(Object.isFrozen(review.draft), true);
+  await assert.rejects(reviewer.reviewRefund(review), /network uncertain/);
+  assert.deepEqual(await reviewer.reviewRefund(review), { id: "draft-1", status: "REFUNDED", version: 3, replay: true });
+  oldRead.resolve(success({ balanceCents: "old" }));
+  await assert.rejects(earlyRead, StaleResponseError);
+  assert.deepEqual(requests.slice(1).map((request) => ({ path: request.path, body: request.body })), [
+    { path: "/v1/finance/refunds/draft-1/approve", body: { expectedVersion: 2, reason: " 退款条件成立 ", idempotencyKey: "refund-review-key-1" } },
+    { path: "/v1/finance/refunds/draft-1/approve", body: { expectedVersion: 2, reason: " 退款条件成立 ", idempotencyKey: "refund-review-key-1" } }
+  ]);
+
+  const administrator = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession());
+    throw new Error("administrator review must not be sent");
+  } });
+  await administrator.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => administrator.createRefundReviewSubmission({ ...reviewInput, decision: "REJECT" }), ApiClientError);
+
+  let posts = 0;
+  const teacher = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+    posts += 1;
+    throw new Error("non-teacher refund must not be sent");
+  } });
+  await teacher.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => teacher.createRefundSubmission({ documentId: "draft-1", expectedVersion: 1, reason: "退款", weeklyFeeEntryIds: ["fee-1"], attachmentVersionIds: ["one", "two"] }), ApiClientError);
+  assert.equal(posts, 0);
+});
+
+test("退款冻结提交在角色变化后拒绝出站，并保留403清角色上下文", async () => {
+  let posts = 0;
+  const client = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession());
+    if (request.path === "/v1/role-contexts/switch") return success(teacherSession("ACADEMIC_PLANNER"));
+    posts += 1;
+    return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "scope" } } };
+  } });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const stale = client.createRefundSubmission({ documentId: "draft-1", expectedVersion: 1, reason: "退款", weeklyFeeEntryIds: ["fee-1"], attachmentVersionIds: ["one", "two"] });
+  await client.switchRole("ACADEMIC_PLANNER");
+  await assert.rejects(client.submitRefund(stale), StaleResponseError);
+  assert.equal(posts, 0);
+
+  const hq = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+    return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "scope" } } };
+  } });
+  await hq.login({ phoneNormalized: "13800000000", password: "password" });
+  const review = hq.createRefundReviewSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "拒绝", decision: "REJECT" });
+  await assert.rejects(hq.reviewRefund(review), RoleSelectionRequiredError);
+  assert.equal(hq.currentSession?.currentRoleContext, null);
+});
+
+test('refund reads preserve scope generations and encode document identifiers',async()=>{
+ const slow=deferred(),requests=[];
+ const client=new TeacherApiClient({transport:async request=>{
+  if(request.path==='/v1/session')return success(teacherSession());
+  if(request.path==='/v1/role-contexts/switch')return success(teacherSession('ACADEMIC_PLANNER'));
+  requests.push(request);
+  if(request.path==='/v1/finance/refunds/mine')return slow.promise;
+  return success({documents:[],id:'encoded'});
+ }});
+ await client.login({phoneNormalized:'13800000000',password:'password'});
+ const pending=client.listOwnRefunds();
+ await client.switchRole('ACADEMIC_PLANNER');slow.resolve(success({documents:[{id:'old-private'}]}));
+ await assert.rejects(pending,StaleResponseError);
+ await client.listManagedRefunds();await client.getRefundDetail('document/a b');
+ assert.deepEqual(requests.map(request=>request.path),['/v1/finance/refunds/mine','/v1/finance/refunds/managed','/v1/finance/refunds/document%2Fa%20b']);
+ await assert.rejects(client.getRefundDetail(' '),ApiClientError);
+});

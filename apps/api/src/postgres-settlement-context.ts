@@ -276,6 +276,11 @@ export const resolveSettlementContext = async (
        FROM weekly_fee_entry entry
        JOIN referral_case referral ON referral.id = entry.referral_case_id
       WHERE entry.settlement_month = $2::date
+        AND NOT EXISTS (
+          SELECT 1
+            FROM weekly_fee_refund_effect refund
+           WHERE refund.weekly_fee_entry_id = entry.id
+        )
         AND (referral.receiver_person_id = $1::uuid OR referral.referrer_person_id = $1::uuid)`,
     [entry.receiver_person_id, entry.settlement_month]
   );

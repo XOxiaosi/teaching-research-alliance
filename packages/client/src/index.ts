@@ -518,6 +518,80 @@ export type ReimbursementDetail = ReimbursementSummary & Readonly<{
   }>;
 }>;
 
+export type RefundSummary = Readonly<{
+  id: string;
+  status: "PENDING_APPROVAL" | "REFUNDED" | "REJECTED";
+  version: number;
+  reason: string;
+  applicantPersonId: string;
+  applicantDisplayName: string;
+  referralCaseId: string;
+  studentRecordId: string;
+  studentDisplayName: string;
+  submittedAt: string;
+  submittedGrossAmountCents: string;
+  selectedFeeCount: number;
+}>;
+
+export type RefundDetail = RefundSummary & Readonly<{
+  selectedFees: readonly Readonly<{
+    weeklyFeeEntryId: string;
+    submittedFeeVersion: number;
+    submittedGrossAmountCents: string;
+    teachingWeekId: string;
+    settlementMonth: string;
+    refundStatus: "ACTIVE" | "REFUNDED";
+  }>[];
+  attachments: readonly SelfPurchaseAttachment[];
+  decision?: Readonly<{
+    decision: "APPROVED" | "REJECTED";
+    reason: string;
+    decidedAt: string;
+    approvedGrossAmountCents: string;
+    postingStatus: "POSTED" | "NO_BALANCE_CHANGE" | "REJECTED";
+  }>;
+  management?: Readonly<{
+    submittedByPersonId: string;
+    decidedByPersonId?: string;
+    decisionActorSubject?: "HEADQUARTERS_FINANCE";
+    decisionActorScope?: "GLOBAL";
+    ledgerEventId?: string;
+  }>;
+}>;
+
+/** A refund request names immutable weekly-fee entries and evidence; it never carries refund money or bank data. */
+export type RefundSubmissionDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+  weeklyFeeEntryIds: readonly string[];
+  attachmentVersionIds: readonly string[];
+}>;
+
+export type RefundSubmission = Readonly<{
+  draft: RefundSubmissionDraft;
+  idempotencyKey: string;
+}>;
+
+export type RefundReviewDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+  decision: "APPROVE" | "REJECT";
+}>;
+
+export type RefundReviewSubmission = Readonly<{
+  draft: RefundReviewDraft;
+  idempotencyKey: string;
+}>;
+
+export type RefundCommandResult = Readonly<{
+  id: string;
+  status: "PENDING_APPROVAL" | "REFUNDED" | "REJECTED";
+  version: number;
+  replay: boolean;
+}>;
+
 export type CompanyFundStatus = "ACTIVE" | "INACTIVE";
 
 /** Stable COMPANY business account metadata. Balance and person ownership are deliberately absent. */
@@ -652,7 +726,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | RefundSubmission | RefundReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -854,6 +928,20 @@ const freezeAttachmentVersionIds = (ids: readonly string[], minimumCount = 1): r
   return Object.freeze(copied);
 };
 
+const freezeWeeklyFeeEntryIds = (ids: readonly string[]): readonly string[] => {
+  if (!Array.isArray(ids) || ids.length < 1) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:weeklyFeeEntryIds");
+  }
+  const copied = ids.map((id) => {
+    requireNonBlank(id, "weeklyFeeEntryIds");
+    return id;
+  });
+  if (new Set(copied).size !== copied.length) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:weeklyFeeEntryIds");
+  }
+  return Object.freeze(copied);
+};
+
 const validateWithdrawalSubmitDraft = (draft: WithdrawalSubmitDraft): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
@@ -900,6 +988,23 @@ const validateReimbursementSubmissionDraft = (draft: ReimbursementSubmissionDraf
 };
 
 const validateReimbursementReviewDraft = (draft: ReimbursementReviewDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  if (draft.decision !== "APPROVE" && draft.decision !== "REJECT") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:decision");
+  }
+};
+
+const validateRefundSubmissionDraft = (draft: RefundSubmissionDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeWeeklyFeeEntryIds(draft.weeklyFeeEntryIds);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateRefundReviewDraft = (draft: RefundReviewDraft): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateFinancialText(draft.reason, "reason", 1_000);
@@ -1115,7 +1220,20 @@ export class TeacherApiClient {
     );
   }
 
-  /** Own reimbursement reads leave the role's legitimate personal scope to the server. */
+  /** Refund reads use server-authorized personal or management scope. */
+  public async listOwnRefunds(): Promise<Readonly<{ documents: readonly RefundSummary[] }>> {
+    return this.authenticatedRequest("GET", "/v1/finance/refunds/mine");
+  }
+
+  public async listManagedRefunds(): Promise<Readonly<{ documents: readonly RefundSummary[] }>> {
+    return this.authenticatedRequest("GET", "/v1/finance/refunds/managed");
+  }
+
+  public async getRefundDetail(documentId: string): Promise<RefundDetail> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest("GET", `/v1/finance/refunds/${encodeURIComponent(documentId)}`);
+  }
+
   public async listOwnReimbursements(): Promise<Readonly<{ documents: readonly ReimbursementSummary[] }>> {
     return this.authenticatedRequest<Readonly<{ documents: readonly ReimbursementSummary[] }>>(
       "GET", "/v1/finance/reimbursements/mine"
@@ -1400,6 +1518,49 @@ export class TeacherApiClient {
     draft: ReimbursementReviewDraft
   ): ReimbursementReviewSubmission {
     validateReimbursementReviewDraft(draft);
+    this.requireReimbursementReviewer();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        reason: draft.reason,
+        decision: draft.decision
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Refunds can only originate from the current teaching teacher's own role context. */
+  public createRefundSubmission(draft: RefundSubmissionDraft): RefundSubmission {
+    validateRefundSubmissionDraft(draft);
+    this.requireRefundSubmitter();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        reason: draft.reason,
+        weeklyFeeEntryIds: freezeWeeklyFeeEntryIds(draft.weeklyFeeEntryIds),
+        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Refund approval or rejection is fixed at creation; callers cannot switch its action during a retry. */
+  public createRefundReviewSubmission(draft: RefundReviewDraft): RefundReviewSubmission {
+    validateRefundReviewDraft(draft);
     this.requireReimbursementReviewer();
     const scope = this.captureSubmissionScope();
     const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
@@ -1852,6 +2013,59 @@ export class TeacherApiClient {
     }
   }
 
+  public async submitRefund(submission: RefundSubmission): Promise<RefundCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireRefundSubmitter();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<RefundCommandResult>(
+        "POST",
+        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/refund-submit`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          weeklyFeeEntryIds: [...submission.draft.weeklyFeeEntryIds],
+          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async reviewRefund(submission: RefundReviewSubmission): Promise<RefundCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireReimbursementReviewer();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const action = submission.draft.decision === "APPROVE" ? "approve" : "reject";
+      const result = await this.authenticatedRequest<RefundCommandResult>(
+        "POST",
+        `/v1/finance/refunds/${encodeURIComponent(submission.draft.documentId)}/${action}`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
     return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
       fundCode: submission.draft.fundCode,
@@ -1933,6 +2147,13 @@ export class TeacherApiClient {
       || context.regionId !== undefined
       || context.campusId !== undefined
       || context.venueId !== undefined) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** A non-SELF personal teaching scope remains valid; the server confirms the fee ownership. */
+  private requireRefundSubmitter(): void {
+    if (this.session?.currentRoleContext?.subject !== "TEACHING_TEACHER") {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
