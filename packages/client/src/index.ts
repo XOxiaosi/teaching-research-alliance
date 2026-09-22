@@ -449,6 +449,75 @@ export type SelfPurchaseDetail = SelfPurchaseSummary & Readonly<{
   }>;
 }>;
 
+/** A normal reimbursement remains a request until a headquarters reviewer decides it. */
+export type ReimbursementSubmissionDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  amountCents: string;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+}>;
+
+export type ReimbursementSubmission = Readonly<{
+  draft: ReimbursementSubmissionDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReimbursementReviewDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+  decision: "APPROVE" | "REJECT";
+}>;
+
+export type ReimbursementReviewSubmission = Readonly<{
+  draft: ReimbursementReviewDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
+
+export type ReimbursementCommandResult = Readonly<{
+  id: string;
+  status: ReimbursementStatus;
+  version: number;
+  replay: boolean;
+}>;
+
+export type ReimbursementSummary = Readonly<{
+  id: string;
+  status: ReimbursementStatus;
+  version: number;
+  amountCents: string;
+  reason: string;
+  applicantPersonId: string;
+  applicantDisplayName: string;
+  submittedAt: string;
+}>;
+
+export type ReimbursementAttachment = SelfPurchaseAttachment;
+
+export type ReimbursementDetail = ReimbursementSummary & Readonly<{
+  attachments: readonly ReimbursementAttachment[];
+  decision?: Readonly<{
+    decision: "APPROVED" | "REJECTED";
+    reason: string;
+    decidedAt: string;
+  }>;
+  management?: Readonly<{
+    destinationAccountId: string;
+    submittedByPersonId: string;
+    applicantContextSubject: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
+    applicantContextScope: PermissionScope;
+    applicantContextRegionId?: string;
+    applicantContextCampusId?: string;
+    applicantContextVenueId?: string;
+    decidedByPersonId?: string;
+    decisionActorSubject?: "HEADQUARTERS_FINANCE";
+    decisionActorScope?: "GLOBAL";
+  }>;
+}>;
+
 export type CompanyFundStatus = "ACTIVE" | "INACTIVE";
 
 /** Stable COMPANY business account metadata. Balance and person ownership are deliberately absent. */
@@ -583,7 +652,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -822,6 +891,23 @@ const validateSelfPurchaseReversalDraft = (draft: SelfPurchaseReversalDraft): vo
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
+const validateReimbursementSubmissionDraft = (draft: ReimbursementSubmissionDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateWithdrawalAmount(draft.amountCents);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateReimbursementReviewDraft = (draft: ReimbursementReviewDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  if (draft.decision !== "APPROVE" && draft.decision !== "REJECT") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:decision");
+  }
+};
+
 const validateCompanyFundCreateDraft = (draft: CompanyFundCreateDraft): void => {
   if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(draft.fundCode)) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:fundCode");
@@ -1026,6 +1112,27 @@ export class TeacherApiClient {
     requireNonBlank(documentId, "documentId");
     return this.authenticatedRequest<SelfPurchaseDetail>(
       "GET", `/v1/finance/self-purchases/${encodeURIComponent(documentId)}`
+    );
+  }
+
+  /** Own reimbursement reads leave the role's legitimate personal scope to the server. */
+  public async listOwnReimbursements(): Promise<Readonly<{ documents: readonly ReimbursementSummary[] }>> {
+    return this.authenticatedRequest<Readonly<{ documents: readonly ReimbursementSummary[] }>>(
+      "GET", "/v1/finance/reimbursements/mine"
+    );
+  }
+
+  /** The API authorizes managed reimbursement reads for HQ, administrators, and owners. */
+  public async listManagedReimbursements(): Promise<Readonly<{ documents: readonly ReimbursementSummary[] }>> {
+    return this.authenticatedRequest<Readonly<{ documents: readonly ReimbursementSummary[] }>>(
+      "GET", "/v1/finance/reimbursements/managed"
+    );
+  }
+
+  public async getReimbursementDetail(documentId: string): Promise<ReimbursementDetail> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<ReimbursementDetail>(
+      "GET", `/v1/finance/reimbursements/${encodeURIComponent(documentId)}`
     );
   }
 
@@ -1259,6 +1366,50 @@ export class TeacherApiClient {
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
         reason: draft.reason
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** The exact evidence set, amount, and reason are frozen so a failed request can safely retry. */
+  public createReimbursementSubmission(draft: ReimbursementSubmissionDraft): ReimbursementSubmission {
+    validateReimbursementSubmissionDraft(draft);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        amountCents: draft.amountCents,
+        reason: draft.reason,
+        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+      }),
+      idempotencyKey
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Only the strict GLOBAL headquarters-finance context may create a review command. */
+  public createReimbursementReviewSubmission(
+    draft: ReimbursementReviewDraft
+  ): ReimbursementReviewSubmission {
+    validateReimbursementReviewDraft(draft);
+    this.requireReimbursementReviewer();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        reason: draft.reason,
+        decision: draft.decision
       }),
       idempotencyKey
     });
@@ -1645,6 +1796,62 @@ export class TeacherApiClient {
     }
   }
 
+  public async submitReimbursement(
+    submission: ReimbursementSubmission
+  ): Promise<ReimbursementCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<ReimbursementCommandResult>(
+        "POST",
+        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/reimbursement-submit`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          amountCents: submission.draft.amountCents,
+          reason: submission.draft.reason,
+          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async reviewReimbursement(
+    submission: ReimbursementReviewSubmission
+  ): Promise<ReimbursementCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireReimbursementReviewer();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const action = submission.draft.decision === "APPROVE" ? "approve" : "reject";
+      const result = await this.authenticatedRequest<ReimbursementCommandResult>(
+        "POST",
+        `/v1/finance/reimbursements/${encodeURIComponent(submission.draft.documentId)}/${action}`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey
+        }
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
     return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
       fundCode: submission.draft.fundCode,
@@ -1710,6 +1917,18 @@ export class TeacherApiClient {
   private requireSelfPurchaseReversalManager(): void {
     const context = this.session?.currentRoleContext;
     if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
+      || context.scope !== "GLOBAL"
+      || context.regionId !== undefined
+      || context.campusId !== undefined
+      || context.venueId !== undefined) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** Review authority is intentionally narrower than read authority: administrators remain read-only. */
+  private requireReimbursementReviewer(): void {
+    const context = this.session?.currentRoleContext;
+    if (context?.subject !== "HEADQUARTERS_FINANCE"
       || context.scope !== "GLOBAL"
       || context.regionId !== undefined
       || context.campusId !== undefined

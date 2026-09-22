@@ -44,12 +44,13 @@ const versionSelect = `
          version.actual_size_bytes::text AS actual_size_bytes,version.sha256,
          to_char(version.ready_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS ready_at,
          document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
-         to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+         to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
     FROM finance_attachment_version version
     JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
     JOIN finance_document document ON document.id=attachment.finance_document_id
     LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
-    LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id`;
+    LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+    LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id`;
 
 /** Reads only an authorized READY original. The document is locked before the version through the integrity check. */
 export class PostgresFinanceAttachmentReadService {
@@ -73,10 +74,11 @@ export class PostgresFinanceAttachmentReadService {
       }
       const document = await client.query<DocumentRow>(
         `SELECT document.id::text AS document_id,document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
-                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
            FROM finance_document document JOIN finance_attachment attachment ON attachment.finance_document_id=document.id JOIN finance_attachment_version version ON version.finance_attachment_id=attachment.id
            LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
            LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+           LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id
           WHERE version.id=$1::uuid FOR SHARE OF document`, [versionId]
       );
       if (document.rows[0] === undefined) return await failAfterAudit("ATTACHMENT_DOWNLOAD_DENIED", "NOT_FOUND_OR_FORBIDDEN", "FINANCE_ATTACHMENT_NOT_FOUND");

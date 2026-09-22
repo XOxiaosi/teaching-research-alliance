@@ -1195,3 +1195,167 @@ test("HQ和带局部资源的管理员不能读取或提交公司资金配置，
   await localAdmin.login({ phoneNormalized: "13800000000", password: "password" });
   assert.throws(() => localAdmin.createCompanyFundSubmission({ fundCode: "HQ_LOCAL", displayName: "局部管理员" }), ApiClientError);
 });
+
+test("普通报销冻结金额理由和两份原件，未知结果以同键重试且不发送伪造字段", async () => {
+  const bodies = [];
+  let attempts = 0;
+  const attachmentVersionIds = ["receipt-1", "screenshot-1"];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "reimbursement-submit-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession());
+      if (request.path === "/v1/finance/drafts/draft-1/reimbursement-submit") {
+        bodies.push(request.body);
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "PENDING_APPROVAL", version: 2, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReimbursementSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "9007199254740991", reason: " 教材报销 ", attachmentVersionIds,
+    applicantPersonId: "forged", destinationAccountId: "forged", status: "APPROVED"
+  });
+  attachmentVersionIds.push("later-ui-change");
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.equal(Object.isFrozen(submission.draft.attachmentVersionIds), true);
+  await assert.rejects(client.submitReimbursement(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.submitReimbursement(submission), {
+    id: "draft-1", status: "PENDING_APPROVAL", version: 2, replay: true
+  });
+  assert.deepEqual(bodies, [
+    { expectedVersion: 1, amountCents: "9007199254740991", reason: " 教材报销 ", attachmentVersionIds: ["receipt-1", "screenshot-1"], idempotencyKey: "reimbursement-submit-key-1" },
+    { expectedVersion: 1, amountCents: "9007199254740991", reason: " 教材报销 ", attachmentVersionIds: ["receipt-1", "screenshot-1"], idempotencyKey: "reimbursement-submit-key-1" }
+  ]);
+  assert.equal(bodies[0].applicantPersonId, undefined);
+  assert.equal(bodies[0].destinationAccountId, undefined);
+  assert.throws(() => client.createReimbursementSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "缺附件", attachmentVersionIds: ["only-one"]
+  }), ApiClientError);
+});
+
+test("普通报销读取使用固定路径并由服务端裁决管理和个人范围，403清角色上下文", async () => {
+  const paths = [];
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("PLANNING_MENTOR"));
+      paths.push(request.path);
+      if (request.path === "/v1/finance/reimbursements/mine") return success({ documents: [{
+        id: "draft-1", status: "PENDING_APPROVAL", version: 2, amountCents: "101", reason: "教材",
+        applicantPersonId: "person-1", applicantDisplayName: "老师", submittedAt: "2026-09-21T00:00:00.000Z"
+      }] });
+      if (request.path === "/v1/finance/reimbursements/managed") return success({ documents: [] });
+      if (request.path === "/v1/finance/reimbursements/draft%2F1") return success({
+        id: "draft/1", status: "APPROVED", version: 3, amountCents: "101", reason: "教材",
+        applicantPersonId: "person-1", applicantDisplayName: "老师", submittedAt: "2026-09-21T00:00:00.000Z",
+        attachments: [{ versionId: "version-1", purpose: "SUPPORTING_DOCUMENT", originalFilename: "evidence.png", mediaType: "image/png", sizeBytes: 100, sha256: "a".repeat(64) }],
+        decision: { decision: "APPROVED", reason: "已核对", decidedAt: "2026-09-22T00:00:00.000Z" }
+      });
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.equal((await client.listOwnReimbursements()).documents[0].applicantDisplayName, "老师");
+  assert.deepEqual(await client.listManagedReimbursements(), { documents: [] });
+  assert.equal((await client.getReimbursementDetail("draft/1")).decision?.decision, "APPROVED");
+  assert.deepEqual(paths, [
+    "/v1/finance/reimbursements/mine", "/v1/finance/reimbursements/managed", "/v1/finance/reimbursements/draft%2F1"
+  ]);
+
+  const forbidden = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession());
+    return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "scope" } } };
+  } });
+  await forbidden.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(forbidden.listManagedReimbursements(), RoleSelectionRequiredError);
+  assert.equal(forbidden.currentSession?.currentRoleContext, null);
+});
+
+test("普通报销审核冻结动作和会话范围，只允许严格GLOBAL总部财务并作废早期读取", async () => {
+  const earlyList = deferred();
+  const requests = [];
+  let attempts = 0;
+  const input = { documentId: "draft-1", expectedVersion: 2, reason: " 资料齐全 ", decision: "APPROVE" };
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "reimbursement-review-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+      requests.push(request);
+      if (request.path === "/v1/finance/reimbursements/managed") return earlyList.promise;
+      if (request.path === "/v1/finance/reimbursements/draft-1/approve") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "draft-1", status: "APPROVED", version: 3, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const oldRead = client.listManagedReimbursements();
+  const review = client.createReimbursementReviewSubmission(input);
+  input.decision = "REJECT";
+  input.reason = "篡改";
+  assert.equal(Object.isFrozen(review), true);
+  assert.equal(Object.isFrozen(review.draft), true);
+  await assert.rejects(client.reviewReimbursement(review), /network uncertain/);
+  assert.equal(client.submissionStatus(review), "FAILED");
+  assert.deepEqual(await client.reviewReimbursement(review), { id: "draft-1", status: "APPROVED", version: 3, replay: true });
+  earlyList.resolve(success({ documents: [] }));
+  await assert.rejects(oldRead, StaleResponseError);
+  assert.deepEqual(requests.slice(1).map((request) => ({ path: request.path, body: request.body })), [
+    { path: "/v1/finance/reimbursements/draft-1/approve", body: { expectedVersion: 2, reason: " 资料齐全 ", idempotencyKey: "reimbursement-review-key-1" } },
+    { path: "/v1/finance/reimbursements/draft-1/approve", body: { expectedVersion: 2, reason: " 资料齐全 ", idempotencyKey: "reimbursement-review-key-1" } }
+  ]);
+
+  const administrator = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession());
+    throw new Error("administrator review must not be sent");
+  } });
+  await administrator.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => administrator.createReimbursementReviewSubmission({ ...input, decision: "APPROVE" }), ApiClientError);
+  const localHq = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE", { campusId: "campus-1" }));
+    throw new Error("local review must not be sent");
+  } });
+  await localHq.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => localHq.createReimbursementReviewSubmission({ ...input, decision: "APPROVE" }), ApiClientError);
+});
+
+test("普通报销冻结提交和审核都拒绝跨会话复用，且不会发出POST", async () => {
+  let sessions = 0;
+  let posts = 0;
+  const personal = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") {
+      sessions += 1;
+      return success({ ...teacherSession(), sessionId: `personal-session-${sessions}` });
+    }
+    posts += 1;
+    throw new Error("stale submission must not be sent");
+  } });
+  await personal.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = personal.createReimbursementSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "教材", attachmentVersionIds: ["one", "two"]
+  });
+  await personal.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(personal.submitReimbursement(submission), StaleResponseError);
+
+  sessions = 0;
+  const reviewer = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") {
+      sessions += 1;
+      return success({ ...administratorSession("HEADQUARTERS_FINANCE"), sessionId: `hq-session-${sessions}` });
+    }
+    posts += 1;
+    throw new Error("stale review must not be sent");
+  } });
+  await reviewer.login({ phoneNormalized: "13800000000", password: "password" });
+  const review = reviewer.createReimbursementReviewSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "审核", decision: "REJECT" });
+  await reviewer.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(reviewer.reviewReimbursement(review), StaleResponseError);
+  assert.equal(posts, 0);
+  assert.throws(() => reviewer.createReimbursementReviewSubmission({ documentId: "draft-1", expectedVersion: 2, reason: "审核", decision: "APPROVED" }), ApiClientError);
+});

@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: 普通报销真实HTTP：提交锁定原件，财务审核不划豆，管理员只读，跨年原键可恢复
+ok 1 - 普通报销真实HTTP：提交锁定原件，财务审核不划豆，管理员只读，跨年原键可恢复
+  ---
+  duration_ms: 12697.672883
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13407.775991

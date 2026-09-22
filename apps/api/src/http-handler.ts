@@ -84,6 +84,18 @@ export type ApiServices = Readonly<{
   selfPurchaseReversals?: Readonly<{
     reverse: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
   }>;
+  reimbursements?: Readonly<{
+    submit: (context:RoleContext, id:string, draft:{expectedVersion:number;amountCents:string;reason:string;attachmentVersionIds:readonly string[]}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
+  reimbursementReviews?: Readonly<{
+    approve: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+    reject: (context:RoleContext, id:string, draft:{expectedVersion:number;reason:string}, key:string, at:Date) => unknown | Promise<unknown>;
+  }>;
+  reimbursementReads?: Readonly<{
+    listOwn: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
+    listManaged: (context:RoleContext) => unknown | Promise<unknown>;
+    getDetail: (context:RoleContext, id:string, at:Date) => unknown | Promise<unknown>;
+  }>;
   selfPurchaseReads?: Readonly<{
     listOwn: (context:RoleContext, at:Date) => unknown | Promise<unknown>;
     listManaged: (context:RoleContext) => unknown | Promise<unknown>;
@@ -134,7 +146,8 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
-  if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE")return 500;
+  if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE"||code==="FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE")return 500;
+  if(code==="REIMBURSEMENT_STATE_CONFLICT")return 409;
   if(code==="HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED")return 403;
   if(["SELF_PURCHASE_STATE_CONFLICT","HEADQUARTERS_FINANCE_ASSIGNMENT_AMBIGUOUS","COMPANY_FUND_ASSIGNMENT_NOT_FOUND"].includes(code))return 409;
   if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
@@ -408,6 +421,39 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if(id==="pending-transfer")return success(await services.withdrawalReads.listPending(context));
       if(id==="managed")return success(await services.withdrawalReads.listManaged(context));
       return success(await services.withdrawalReads.getDetail(context,id,at));
+    }
+    const reimbursementSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/reimbursement-submit$/);
+    if(reimbursementSubmitPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.reimbursements)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","amountCents","reason","attachmentVersionIds","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1
+        ||!Array.isArray(body.attachmentVersionIds)||!body.attachmentVersionIds.every(id=>typeof id==="string"))throw new Error("INVALID_INPUT");
+      return success(await services.reimbursements.submit(context,reimbursementSubmitPath[1]!,{
+        expectedVersion:body.expectedVersion,amountCents:requiredString(body,"amountCents"),reason:requiredString(body,"reason"),attachmentVersionIds:body.attachmentVersionIds as string[]
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const reimbursementReviewPath=request.path.match(/^\/v1\/finance\/reimbursements\/([^/]+)\/(approve|reject)$/);
+    if(reimbursementReviewPath!==null&&request.method==="POST"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.reimbursementReviews)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if(Object.keys(body).some(key=>!["sessionId","expectedVersion","reason","idempotencyKey"].includes(key))
+        ||typeof body.expectedVersion!=="number"||!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion<1)throw new Error("INVALID_INPUT");
+      return success(await services.reimbursementReviews[reimbursementReviewPath[2] as "approve"|"reject"](context,reimbursementReviewPath[1]!,{
+        expectedVersion:body.expectedVersion,reason:requiredString(body,"reason")
+      },requiredString(body,"idempotencyKey"),at));
+    }
+    const reimbursementReadPath=request.path.match(/^\/v1\/finance\/reimbursements\/([^/]+)$/);
+    if(reimbursementReadPath!==null&&request.method==="GET"){
+      if(typeof body.sessionId!=="string"||!body.sessionId.trim())throw new Error("UNAUTHENTICATED");
+      const context=currentContext(await services.sessions.get(sessionIdFrom(body),at));
+      if(!services.reimbursementReads)throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const id=reimbursementReadPath[1]!;
+      if(id==="mine")return success(await services.reimbursementReads.listOwn(context,at));
+      if(id==="managed")return success(await services.reimbursementReads.listManaged(context));
+      return success(await services.reimbursementReads.getDetail(context,id,at));
     }
     const selfPurchaseSubmitPath=request.path.match(/^\/v1\/finance\/drafts\/([^/]+)\/self-purchase-submit$/);
     if(selfPurchaseSubmitPath!==null&&request.method==="POST"){

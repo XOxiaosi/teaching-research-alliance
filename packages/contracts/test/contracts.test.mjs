@@ -51,6 +51,22 @@ test("场地选用与共享查看/提现是独立能力", () => {
   assert.equal(hasPermission("VENUE_OWNER", "CONFIGURE_RATES"), false);
 });
 
+test("普通报销审核独立于个人提交和管理员查阅，不宣告通用审批接口",()=>{
+  for(const subject of ['TEACHING_TEACHER','ACADEMIC_PLANNER','PLANNING_MENTOR']){
+    assert.equal(hasPermission(subject,'SUBMIT_OWN_REIMBURSEMENT'),true);
+    assert.equal(hasPermission(subject,'READ_OWN_REIMBURSEMENT'),true);
+    assert.equal(hasPermission(subject,'REVIEW_REIMBURSEMENT'),false);
+  }
+  assert.equal(permissionScope('HEADQUARTERS_FINANCE','REVIEW_REIMBURSEMENT'),'GLOBAL');
+  for(const subject of ['SYSTEM_ADMIN','SYSTEM_OWNER']){
+    assert.equal(permissionScope(subject,'READ_MANAGED_REIMBURSEMENT'),'GLOBAL');
+    assert.equal(hasPermission(subject,'REVIEW_REIMBURSEMENT'),false);
+  }
+  assert.equal(hasPermission('REGION_FINANCE','READ_MANAGED_REIMBURSEMENT'),false);
+  assert.equal(ENDPOINT_CONTRACTS.some(item=>item.path==='/v1/finance/documents/:documentId/approve'),false);
+  for(const action of ['approve','reject'])assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===`/v1/finance/reimbursements/:documentId/${action}`).action,'REVIEW_REIMBURSEMENT');
+});
+
 test("契约规则没有重复动作定义", () => {
   const keys = PERMISSION_RULES.map((item) => `${item.subject}:${item.action}`);
   assert.equal(new Set(keys).size, keys.length);

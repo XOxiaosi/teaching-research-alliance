@@ -150,12 +150,13 @@ const versionSelect = `
          version.expected_sha256,to_char(version.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
          document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
          attachment.created_by_person_id::text AS created_by_person_id,version.uploaded_by_person_id::text AS uploaded_by_person_id,
-         to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+         to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
     FROM finance_attachment_version version
     JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
     JOIN finance_document document ON document.id=attachment.finance_document_id
     LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
-    LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id`;
+    LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+    LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id`;
 
 /** Metadata reservation for personal DRAFT evidence and HQ_GLOBAL withdrawal payment receipts. */
 export class PostgresFinanceAttachmentService {
@@ -199,10 +200,11 @@ export class PostgresFinanceAttachmentService {
       }
       const document = one((await client.query<DocumentRow>(
         `SELECT document.id::text AS document_id,document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
-                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
            FROM finance_document document
            LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
            LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+           LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id
           WHERE document.id=$1::uuid FOR UPDATE OF document`,
         [documentId]
       )).rows, "FINANCE_DOCUMENT_NOT_FOUND");
@@ -323,7 +325,7 @@ export class PostgresFinanceAttachmentService {
     try {
       const rows = (await client.query<DocumentListRow>(
         `SELECT document.id::text AS document_id,document.applicant_person_id::text AS applicant_person_id,
-                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS business_at,
+                to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS business_at,
                 attachment.id::text AS attachment_id,attachment.purpose,to_char(attachment.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS attachment_created_at,
                 version.id::text AS version_id,version.version_no::text AS version_no,version.status,version.original_filename,version.declared_media_type,version.declared_size_bytes::text AS declared_size_bytes,version.expected_sha256,
                 to_char(version.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS version_created_at,
@@ -332,6 +334,7 @@ export class PostgresFinanceAttachmentService {
            FROM finance_document document
            LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
            LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+           LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id
            LEFT JOIN finance_attachment attachment ON attachment.finance_document_id=document.id
            LEFT JOIN finance_attachment_version version ON version.finance_attachment_id=attachment.id
            LEFT JOIN (
@@ -340,11 +343,14 @@ export class PostgresFinanceAttachmentService {
              UNION ALL
              SELECT finance_document_id,finance_attachment_version_id,'SUBMISSION'::text AS stage,document_version,bound_at
                FROM finance_self_purchase_attachment_binding
+             UNION ALL
+             SELECT finance_document_id,finance_attachment_version_id,stage,document_version,bound_at
+               FROM finance_reimbursement_attachment_binding
            ) binding ON binding.finance_attachment_version_id=version.id AND binding.finance_document_id=document.id
           WHERE document.id=$1::uuid
             AND ($2::boolean OR (document.applicant_person_id=$3::uuid
-              AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at)>=$4::timestamptz
-              AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at)<$5::timestamptz))
+              AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at)>=$4::timestamptz
+              AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at)<$5::timestamptz))
           ORDER BY attachment.created_at NULLS LAST,attachment.id NULLS LAST,version.version_no NULLS LAST`,
         [normalizedDocumentId, !personal, personal ? context.personId : null, bounds?.start ?? null, bounds?.end ?? null]
       )).rows;
@@ -373,11 +379,12 @@ export class PostgresFinanceAttachmentService {
   private async lockDocumentForAttachment(client: PostgresClient, attachmentId: string): Promise<DocumentRow | undefined> {
     const document = await client.query<DocumentRow>(
       `SELECT document.id::text AS document_id,document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
-              to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+              to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
          FROM finance_document document
          JOIN finance_attachment attachment ON attachment.finance_document_id=document.id
          LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
          LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+         LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id
         WHERE attachment.id=$1::uuid FOR UPDATE OF document`, [attachmentId]
     );
     return document.rows[0];
@@ -494,10 +501,11 @@ export class PostgresFinanceAttachmentService {
   private async lockVersionAfterDocument(client: PostgresClient, versionId: string): Promise<VersionRow | undefined> {
     const document = await client.query<DocumentRow>(
       `SELECT document.id::text AS document_id,document.applicant_person_id::text AS applicant_person_id,document.kind AS document_kind,document.status AS document_status,
-              to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
+              to_char(COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,document.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS business_at
          FROM finance_document document JOIN finance_attachment attachment ON attachment.finance_document_id=document.id JOIN finance_attachment_version version ON version.finance_attachment_id=attachment.id
          LEFT JOIN finance_withdrawal_submission withdrawal_submission ON withdrawal_submission.finance_document_id=document.id
          LEFT JOIN finance_self_purchase_transfer self_purchase ON self_purchase.finance_document_id=document.id
+         LEFT JOIN finance_reimbursement_submission reimbursement_submission ON reimbursement_submission.finance_document_id=document.id
         WHERE version.id=$1::uuid FOR UPDATE OF document`, [versionId]
     );
     if (document.rows[0] === undefined) return undefined;

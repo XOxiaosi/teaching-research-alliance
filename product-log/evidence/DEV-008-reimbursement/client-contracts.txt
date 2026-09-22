@@ -1,0 +1,286 @@
+TAP version 13
+# Subtest: 欢乐豆金额以BigInt精确解析和格式化
+ok 1 - 欢乐豆金额以BigInt精确解析和格式化
+  ---
+  duration_ms: 4.190389
+  type: 'test'
+  ...
+# Subtest: 角色切换作废在途响应且不把旧角色数据写入缓存
+ok 2 - 角色切换作废在途响应且不把旧角色数据写入缓存
+  ---
+  duration_ms: 4.138752
+  type: 'test'
+  ...
+# Subtest: 本地退出作废在途响应并清除会话
+ok 3 - 本地退出作废在途响应并清除会话
+  ---
+  duration_ms: 0.575514
+  type: 'test'
+  ...
+# Subtest: 读取每次向服务端刷新，成功写入作废更早读取
+ok 4 - 读取每次向服务端刷新，成功写入作废更早读取
+  ---
+  duration_ms: 3.043259
+  type: 'test'
+  ...
+# Subtest: 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+ok 5 - 接收推荐冻结草稿并以同一幂等键重试，提交体不允许伪造字段
+  ---
+  duration_ms: 1.180264
+  type: 'test'
+  ...
+# Subtest: 推荐归档与重新推送冻结命令、同键重试且不发送伪造字段
+ok 6 - 推荐归档与重新推送冻结命令、同键重试且不发送伪造字段
+  ---
+  duration_ms: 1.02364
+  type: 'test'
+  ...
+# Subtest: 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+ok 7 - 身份或角色变化拒绝重用旧接收、推荐和周费用提交
+  ---
+  duration_ms: 1.605464
+  type: 'test'
+  ...
+# Subtest: 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+ok 8 - 退出后即使同一人员角色重新登录，也拒绝旧会话的三类提交且不发 POST
+  ---
+  duration_ms: 3.251832
+  type: 'test'
+  ...
+# Subtest: 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+ok 9 - 成功写入只作废旧读取，不废弃同一身份下的待提交草稿
+  ---
+  duration_ms: 0.842425
+  type: 'test'
+  ...
+# Subtest: 周费用失败后重试保持同一幂等键，修改参数建立新提交
+ok 10 - 周费用失败后重试保持同一幂等键，修改参数建立新提交
+  ---
+  duration_ms: 2.674402
+  type: 'test'
+  ...
+# Subtest: 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+ok 11 - 推荐创建以冻结提交对象安全重试，同名再次提交使用新键
+  ---
+  duration_ms: 1.47267
+  type: 'test'
+  ...
+# Subtest: 复制推荐冻结草稿、同键重试、可选字段白名单并拒绝跨会话提交
+ok 12 - 复制推荐冻结草稿、同键重试、可选字段白名单并拒绝跨会话提交
+  ---
+  duration_ms: 1.8082
+  type: 'test'
+  ...
+# Subtest: 财务草稿只提交冻结元数据，同键重试、读取与跨会话保护
+ok 13 - 财务草稿只提交冻结元数据，同键重试、读取与跨会话保护
+  ---
+  duration_ms: 1.506935
+  type: 'test'
+  ...
+# Subtest: 退出后在途推荐创建不能写回当前会话
+ok 14 - 退出后在途推荐创建不能写回当前会话
+  ---
+  duration_ms: 0.416757
+  type: 'test'
+  ...
+# Subtest: 附件预留冻结元数据、未知结果使用同键重试且不发送伪造字段
+ok 15 - 附件预留冻结元数据、未知结果使用同键重试且不发送伪造字段
+  ---
+  duration_ms: 1.543368
+  type: 'test'
+  ...
+# Subtest: 附件预留校验文件元数据，并在角色变化后拒绝旧提交或旧读取
+ok 16 - 附件预留校验文件元数据，并在角色变化后拒绝旧提交或旧读取
+  ---
+  duration_ms: 2.36648
+  type: 'test'
+  ...
+# Subtest: 文档附件列表保留槽、版本和绑定元数据，并在角色切换后作废旧响应
+ok 17 - 文档附件列表保留槽、版本和绑定元数据，并在角色切换后作废旧响应
+  ---
+  duration_ms: 0.537528
+  type: 'test'
+  ...
+# Subtest: 同槽附件版本冻结并以同一键重试，只发送版本元数据白名单
+ok 18 - 同槽附件版本冻结并以同一键重试，只发送版本元数据白名单
+  ---
+  duration_ms: 0.804534
+  type: 'test'
+  ...
+# Subtest: 附件预留的401清会话，403清角色上下文
+ok 19 - 附件预留的401清会话，403清角色上下文
+  ---
+  duration_ms: 1.008838
+  type: 'test'
+  ...
+# Subtest: 金额和版本在客户端校验，401清会话，403返回角色选择
+ok 20 - 金额和版本在客户端校验，401清会话，403返回角色选择
+  ---
+  duration_ms: 0.421488
+  type: 'test'
+  ...
+# Subtest: server sign-out clears local state even if the logout request fails
+ok 21 - server sign-out clears local state even if the logout request fails
+  ---
+  duration_ms: 0.587523
+  type: 'test'
+  ...
+# Subtest: 提现提交冻结银行文本与附件快照，以同一键重试且不发送伪造字段
+ok 22 - 提现提交冻结银行文本与附件快照，以同一键重试且不发送伪造字段
+  ---
+  duration_ms: 0.977862
+  type: 'test'
+  ...
+# Subtest: 提现命令拒绝跨角色复用，并阻止同一提交并发执行
+ok 23 - 提现命令拒绝跨角色复用，并阻止同一提交并发执行
+  ---
+  duration_ms: 0.679713
+  type: 'test'
+  ...
+# Subtest: 提现读取路径、财务撤回和转账完成命令使用严格 JSON 白名单
+ok 24 - 提现读取路径、财务撤回和转账完成命令使用严格 JSON 白名单
+  ---
+  duration_ms: 0.948953
+  type: 'test'
+  ...
+# Subtest: 提现读取沿用 401 清会话与 403 清角色上下文
+ok 25 - 提现读取沿用 401 清会话与 403 清角色上下文
+  ---
+  duration_ms: 0.454886
+  type: 'test'
+  ...
+# Subtest: 本人采买冻结金额、理由和附件，未知网络以同键重试且只发送固定字段
+ok 26 - 本人采买冻结金额、理由和附件，未知网络以同键重试且只发送固定字段
+  ---
+  duration_ms: 0.860975
+  type: 'test'
+  ...
+# Subtest: 采买读取路径遵循财年服务端裁决，旧会话命令和成功前读取不会污染当前状态
+ok 27 - 采买读取路径遵循财年服务端裁决，旧会话命令和成功前读取不会污染当前状态
+  ---
+  duration_ms: 0.84159
+  type: 'test'
+  ...
+# Subtest: 采买提交拒绝跨角色复用，并阻止同一冻结命令并发出站
+ok 28 - 采买提交拒绝跨角色复用，并阻止同一冻结命令并发出站
+  ---
+  duration_ms: 0.887151
+  type: 'test'
+  ...
+# Subtest: 采买撤销冻结命令以同键重试，只允许严格GLOBAL办理人且作废旧读取
+ok 29 - 采买撤销冻结命令以同键重试，只允许严格GLOBAL办理人且作废旧读取
+  ---
+  duration_ms: 1.843224
+  type: 'test'
+  ...
+# Subtest: 采买撤销拒绝个人、局部HQ和跨会话复用的冻结命令
+ok 30 - 采买撤销拒绝个人、局部HQ和跨会话复用的冻结命令
+  ---
+  duration_ms: 2.279371
+  type: 'test'
+  ...
+# Subtest: 公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段
+ok 31 - 公司资金仅严格GLOBAL管理员配置，命令冻结重试且不发送账户或余额字段
+  ---
+  duration_ms: 2.531601
+  type: 'test'
+  ...
+# Subtest: HQ和带局部资源的管理员不能读取或提交公司资金配置，403清角色上下文
+ok 32 - HQ和带局部资源的管理员不能读取或提交公司资金配置，403清角色上下文
+  ---
+  duration_ms: 1.898924
+  type: 'test'
+  ...
+# Subtest: 普通报销冻结金额理由和两份原件，未知结果以同键重试且不发送伪造字段
+ok 33 - 普通报销冻结金额理由和两份原件，未知结果以同键重试且不发送伪造字段
+  ---
+  duration_ms: 1.472145
+  type: 'test'
+  ...
+# Subtest: 普通报销读取使用固定路径并由服务端裁决管理和个人范围，403清角色上下文
+ok 34 - 普通报销读取使用固定路径并由服务端裁决管理和个人范围，403清角色上下文
+  ---
+  duration_ms: 1.911906
+  type: 'test'
+  ...
+# Subtest: 普通报销审核冻结动作和会话范围，只允许严格GLOBAL总部财务并作废早期读取
+ok 35 - 普通报销审核冻结动作和会话范围，只允许严格GLOBAL总部财务并作废早期读取
+  ---
+  duration_ms: 1.35517
+  type: 'test'
+  ...
+# Subtest: 普通报销冻结提交和审核都拒绝跨会话复用，且不会发出POST
+ok 36 - 普通报销冻结提交和审核都拒绝跨会话复用，且不会发出POST
+  ---
+  duration_ms: 0.743092
+  type: 'test'
+  ...
+# Subtest: 权限契约覆盖开发者、管理员和基础教师能力
+ok 37 - 权限契约覆盖开发者、管理员和基础教师能力
+  ---
+  duration_ms: 1.678842
+  type: 'test'
+  ...
+# Subtest: 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+ok 38 - 分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限
+  ---
+  duration_ms: 0.345858
+  type: 'test'
+  ...
+# Subtest: 财务业务账户配置只授予最高维护角色，不跟随财务办理权限
+ok 39 - 财务业务账户配置只授予最高维护角色，不跟随财务办理权限
+  ---
+  duration_ms: 0.354431
+  type: 'test'
+  ...
+# Subtest: 本人采买从个人入口提交，财务管理读取独立授权
+ok 40 - 本人采买从个人入口提交，财务管理读取独立授权
+  ---
+  duration_ms: 1.404858
+  type: 'test'
+  ...
+# Subtest: 场地选用与共享查看/提现是独立能力
+ok 41 - 场地选用与共享查看/提现是独立能力
+  ---
+  duration_ms: 0.290223
+  type: 'test'
+  ...
+# Subtest: 普通报销审核独立于个人提交和管理员查阅，不宣告通用审批接口
+ok 42 - 普通报销审核独立于个人提交和管理员查阅，不宣告通用审批接口
+  ---
+  duration_ms: 0.291303
+  type: 'test'
+  ...
+# Subtest: 契约规则没有重复动作定义
+ok 43 - 契约规则没有重复动作定义
+  ---
+  duration_ms: 0.360755
+  type: 'test'
+  ...
+# Subtest: 提现提交、财务办理和凭证查阅各自授权，分区不取得财务能力
+ok 44 - 提现提交、财务办理和凭证查阅各自授权，分区不取得财务能力
+  ---
+  duration_ms: 0.626337
+  type: 'test'
+  ...
+# Subtest: 端点契约包含分区汇总、关系预览和全正常场地目录
+ok 45 - 端点契约包含分区汇总、关系预览和全正常场地目录
+  ---
+  duration_ms: 0.49149
+  type: 'test'
+  ...
+# Subtest: teaching directory reads have independent actions from fee writes
+ok 46 - teaching directory reads have independent actions from fee writes
+  ---
+  duration_ms: 0.730107
+  type: 'test'
+  ...
+1..46
+# tests 46
+# suites 0
+# pass 46
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 306.626848
