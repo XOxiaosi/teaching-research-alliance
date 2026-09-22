@@ -8,6 +8,7 @@ import {
   canReserveFinanceAttachment,
   isGlobalAttachmentReader,
   isHeadquartersFinanceGlobal,
+  isSalaryBenefitOperator,
   isPersonalAttachmentContext,
   isWithinPersonalFinanceYear,
   isReceiptPurpose,
@@ -501,7 +502,9 @@ export class PostgresFinanceAttachmentService {
   }
 
   private isCurrentRoleAllowedForPurpose(context: RoleContext, purpose: FinanceAttachmentPurpose): boolean {
-    return (isPersonalAttachmentContext(context) && !isReceiptPurpose(purpose)) || (isHeadquartersFinanceGlobal(context) && isReceiptPurpose(purpose));
+    return (isPersonalAttachmentContext(context) && !isReceiptPurpose(purpose))
+      || (isHeadquartersFinanceGlobal(context) && isReceiptPurpose(purpose))
+      || (isSalaryBenefitOperator(context) && !isReceiptPurpose(purpose));
   }
 
   /** Document is locked before its version, so a withdrawal state transition cannot race a replay. */

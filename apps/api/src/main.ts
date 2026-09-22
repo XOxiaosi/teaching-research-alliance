@@ -48,3 +48,4 @@ export { PostgresRefundReadService } from "./postgres-refund-read-service.js";
 export { PostgresVenueService } from "./postgres-venue-service.js";
 export { PostgresVenueReadService } from "./postgres-venue-read-service.js";
 export { PostgresVenueBoardReadService } from "./postgres-venue-board-read-service.js";
+export { PostgresSalaryBenefitsService } from "./postgres-salary-benefits-service.js";

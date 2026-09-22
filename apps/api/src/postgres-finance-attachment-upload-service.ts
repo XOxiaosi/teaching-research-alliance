@@ -11,6 +11,7 @@ import { validateAttachmentFormat } from "./attachment-format-validator.js";
 import {
   canUploadFinanceAttachment,
   isHeadquartersFinanceGlobal,
+  isSalaryBenefitOperator,
   isPersonalAttachmentContext,
   isReceiptPurpose,
   isWithinPersonalFinanceYear,
@@ -115,7 +116,7 @@ export class PostgresFinanceAttachmentUploadService {
 
   public async upload(context: RoleContext, versionId: string, chunks: AsyncIterable<Uint8Array>, at: Date): Promise<FinanceAttachmentUploadResult> {
     if (!UUID.test(versionId) || !Number.isFinite(at.getTime())) throw new Error("INVALID_INPUT");
-    if (!isPersonalAttachmentContext(context) && !isHeadquartersFinanceGlobal(context)) {
+    if (!isPersonalAttachmentContext(context) && !isHeadquartersFinanceGlobal(context) && !isSalaryBenefitOperator(context)) {
       await this.auditDeniedFromPool(context, versionId, "FORBIDDEN_SCOPE", at);
       throw new Error("FORBIDDEN_SCOPE");
     }
@@ -133,7 +134,7 @@ export class PostgresFinanceAttachmentUploadService {
         if (version.uploaded_by_person_id !== context.personId
           || (isPersonalAttachmentContext(context) && version.applicant_person_id !== context.personId)) throw new Error("FINANCE_ATTACHMENT_NOT_FOUND");
         if ((isPersonalAttachmentContext(context) && isReceiptPurpose(version.purpose))
-          || (isHeadquartersFinanceGlobal(context) && !isReceiptPurpose(version.purpose))) throw new Error("FORBIDDEN_SCOPE");
+          || ((isHeadquartersFinanceGlobal(context) || isSalaryBenefitOperator(context)) && !isReceiptPurpose(version.purpose))) throw new Error("FORBIDDEN_SCOPE");
         throw new Error("FINANCE_ATTACHMENT_NOT_READY");
       }
       if (version.status === "FAILED") throw new Error("FINANCE_ATTACHMENT_FAILED");

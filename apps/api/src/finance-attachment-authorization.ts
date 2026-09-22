@@ -48,6 +48,11 @@ export const isGlobalAttachmentReader = (context: RoleContext): boolean =>
   hasStrictGlobalScope(context)
   && (context.subject === "HEADQUARTERS_FINANCE" || context.subject === "SYSTEM_ADMIN" || context.subject === "SYSTEM_OWNER");
 
+/** Wage, bonus and benefit evidence is created from the strict global finance view. */
+export const isSalaryBenefitOperator = (context: RoleContext): boolean =>
+  hasStrictGlobalScope(context)
+  && (context.subject === "HEADQUARTERS_FINANCE" || context.subject === "SYSTEM_ADMIN" || context.subject === "SYSTEM_OWNER");
+
 export const isReceiptPurpose = (purpose: FinanceAttachmentPurpose): boolean => purpose === "PAYMENT_RECEIPT";
 
 export const canReserveFinanceAttachment = (
@@ -59,6 +64,10 @@ export const canReserveFinanceAttachment = (
     return !isReceiptPurpose(purpose)
       && document.applicantPersonId === context.personId
       && document.status === "DRAFT";
+  }
+  if (isSalaryBenefitOperator(context)
+    && ["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"].includes(document.kind)) {
+    return !isReceiptPurpose(purpose) && document.status === "DRAFT";
   }
   return isHeadquartersFinanceGlobal(context)
     && isReceiptPurpose(purpose)
