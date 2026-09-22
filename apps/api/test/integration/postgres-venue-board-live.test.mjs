@@ -102,6 +102,13 @@ test("共享场地看板按最新场地分润展示学生周费用，退款排�
     assert.equal("balanceCents" in viewOnly.venue, false);
     const withdrawer = await service.get({ subject: "TEACHING_TEACHER", personId: ids.teacherC, scope: "SELF" }, ids.venueA, { teachingWeekId: ids.weekB }, at);
     assert.equal(withdrawer.venue.accountId, venueAAccount);
+    await pool.query("UPDATE account_balance_projection SET balance_cents=-1234 WHERE account_id=$1::uuid", [venueAAccount]);
+    const negativeOwner = await service.get({ subject: "TEACHING_TEACHER", personId: ids.teacherA, scope: "SELF" }, ids.venueA, filter, at);
+    assert.equal(negativeOwner.venue.balanceCents, -1234n);
+    assert.equal(negativeOwner.totalVenueFeeCents, 7000n);
+    const negativeViewer = await service.get({ subject: "TEACHING_TEACHER", personId: ids.teacherB, scope: "SELF" }, ids.venueA, filter, at);
+    assert.equal("balanceCents" in negativeViewer.venue, false);
+    assert.equal(negativeViewer.totalVenueFeeCents, 7000n);
     await assert.rejects(
       service.get({ subject: "HEADQUARTERS_FINANCE", personId: ids.hq, scope: "GLOBAL" }, ids.venueA, { teachingWeekId: ids.weekB }, at),
       /FORBIDDEN_SCOPE/

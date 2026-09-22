@@ -116,7 +116,7 @@ test("退款提交拒绝坏原件、已退款费用、跨学年特殊周与跨�
     const effectDoc = await addDocument(db.pool, teacherId);
     await injectRefundEffect(db.pool, current.feeId, effectDoc, teacherId);
     const repeatedDoc = await addDocument(db.pool, teacherId), repeatedEvidence = await requiredEvidence(db.pool, store, repeatedDoc);
-    await assert.rejects(service.submit(teacher(teacherId), repeatedDoc, draft([current.feeId], repeatedEvidence), "already-refunded", at), /FORBIDDEN_SCOPE|WEEKLY_FEE_REFUNDED/);
+    await assert.rejects(service.submit(teacher(teacherId), repeatedDoc, draft([current.feeId], repeatedEvidence), "already-refunded", at), /WEEKLY_FEE_REFUNDED/);
     assert.equal((await db.pool.query("SELECT count(*)::int AS count FROM finance_refund_submission WHERE finance_document_id=$1::uuid", [repeatedDoc])).rows[0].count, 0);
 
     const oldWeek = await addAcademicFee(db.pool, { ownerId: teacherId, receiverId: teacherId, plannerId, suffix: "old-week", startsOn: "2025-09-01", endsOn: "2026-08-31", weekStart: "2026-08-31", weekEnd: "2026-09-06", settlementMonth: "2026-09-01" });

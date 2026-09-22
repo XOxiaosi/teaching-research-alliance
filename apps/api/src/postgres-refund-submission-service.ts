@@ -200,12 +200,15 @@ export class PostgresRefundSubmissionService {
             WHERE week.id=fee.teaching_week_id
               AND ($3::timestamptz AT TIME ZONE 'Asia/Shanghai')::date BETWEEN year_plan.starts_on AND year_plan.ends_on
           )
-          AND NOT EXISTS (
-            SELECT 1 FROM weekly_fee_refund_effect effect WHERE effect.weekly_fee_entry_id=fee.id
-          )
         ORDER BY fee.id FOR UPDATE OF fee`, [ids, actorId, at.toISOString()]
     )).rows;
     if (rows.length !== ids.length) fail("FORBIDDEN_SCOPE");
+    // Check state only after ownership and financial-year authorization. The
+    // month locks also serialize this check with refund approval.
+    const refunded = await client.query(
+      "SELECT 1 FROM weekly_fee_refund_effect WHERE weekly_fee_entry_id=ANY($1::uuid[]) LIMIT 1", [ids]
+    );
+    if (refunded.rows.length !== 0) fail("WEEKLY_FEE_REFUNDED");
     return rows;
   }
 

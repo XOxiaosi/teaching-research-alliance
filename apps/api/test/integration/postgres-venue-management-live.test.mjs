@@ -31,6 +31,16 @@ test("场地创建建立独立账户，默认切换、权限历史和幂等均�
     assert.equal(grant.canView, true); assert.equal(grant.canWithdraw, false);
     const listed = await reads.list(context(guest), new Date(at.getTime() + 6000)); assert.equal(listed.some(row => row.id === first.id), true);
     assert.equal("accountId" in listed.find(row => row.id === first.id), false);
+    assert.equal(listed.find(row => row.id === first.id).canView, true);
+    assert.equal(listed.find(row => row.id === first.id).canWithdraw, false);
+    for (const subject of ["ACADEMIC_PLANNER", "PLANNING_MENTOR"]) {
+      const personalBoards = await reads.list({ ...context(guest), subject }, new Date(at.getTime() + 6000));
+      assert.equal(personalBoards.length, 1);
+      assert.equal(personalBoards[0].id, first.id);
+      assert.equal("balanceCents" in personalBoards[0], false);
+    }
+    assert.deepEqual(await reads.list(context(outsider), new Date(at.getTime() + 6000)), []);
+
     assert.equal("accountId" in (await reads.get(context(owner), first.id, new Date(at.getTime() + 6000))), true);
     await assert.rejects(reads.get(context(outsider), first.id, new Date(at.getTime() + 6000)), /VENUE_NOT_FOUND/);
     const revoked = await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: false, canWithdraw: false, expectedGrantId: grant.id }, "grant-2", new Date(at.getTime() + 7000));

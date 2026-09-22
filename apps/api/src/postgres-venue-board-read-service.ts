@@ -146,7 +146,7 @@ const parseVenueCents = (snapshotValue: unknown, contextValue: unknown, venueId:
 const mapAccess = (row: AccessRow): VenueBoard["venue"] => {
   if (!UUID.test(row.id) || !UUID.test(row.owner_person_id) || !UUID.test(row.account_id)
     || typeof row.name !== "string" || row.name.length === 0 || typeof row.owner_nickname !== "string"
-    || !["ACTIVE", "INACTIVE"].includes(row.status) || !CENTS.test(row.balance_cents)) dataUnavailable();
+    || !["ACTIVE", "INACTIVE"].includes(row.status) || !/^-?\d+$/.test(row.balance_cents)) dataUnavailable();
   const venue = {
     id: row.id,
     name: row.name,
