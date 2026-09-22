@@ -17,6 +17,7 @@ import { CompanyFundPanel } from "./company-fund-panel.js";
 import { PersonalWithdrawalPanel } from "./personal-withdrawal-panel.js";
 import { FinanceWithdrawalPanel } from "./finance-withdrawal-panel.js";
 import { WeeklyFeePanel } from "./weekly-fee-panel.js";
+import { VenueBoardPanel } from "./venue-board-panel.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
 
@@ -134,7 +135,7 @@ function App(): ReactNode {
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history">("fees");
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history" | "venue-board">("fees");
   const [withdrawalUnconfirmed, setWithdrawalUnconfirmed] = useState(false);
   const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
   const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
@@ -187,13 +188,14 @@ function App(): ReactNode {
     const loadOverview = hasOwnOverview(currentSession);
     const loadReferrals = canCreateReferral(currentSession);
     const loadTeaching = role === "TEACHING_TEACHER";
-    if (!loadOverview && !loadReferrals) return;
+    const loadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(role ?? "");
+    if (!loadOverview && !loadReferrals && !loadVenueBoard) return;
 
     const [nextOverview, nextReceived, nextWeeks, nextVenues, nextTeachers, nextSent] = await Promise.all([
       loadOverview ? client.getOwnOverview<Overview>() : Promise.resolve(null),
       loadTeaching ? client.listReceivedReferrals<readonly ReceivedReferral[]>() : Promise.resolve([]),
       loadTeaching ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([]),
-      loadTeaching ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([]),
+      loadVenueBoard ? (loadTeaching ? client.listAvailableVenues<readonly Venue[]>() : client.listOwnVenues<readonly Venue[]>()) : Promise.resolve([]),
       loadReferrals ? client.listReceivingTeachers() : Promise.resolve([]),
       loadReferrals ? client.listSentReferrals() : Promise.resolve([])
     ]);
@@ -260,6 +262,7 @@ function App(): ReactNode {
   };
 
   const currentRole = session?.currentRoleContext?.subject ?? "";
+  const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentRole);
   const canWithdraw = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentRole);
   const canProcessWithdrawal = currentRole === "HEADQUARTERS_FINANCE" && session?.currentRoleContext?.scope === "GLOBAL";
   const globalScope = session?.currentRoleContext?.scope === "GLOBAL";
@@ -273,10 +276,11 @@ function App(): ReactNode {
     : activePage === "purchase-history" && canReadPurchases ? "purchase-history"
     : activePage === "reimbursements" && canWithdraw ? "reimbursements"
     : activePage === "reimbursement-history" && canReadReimbursements ? "reimbursement-history"
-    : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals"].includes(activePage) ? activePage : "fees")
+    : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals", "venue-board"].includes(activePage) ? activePage : "fees")
+    : canReadVenueBoard ? "venue-board"
     : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance"
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals") : "overview";
-  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录" }[page];
+  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", "venue-board": "共享场地看板" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -288,6 +292,7 @@ function App(): ReactNode {
     </>}
     {canCreateReferral(session) && <button disabled={busy} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
     {canWithdraw && <button disabled={busy} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
+    {canReadVenueBoard && <button disabled={busy} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
     {canProcessWithdrawal && <button disabled={busy} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
     {canSelfPurchase && <button disabled={busy} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
     {canConfigureFunds && <button disabled={busy} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
@@ -353,6 +358,7 @@ function App(): ReactNode {
               <WeeklyFeePanel key={`${session.accountId}:${currentRole}`} client={client} referrals={receivedReferrals} weeks={weeks} venues={venues} busy={busy} loaded={dataLoaded} run={run} reload={load} onUnconfirmedChange={setFeeUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />
               <div className="recording-guide"><span className="guide-mark" aria-hidden="true">i</span><div><h3>填写累计值，不是本次新增金额</h3><p>例如：已录入 1000 豆，后来又产生 200 豆费用，本次应填写 1200 豆。不同课程分别记录，已有费用更正后自动更新结算。</p></div></div>
             </div>}
+            {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={venues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} busy={busy} /></div>}
             <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}
             {overview !== null && overviewFresh && <div className="overview">

@@ -1139,6 +1139,20 @@ export class TeacherApiClient {
     return this.authenticatedRequest<T>("GET", "/v1/venues/available");
   }
 
+  public async listOwnVenues<T = unknown>(): Promise<T> {
+    return this.authenticatedRequest<T>("GET", "/v1/venues/mine");
+  }
+
+  public async getVenueBoard<T = unknown>(venueId: string, filter: Readonly<{ teachingWeekId?: string; startsOn?: string; endsOn?: string }> = {}): Promise<T> {
+    requireNonBlank(venueId, "venueId");
+    const query = filter.teachingWeekId !== undefined
+      ? `?weekId=${encodeURIComponent(filter.teachingWeekId)}`
+      : filter.startsOn !== undefined && filter.endsOn !== undefined
+        ? `?startsOn=${encodeURIComponent(filter.startsOn)}&endsOn=${encodeURIComponent(filter.endsOn)}`
+        : "";
+    return this.authenticatedRequest<T>("GET", `/v1/venues/${encodeURIComponent(venueId)}/board${query}`);
+  }
+
   public async listReceivedReferrals<T = unknown>(): Promise<T> {
     return this.authenticatedRequest<T>("GET", "/v1/teaching/referrals");
   }

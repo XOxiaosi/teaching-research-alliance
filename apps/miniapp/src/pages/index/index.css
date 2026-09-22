@@ -119,6 +119,18 @@ page {
   background: #22644f;
   color: #ffffff;
 }
+.venue-board-summary { display: flex; flex-wrap: wrap; gap: 16rpx; margin-top: 24rpx; }
+.venue-board-summary > view { flex: 1 1 42%; min-width: 42%; padding: 20rpx; border-radius: 14rpx; background: #f0f6f3; }
+.venue-board-summary text { display: block; margin-top: 8rpx; color: #45645a; font-size: 24rpx; }
+.venue-board-summary text + text { color: #173f35; font-size: 31rpx; font-weight: 700; }
+.venue-board-members { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 24rpx; padding-top: 20rpx; border-top: 1rpx solid #e3e9e3; }
+.venue-board-members .panel-title { width: 100%; }
+.venue-board-members text:not(.panel-title) { padding: 8rpx 12rpx; border-radius: 18rpx; background: #f1f5f3; color: #557066; font-size: 23rpx; }
+.venue-board-teacher { margin-top: 22rpx; padding: 22rpx; border: 1rpx solid #e3e9e3; border-radius: 16rpx; }
+.venue-board-teacher-heading,.venue-board-fee { display: flex; justify-content: space-between; gap: 16rpx; padding: 10rpx 0; }
+.venue-board-teacher-heading { border-bottom: 1rpx solid #edf1ee; color: #243a37; font-weight: 700; }
+.venue-board-fee { border-bottom: 1rpx solid #f1f3f2; color: #566c64; font-size: 24rpx; }
+.venue-board-fee:last-child { border-bottom: 0; }
 
 .quiet-button {
   background: #edf3ef;

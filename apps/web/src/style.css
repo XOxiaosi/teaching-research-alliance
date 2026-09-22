@@ -139,6 +139,25 @@ footer { font-size:12px; color:#78869a; padding-top:24px; border-top:1px solid #
 .finance-confirm,.finance-receipt-choice { margin:16px 0; }
 .finance-download { display:inline-flex; align-items:center; gap:8px; }
 .finance-download [role=alert] { color:#b42318; font-size:12px; }
+.venue-board-description { max-width:760px; }
+.venue-board-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); align-items:end; gap:16px; margin:22px 0; }
+.venue-board-filters button { min-height:44px; }
+.venue-board-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:22px 0; }
+.venue-board-summary > div { padding:18px; border:1px solid #dce7fc; border-radius:10px; background:#f5f8ff; }
+.venue-board-summary span,.venue-board-summary small { display:block; color:#64748b; font-size:12px; }
+.venue-board-summary strong { display:block; margin-top:8px; font-size:21px; font-variant-numeric:tabular-nums; }
+.venue-board-members { display:flex; flex-wrap:wrap; gap:8px; padding:16px 0; border-top:1px solid #eef2f6; border-bottom:1px solid #eef2f6; }
+.venue-board-members h3 { width:100%; }
+.venue-board-members span { padding:7px 10px; border-radius:16px; background:#f1f5f9; color:#52627a; font-size:12px; }
+.venue-board-teachers { display:grid; gap:16px; margin-top:20px; }
+.venue-board-teachers article { padding:20px; border:1px solid #e2e8f0; border-radius:10px; }
+.venue-board-teacher-heading,.venue-board-fee { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.venue-board-teacher-heading { padding-bottom:14px; border-bottom:1px solid #eef2f6; }
+.venue-board-teacher-heading span,.venue-board-fee span { display:block; color:#64748b; font-size:12px; margin-top:5px; }
+.venue-board-teacher-heading strong,.venue-board-fee strong { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.venue-board-fee { padding:13px 0; border-bottom:1px solid #f0f3f6; }
+.venue-board-fee:last-child { border-bottom:0; padding-bottom:0; }
+.venue-board-empty { padding:18px; background:#f7f9fc; border:1px dashed #cfdae7; border-radius:9px; }
 @media(max-width:760px) {
   .mobile-nav { flex-wrap:wrap; }
   .mobile-nav button { flex:1 0 42%; }
@@ -147,4 +166,6 @@ footer { font-size:12px; color:#78869a; padding-top:24px; border-top:1px solid #
   .finance-card,.finance-list-item,div.finance-detail { padding:18px; }
   .finance-attachment-row { flex-wrap:wrap; }
   .finance-details,dl.finance-detail { grid-template-columns:80px minmax(0,1fr); }
+  .venue-board-filters { grid-template-columns:1fr; }
+  .venue-board-fee { align-items:flex-start; flex-direction:column; gap:6px; }
 }

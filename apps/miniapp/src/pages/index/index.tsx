@@ -15,6 +15,7 @@ import { taroTransport } from "../../services";
 import { ReferralPanel } from "./referral-panel";
 import { FinancialPanel } from "./financial-panel";
 import { ReimbursementPanel } from "./reimbursement-panel";
+import { VenueBoardPanel } from "./venue-board-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -155,16 +156,14 @@ export default function IndexPage(): ReactNode {
     const role = client.currentSession?.currentRoleContext?.subject;
     if (role !== "TEACHING_TEACHER" && role !== "ACADEMIC_PLANNER" && role !== "PLANNING_MENTOR") return;
     const nextOverview = await client.getOwnOverview<Overview>();
-    if (role === "TEACHING_TEACHER") {
-      const [nextReferrals, nextWeeks, nextVenues] = await Promise.all([
-        client.listReceivedReferrals<readonly Referral[]>(),
-        client.listOpenTeachingWeeks<readonly Week[]>(),
-        client.listAvailableVenues<readonly Venue[]>()
-      ]);
-      setReferrals(nextReferrals);
-      setWeeks(nextWeeks);
-      setVenues(nextVenues);
-    }
+    const [nextReferrals, nextWeeks, nextVenues] = await Promise.all([
+      role === "TEACHING_TEACHER" ? client.listReceivedReferrals<readonly Referral[]>() : Promise.resolve([] as readonly Referral[]),
+      role === "TEACHING_TEACHER" ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([] as readonly Week[]),
+      ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(role) ? (role === "TEACHING_TEACHER" ? client.listAvailableVenues<readonly Venue[]>() : client.listOwnVenues<readonly Venue[]>()) : Promise.resolve([] as readonly Venue[])
+    ]);
+    setReferrals(nextReferrals);
+    setWeeks(nextWeeks);
+    setVenues(nextVenues);
     setOverview(nextOverview);
   };
 
@@ -280,6 +279,7 @@ export default function IndexPage(): ReactNode {
   const selectedFee = selectedReferral?.weeklyFees.find((fee) => fee.teachingWeekId === selectedWeekId);
   const feeRefunded = selectedFee?.refundStatus === "REFUNDED";
   const currentContext = session?.currentRoleContext;
+  const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentContext?.subject ?? "");
   const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentContext?.subject ?? "");
   const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
     && currentContext.campusId === undefined && currentContext.venueId === undefined
@@ -554,6 +554,17 @@ export default function IndexPage(): ReactNode {
               }}
               onBusyChange={setReimbursementBusy}
               onUnconfirmedChange={setReimbursementUnconfirmed}
+            />
+          )}
+
+          {canReadVenueBoard && (
+            <VenueBoardPanel
+              key={`venue-board:${session.sessionId}:${JSON.stringify(currentContext)}`}
+              client={client}
+              venues={venues}
+              weeks={weeks}
+              initialVenueId={currentContext?.subject === "VENUE_OWNER" ? currentContext.venueId : undefined}
+              busy={busy}
             />
           )}
 
