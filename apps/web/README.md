@@ -51,3 +51,15 @@ ALLIANCE_SYNTHETIC_E2E=1 ALLIANCE_DEMO_DATABASE_URL='<本次独立本地演示�
 脚本限定本机API与数据库，用运行中API返回的精确账户定位唯一schema，数据库直连仅执行SELECT；API会创建、切换及注销合成验证会话，不改业务资金。不按“最新schema”猜测。证据见[采买与配置验收](../../product-log/evidence/DEV-010-self-purchase/README.md)。这不代表完整报销、真实资金、微信设备或生产发布通过。
 
 撤销浏览器场景位于`e2e/zz-self-purchase-reversal.spec.mjs`，在既有场景之后运行并沿用已配置的合成资金源；聚焦场景没有资金源时创建专用账户，避免固定演示时钟下同一时刻更换映射。聚焦验收应从新演示schema启动，先跑该文件，再用`e2e/read-self-purchase-reversal-ledger.mjs`读取同一运行中API对应的唯一schema。脚本同样需要`ALLIANCE_SYNTHETIC_E2E=1`和显式本地`ALLIANCE_DEMO_DATABASE_URL`，只读核对每笔唯一反向分录、原件留存、原业务账户回到既有基线、个人负余额以及期间提现未被覆盖。证据见[采买撤销验收](../../product-log/evidence/DEV-010-self-purchase-reversal/README.md)。
+
+## 普通报销申请与人工审核
+
+教师、规划师、规划导师的个人页面追加“我的报销”，教师仍默认进入周费用录入。申请正数金额、原因并绑定已上传业务单据和申请截图，提交后进入待审核，不增加个人余额。无需银行卡，不选择他人的个人账户。
+
+严格 GLOBAL 总部财务在“报销记录”核对申请并填写原因批准或驳回；管理员和开发者只有管理读取入口。批准显示“审核通过，待划拨”，不是报销完成，也不增加收入；本包没有实际划拨、原单重开或批准后作废按钮。普通报销与财务本人采买自动划拨是不同流程。跨财年实际执行的归属仍依[P09](../../product-log/ISSUES.md#p09普通报销跨财年归属)收口。
+
+创建、提交和审核在结果未知时保留原请求及幂等键；审核决定与原因一并冻结，不能把同一请求改成相反决定。切换身份/退出前需确认该操作，权限失效清理旧身份和详情。状态冲突重新读取并清除旧确认，成功后的读取失败与操作失败分别提示。原件按已提交精确版本保留并可下载。
+
+`e2e/zzz-reimbursement.spec.mjs`在全套场景末尾运行；聚焦时使用全新独立schema，不能复用旧申请。随后执行`e2e/read-reimbursement-state.mjs`，沿用上文合成环境和本地数据库参数；聚焦另外设置`ALLIANCE_EXPECT_EMPTY_LEDGER=1`，核验整个schema无任何资金事件、非零余额。完整回归已有录费等流水时不设置此标记，以逐笔API前后余额和报销状态/审核/原件/幂等读回验证，不声称全库无资金流水。
+
+本包实际合成验证结果与截图见[普通报销验收](../../product-log/evidence/DEV-010-reimbursement/README.md)，不等同真实用户验收或生产部署。

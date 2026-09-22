@@ -12,6 +12,7 @@ import {
   type SessionSnapshot
 } from "@teaching-research-alliance/client";
 import { SelfPurchasePanel } from "./self-purchase-panel.js";
+import { ReimbursementPanel } from "./reimbursement-panel.js";
 import { CompanyFundPanel } from "./company-fund-panel.js";
 import { PersonalWithdrawalPanel } from "./personal-withdrawal-panel.js";
 import { FinanceWithdrawalPanel } from "./finance-withdrawal-panel.js";
@@ -133,11 +134,12 @@ function App(): ReactNode {
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds">("fees");
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history">("fees");
   const [withdrawalUnconfirmed, setWithdrawalUnconfirmed] = useState(false);
   const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
   const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
-  const financeUnconfirmed = withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed;
+  const [reimbursementUnconfirmed, setReimbursementUnconfirmed] = useState(false);
+  const financeUnconfirmed = withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -160,6 +162,7 @@ function App(): ReactNode {
     setWithdrawalUnconfirmed(false);
     setPurchaseUnconfirmed(false);
     setFundUnconfirmed(false);
+    setReimbursementUnconfirmed(false);
     setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
@@ -262,13 +265,18 @@ function App(): ReactNode {
   const globalScope = session?.currentRoleContext?.scope === "GLOBAL";
   const canConfigureFunds = globalScope && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
   const canReadPurchases = canProcessWithdrawal || canConfigureFunds;
+  const context = session?.currentRoleContext;
+  const canReadReimbursements = globalScope && context?.regionId === undefined && context?.campusId === undefined && context?.venueId === undefined
+    && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
   const canSelfPurchase = canWithdraw && session?.roleContexts.some((role) => role.subject === "HEADQUARTERS_FINANCE" && role.scope === "GLOBAL");
   const page = activePage === "purchase" && canSelfPurchase ? "purchase"
     : activePage === "purchase-history" && canReadPurchases ? "purchase-history"
+    : activePage === "reimbursements" && canWithdraw ? "reimbursements"
+    : activePage === "reimbursement-history" && canReadReimbursements ? "reimbursement-history"
     : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals"].includes(activePage) ? activePage : "fees")
     : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance"
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals") : "overview";
-  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置" }[page];
+  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -284,6 +292,8 @@ function App(): ReactNode {
     {canSelfPurchase && <button disabled={busy} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
     {canConfigureFunds && <button disabled={busy} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
     {canReadPurchases && <button disabled={busy} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
+    {canWithdraw && <button disabled={busy} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><span aria-hidden="true" className="nav-icon">▧</span>我的报销</button>}
+    {canReadReimbursements && <button disabled={busy} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><span aria-hidden="true" className="nav-icon">▤</span>报销记录</button>}
   </>;
   return (
     <div className="shell">
@@ -296,7 +306,7 @@ function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
           {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
@@ -365,6 +375,8 @@ function App(): ReactNode {
             {canProcessWithdrawal && <FinanceWithdrawalPanel key={`hq:${financeKey}`} client={client} busy={busy} active={page === "finance"} run={run} onUnconfirmedChange={setWithdrawalUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canSelfPurchase && <SelfPurchasePanel key={`purchase:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "purchase"} run={run} onUnconfirmedChange={setPurchaseUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canReadPurchases && <SelfPurchasePanel key={`purchase-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "purchase-history"} run={run} onUnconfirmedChange={setPurchaseUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
+            {canWithdraw && <ReimbursementPanel key={`reimbursements:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "reimbursements"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} />}
+            {canReadReimbursements && <ReimbursementPanel key={`reimbursement-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "reimbursement-history"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} />}
             {canConfigureFunds && <CompanyFundPanel key={`funds:${financeKey}`} client={client} busy={busy} active={page === "funds"} run={run} onUnconfirmedChange={setFundUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canCreateReferral(session) && <div hidden={page !== "referrals"}>
               <section className="panel referral-form">

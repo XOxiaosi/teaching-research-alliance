@@ -1,0 +1,13 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test zzz-reimbursement.spec.mjs
+
+
+Running 2 tests using 1 worker
+
+(node:57037) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/zzz-reimbursement.spec.mjs:57:1 › 教师真实原件申请、未知提交同键恢复，HQ批准待划拨且不改余额 (19.6s)
+  ✓  2 e2e/zzz-reimbursement.spec.mjs:151:1 › 另一总部会话先驳回时真实409重读，旧审核不自动再次提交 (13.1s)
+
+  2 passed (42.5s)

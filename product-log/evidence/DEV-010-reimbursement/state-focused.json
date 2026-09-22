@@ -1,0 +1,92 @@
+{
+  "synthetic": true,
+  "readOnlyBusinessData": true,
+  "usesSyntheticAuthSession": true,
+  "expectEmptyLedger": true,
+  "ledgerCount": 0,
+  "reimbursementLedger": 0,
+  "verified": [
+    {
+      "reason": "WEB_REIMBURSE_APPROVE",
+      "amountCents": "4321",
+      "status": "APPROVED",
+      "reviewReason": "WEB_REIMBURSE_APPROVE_REVIEW",
+      "commands": [
+        {
+          "operation": "APPROVE",
+          "count": 1
+        },
+        {
+          "operation": "SUBMIT",
+          "count": 1
+        }
+      ],
+      "events": [
+        {
+          "event_type": "CREATED",
+          "count": 1
+        },
+        {
+          "event_type": "REIMBURSEMENT_APPROVED",
+          "count": 1
+        },
+        {
+          "event_type": "REIMBURSEMENT_SUBMITTED",
+          "count": 1
+        }
+      ],
+      "attachments": [
+        {
+          "purpose": "APPLICATION_SCREENSHOT",
+          "status": "READY"
+        },
+        {
+          "purpose": "SUPPORTING_DOCUMENT",
+          "status": "READY"
+        }
+      ],
+      "balanceCents": "0"
+    },
+    {
+      "reason": "WEB_REIMBURSE_REJECT_OTHER",
+      "amountCents": "1234",
+      "status": "REJECTED",
+      "reviewReason": "WEB_REIMBURSE_REJECT_OTHER_REVIEW",
+      "commands": [
+        {
+          "operation": "REJECT",
+          "count": 1
+        },
+        {
+          "operation": "SUBMIT",
+          "count": 1
+        }
+      ],
+      "events": [
+        {
+          "event_type": "CREATED",
+          "count": 1
+        },
+        {
+          "event_type": "REIMBURSEMENT_REJECTED",
+          "count": 1
+        },
+        {
+          "event_type": "REIMBURSEMENT_SUBMITTED",
+          "count": 1
+        }
+      ],
+      "attachments": [
+        {
+          "purpose": "APPLICATION_SCREENSHOT",
+          "status": "READY"
+        },
+        {
+          "purpose": "SUPPORTING_DOCUMENT",
+          "status": "READY"
+        }
+      ],
+      "balanceCents": "0"
+    }
+  ]
+}
