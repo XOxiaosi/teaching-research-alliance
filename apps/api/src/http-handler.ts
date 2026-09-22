@@ -52,6 +52,14 @@ export type ApiServices = Readonly<{
     getOwnOverview: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listAvailableVenues: (context: RoleContext) => unknown | Promise<unknown>;
   }>;
+  venues?: Readonly<{
+    create: (context: RoleContext, draft: {name: string; makeDefault?: boolean}, key: string, at: Date) => unknown | Promise<unknown>;
+    rename: (context: RoleContext, id: string, draft: {name: string; expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+    setStatus: (context: RoleContext, id: string, draft: {status: "ACTIVE"|"INACTIVE"; expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+    setDefault: (context: RoleContext, id: string, draft: {expectedVersion: number}, key: string, at: Date) => unknown | Promise<unknown>;
+    setPermission: (context: RoleContext, id: string, draft: {granteePersonId: string; canView: boolean; canWithdraw: boolean; expectedGrantId?: string|null}, key: string, at: Date) => unknown | Promise<unknown>;
+  }>;
+  venueReads?: Readonly<{ list: (context: RoleContext, at: Date) => unknown | Promise<unknown>; listOwned: (context: RoleContext, at: Date) => unknown | Promise<unknown>; get: (context: RoleContext, id: string, at: Date) => unknown | Promise<unknown>; }>;
   referrals?: Readonly<{
     create: (context: RoleContext, draft: ReferralCreationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     copy?: (context: RoleContext, sourceReferralId: string, draft: {receiverPersonId: string; courseContextId?: string; classType?: "ONE_TO_ONE" | "SMALL_GROUP"}, key: string, at: Date) => unknown | Promise<unknown>;
@@ -158,6 +166,8 @@ const requiredString = (body: Record<string, unknown>, key: string): string => {
 const sessionIdFrom = (body: Record<string, unknown>): string => requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
+  if (code === "VENUE_SERVICE_UNAVAILABLE") return 503;
+  if (code === "VENUE_DATA_UNAVAILABLE") return 500;
   if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE"||code==="FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE"||code==="FINANCE_REFUND_DATA_UNAVAILABLE")return 500;
   if(["REIMBURSEMENT_STATE_CONFLICT","REFUND_STATE_CONFLICT","WEEKLY_FEE_REFUNDED"].includes(code))return 409;
   if(code==="HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED")return 403;
@@ -325,6 +335,50 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       return success(request.path === "/v1/me"
         ? await services.personal.getOwnOverview(context, at)
         : await services.personal.listAvailableVenues(context));
+    }
+    if (request.method === "POST" && request.path === "/v1/venues") {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venues) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      const makeDefault = body.makeDefault === undefined ? undefined : body.makeDefault;
+      if (makeDefault !== undefined && typeof makeDefault !== "boolean") throw new Error("INVALID_INPUT");
+      return success(await services.venues.create(context, { name: requiredString(body, "name"), ...(makeDefault === undefined ? {} : { makeDefault }) }, requiredString(body, "idempotencyKey"), at));
+    }
+    if (request.method === "GET" && request.path === "/v1/venues/mine") {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venueReads) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      return success(await services.venueReads.listOwned(context, at));
+    }
+    const venuePath = request.path.match(/^\/v1\/venues\/([^/]+)$/);
+    if (request.method === "GET" && venuePath) {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venueReads) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      return success(await services.venueReads.get(context, venuePath[1]!, at));
+    }
+    if (venuePath && request.method === "PATCH") {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venues) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      const expectedVersion = body.expectedVersion;
+      if (typeof expectedVersion !== "number" || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error("INVALID_INPUT");
+      const command = requiredString(body, "idempotencyKey");
+      if (body.name !== undefined && typeof body.name === "string") return success(await services.venues.rename(context, venuePath[1]!, { name: body.name, expectedVersion }, command, at));
+      if (body.status === "ACTIVE" || body.status === "INACTIVE") return success(await services.venues.setStatus(context, venuePath[1]!, { status: body.status, expectedVersion }, command, at));
+      throw new Error("INVALID_INPUT");
+    }
+    const defaultVenuePath = request.path.match(/^\/v1\/venues\/([^/]+)\/default$/);
+    if (request.method === "POST" && defaultVenuePath) {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venues) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      if (typeof body.expectedVersion !== "number" || !Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 1) throw new Error("INVALID_INPUT");
+      return success(await services.venues.setDefault(context, defaultVenuePath[1]!, { expectedVersion: body.expectedVersion }, requiredString(body, "idempotencyKey"), at));
+    }
+    const permissionVenuePath = request.path.match(/^\/v1\/venues\/([^/]+)\/permissions$/);
+    if (request.method === "POST" && permissionVenuePath) {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venues) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      if (typeof body.canView !== "boolean" || typeof body.canWithdraw !== "boolean") throw new Error("INVALID_INPUT");
+      if (body.expectedGrantId !== undefined && body.expectedGrantId !== null && typeof body.expectedGrantId !== "string") throw new Error("INVALID_INPUT");
+      const permissionDraft = { granteePersonId: requiredString(body, "granteePersonId"), canView: body.canView, canWithdraw: body.canWithdraw, ...(body.expectedGrantId === undefined ? {} : { expectedGrantId: body.expectedGrantId as string | null }) };
+      return success(await services.venues.setPermission(context, permissionVenuePath[1]!, permissionDraft, requiredString(body, "idempotencyKey"), at));
     }
     if (request.method === "POST" && request.path === "/v1/session") {
       const view = await services.sessions.login(
