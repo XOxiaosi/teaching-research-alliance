@@ -159,7 +159,7 @@ export default function IndexPage(): ReactNode {
     const [nextReferrals, nextWeeks, nextVenues] = await Promise.all([
       role === "TEACHING_TEACHER" ? client.listReceivedReferrals<readonly Referral[]>() : Promise.resolve([] as readonly Referral[]),
       role === "TEACHING_TEACHER" ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([] as readonly Week[]),
-      ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(role) ? (role === "TEACHING_TEACHER" ? client.listAvailableVenues<readonly Venue[]>() : client.listOwnVenues<readonly Venue[]>()) : Promise.resolve([] as readonly Venue[])
+      ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(role) ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([] as readonly Venue[])
     ]);
     setReferrals(nextReferrals);
     setWeeks(nextWeeks);

@@ -195,7 +195,7 @@ function App(): ReactNode {
       loadOverview ? client.getOwnOverview<Overview>() : Promise.resolve(null),
       loadTeaching ? client.listReceivedReferrals<readonly ReceivedReferral[]>() : Promise.resolve([]),
       loadTeaching ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([]),
-      loadVenueBoard ? (loadTeaching ? client.listAvailableVenues<readonly Venue[]>() : client.listOwnVenues<readonly Venue[]>()) : Promise.resolve([]),
+      loadVenueBoard ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([]),
       loadReferrals ? client.listReceivingTeachers() : Promise.resolve([]),
       loadReferrals ? client.listSentReferrals() : Promise.resolve([])
     ]);
