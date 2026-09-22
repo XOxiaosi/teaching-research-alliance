@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: 小程序共享看板按教学周和日期传递筛选，VIEW 展示老师、学生与费用而不展示余额
+ok 1 - 小程序共享看板按教学周和日期传递筛选，VIEW 展示老师、学生与费用而不展示余额
+  ---
+  duration_ms: 224.451855
+  type: 'test'
+  ...
+# Warning: Received `true` for a non-boolean attribute `password`.
+# If you want to write it to the DOM, pass a string instead: password="true" or password={value.toString()}.
+#     at input
+#     at Input (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:9:16)
+#     at div
+#     at View (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:6:15)
+#     at div
+#     at ScrollView (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:12:21)
+#     at IndexPage (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:2160:33)
+# Warning: React does not recognize the `scrollY` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `scrolly` instead. If you accidentally passed it from a parent component, remove it from the DOM element.
+#     at div
+#     at ScrollView (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:12:21)
+#     at IndexPage (file:///Users/xiaosi/Developer/active/apps/teaching-research-alliance/apps/miniapp/test/.venue-board-live-9zkX3p/index-page.mjs?1790047207197:2160:33)
+# Subtest: 小程序 WITHDRAW 看板只展示该场地余额，所有者上下文固定自身场地并可按日期读取
+ok 2 - 小程序 WITHDRAW 看板只展示该场地余额，所有者上下文固定自身场地并可按日期读取
+  ---
+  duration_ms: 148.122936
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1057.247182

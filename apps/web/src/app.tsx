@@ -43,6 +43,7 @@ type Fee = Readonly<{
   entryId: string;
   refundStatus?: "ACTIVE" | "REFUNDED";
   teachingWeekId: string;
+  settlementMonth?: string;
   grossAmountCents: string;
   version: number;
   venueId: string;
@@ -50,6 +51,7 @@ type Fee = Readonly<{
 
 type ReceivedReferral = Readonly<{
   referralId: string;
+  studentRecordId?: string;
   studentDisplayName: string;
   courseContextId: string;
   referralStatus: string;
@@ -143,7 +145,8 @@ function App(): ReactNode {
   const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
   const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
   const [reimbursementUnconfirmed, setReimbursementUnconfirmed] = useState(false);
-  const financeUnconfirmed = withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed;
+  const [refundUnconfirmed, setRefundUnconfirmed] = useState(false);
+  const financeUnconfirmed = withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -167,6 +170,7 @@ function App(): ReactNode {
     setPurchaseUnconfirmed(false);
     setFundUnconfirmed(false);
     setReimbursementUnconfirmed(false);
+    setRefundUnconfirmed(false);
     setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
@@ -275,7 +279,7 @@ function App(): ReactNode {
   const canReadReimbursements = globalScope && context?.regionId === undefined && context?.campusId === undefined && context?.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
   const canSelfPurchase = canWithdraw && session?.roleContexts.some((role) => role.subject === "HEADQUARTERS_FINANCE" && role.scope === "GLOBAL");
-  const canReadOwnRefunds = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentRole);
+  const canReadOwnRefunds = currentRole === "TEACHING_TEACHER";
   const canReadManagedRefunds = globalScope && context?.regionId === undefined && context?.campusId === undefined && context?.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
   const page = activePage === "refunds" && canReadOwnRefunds ? "refunds"
@@ -321,7 +325,7 @@ function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
           {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
@@ -393,8 +397,8 @@ function App(): ReactNode {
             {canReadPurchases && <SelfPurchasePanel key={`purchase-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "purchase-history"} run={run} onUnconfirmedChange={setPurchaseUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canWithdraw && <ReimbursementPanel key={`reimbursements:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "reimbursements"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} />}
             {canReadReimbursements && <ReimbursementPanel key={`reimbursement-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "reimbursement-history"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} />}
-            {canReadOwnRefunds && <RefundPanel key={`refunds:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "refunds"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} feeCandidates={receivedReferrals.flatMap((referral) => referral.weeklyFees.map((fee) => ({ weeklyFeeEntryId: fee.entryId, referralCaseId: referral.referralId, studentRecordId: referral.referralId, studentDisplayName: referral.studentDisplayName, courseContextId: referral.courseContextId, teachingWeekId: fee.teachingWeekId, settlementMonth: "", grossAmountCents: fee.grossAmountCents, refundStatus: fee.refundStatus ?? "ACTIVE" } as RefundFeeCandidate)))} />}
-            {canReadManagedRefunds && <RefundPanel key={`refund-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "refund-history"} run={run} onUnconfirmedChange={setReimbursementUnconfirmed} feeCandidates={[]} />}
+            {canReadOwnRefunds && <RefundPanel key={`refunds:${financeKey}`} mode="personal" client={client} busy={busy} active={page === "refunds"} run={run} onUnconfirmedChange={setRefundUnconfirmed} feeCandidates={receivedReferrals.flatMap((referral) => referral.weeklyFees.flatMap((fee) => fee.settlementMonth === undefined || referral.studentRecordId === undefined || fee.refundStatus === undefined ? [] : [{ weeklyFeeEntryId: fee.entryId, referralCaseId: referral.referralId, studentRecordId: referral.studentRecordId, studentDisplayName: referral.studentDisplayName, courseContextId: referral.courseContextId, teachingWeekId: fee.teachingWeekId, settlementMonth: fee.settlementMonth, grossAmountCents: fee.grossAmountCents, refundStatus: fee.refundStatus }]))} />}
+            {canReadManagedRefunds && <RefundPanel key={`refund-history:${financeKey}`} mode="managed" client={client} busy={busy} active={page === "refund-history"} run={run} onUnconfirmedChange={setRefundUnconfirmed} feeCandidates={[]} />}
             {canConfigureFunds && <CompanyFundPanel key={`funds:${financeKey}`} client={client} busy={busy} active={page === "funds"} run={run} onUnconfirmedChange={setFundUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />}
             {canCreateReferral(session) && <div hidden={page !== "referrals"}>
               <section className="panel referral-form">

@@ -15,6 +15,7 @@ import { taroTransport } from "../../services";
 import { ReferralPanel } from "./referral-panel";
 import { FinancialPanel } from "./financial-panel";
 import { ReimbursementPanel } from "./reimbursement-panel";
+import { RefundPanel, type RefundFeeCandidate } from "./refund-panel";
 import { VenueBoardPanel } from "./venue-board-panel";
 import "./index.css";
 
@@ -25,8 +26,10 @@ type Overview = Readonly<{
 }>;
 
 type Fee = Readonly<{
+  entryId?: string;
   refundStatus?: "ACTIVE" | "REFUNDED";
   teachingWeekId: string;
+  settlementMonth?: string;
   grossAmountCents: string;
   version: number;
   venueId: string;
@@ -34,6 +37,7 @@ type Fee = Readonly<{
 
 type Referral = Readonly<{
   referralId: string;
+  studentRecordId?: string;
   studentDisplayName: string;
   courseContextId: string;
   referralStatus: string;
@@ -130,8 +134,10 @@ export default function IndexPage(): ReactNode {
   const [withdrawalUnconfirmed,setWithdrawalUnconfirmed]=useState(false);
   const [reimbursementBusy,setReimbursementBusy]=useState(false);
   const [reimbursementUnconfirmed,setReimbursementUnconfirmed]=useState(false);
-  const financeBusy = withdrawalBusy || reimbursementBusy;
-  const financeUnconfirmed = withdrawalUnconfirmed || reimbursementUnconfirmed;
+  const [refundBusy,setRefundBusy]=useState(false);
+  const [refundUnconfirmed,setRefundUnconfirmed]=useState(false);
+  const financeBusy = withdrawalBusy || reimbursementBusy || refundBusy;
+  const financeUnconfirmed = withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -139,6 +145,7 @@ export default function IndexPage(): ReactNode {
   const clearTeachingState = (): void => {
     setWithdrawalBusy(false);setWithdrawalUnconfirmed(false);
     setReimbursementBusy(false);setReimbursementUnconfirmed(false);
+    setRefundBusy(false);setRefundUnconfirmed(false);
     setOverview(null);
     setReferrals([]);
     setShowArchived(false);
@@ -284,6 +291,23 @@ export default function IndexPage(): ReactNode {
   const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
     && currentContext.campusId === undefined && currentContext.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext.subject);
+  const canReadOwnRefunds = currentContext?.subject === "TEACHING_TEACHER";
+  const canReadManagedRefunds = managedFinance;
+  const refundFeeCandidates: readonly RefundFeeCandidate[] = referrals.flatMap((referral) => referral.weeklyFees.flatMap((fee) => (
+    fee.entryId === undefined || referral.studentRecordId === undefined || fee.settlementMonth === undefined || fee.refundStatus === undefined
+      ? []
+      : [{
+          weeklyFeeEntryId: fee.entryId,
+          referralCaseId: referral.referralId,
+          studentRecordId: referral.studentRecordId,
+          studentDisplayName: referral.studentDisplayName,
+          courseContextId: referral.courseContextId,
+          teachingWeekId: fee.teachingWeekId,
+          settlementMonth: fee.settlementMonth,
+          grossAmountCents: fee.grossAmountCents,
+          refundStatus: fee.refundStatus
+        }]
+  )));
   const visibleReferrals=referrals.filter(referral=>(referral.referralStatus==="ARCHIVED")===showArchived);
   const selectableWeeks = selectedReferral?.referralStatus === "ARCHIVED"
     ? weeks.filter((week) => selectedReferral.weeklyFees.some((fee) => fee.teachingWeekId === week.weekId))
@@ -554,6 +578,23 @@ export default function IndexPage(): ReactNode {
               }}
               onBusyChange={setReimbursementBusy}
               onUnconfirmedChange={setReimbursementUnconfirmed}
+            />
+          )}
+
+          {(canReadOwnRefunds || canReadManagedRefunds) && (
+            <RefundPanel
+              key={`refund:${session.sessionId}:${JSON.stringify(session.currentRoleContext)}`}
+              client={client}
+              session={session}
+              mode={canReadOwnRefunds ? "personal" : "managed"}
+              feeCandidates={canReadOwnRefunds ? refundFeeCandidates : []}
+              onInvalidated={() => {
+                clearTeachingState();
+                setSession(client.currentSession);
+                setNotice("登录或身份已失效，请重新登录或选择身份。");
+              }}
+              onBusyChange={setRefundBusy}
+              onUnconfirmedChange={setRefundUnconfirmed}
             />
           )}
 

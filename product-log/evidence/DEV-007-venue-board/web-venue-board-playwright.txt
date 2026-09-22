@@ -1,0 +1,10 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test zzzzz-venue-board.spec.mjs
+
+
+Running 1 test using 1 worker
+
+  ✓  1 e2e/zzzzz-venue-board.spec.mjs:56:1 › 共享场地看板按场地和期间显示费用，VIEW 不泄露余额且 WITHDRAW 仅展示独立余额 (3.7s)
+
+  1 passed (5.9s)
