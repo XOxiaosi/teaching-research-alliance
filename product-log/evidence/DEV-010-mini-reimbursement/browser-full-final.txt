@@ -1,0 +1,24 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test
+
+
+Running 13 tests using 1 worker
+
+(node:83068) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 e2e/self-purchase.spec.mjs:20:1 › 管理员业务账户、真实版本冲突、财务本人采买原键恢复与报销收入 (20.2s)
+  ✓   2 e2e/self-purchase.spec.mjs:134:1 › 已显示入口的财务资格失效时明确提示并清理申请 (5.7s)
+  ✓   3 e2e/self-purchase.spec.mjs:147:1 › 刷新任职后采买资格消失时返回录费首屏 (3.9s)
+  ✓   4 e2e/weekly-fee.spec.mjs:27:1 › 首屏录费、累计更正、故障安全重试、推荐回归与手机操作 (20.5s)
+  ✓   5 e2e/weekly-fee.spec.mjs:173:1 › 读取失败不伪装空记录，真正无期间时明确提示 (3.3s)
+  ✓   6 e2e/withdrawal.spec.mjs:29:1 › 真实原件、草稿恢复、提现扣豆、未知结果同键重试、总部回执与撤回返还 (19.0s)
+  ✓   7 e2e/withdrawal.spec.mjs:154:1 › 原件下载权限失效时清除已展开的银行卡详情 (3.3s)
+  ✓   8 e2e/zz-self-purchase-reversal.spec.mjs:47:1 › 撤销原划拨未知结果同键恢复、个人负余额与原件保留 (12.1s)
+  ✓   9 e2e/zz-self-purchase-reversal.spec.mjs:100:1 › 另一办理人已撤销时真实409重读并清除旧确认 (6.8s)
+  ✓  10 e2e/zzz-reimbursement.spec.mjs:57:1 › 教师真实原件申请、未知提交同键恢复，HQ批准待划拨且不改余额 (16.4s)
+  ✓  11 e2e/zzz-reimbursement.spec.mjs:151:1 › 另一总部会话先驳回时真实409重读，旧审核不自动再次提交 (8.3s)
+  ✓  12 e2e/zzzz-refunded-fee.spec.mjs:35:1 › 退款周费用保留原金额，只允许继续切换学生和教学期间 (3.1s)
+  ✓  13 e2e/zzzz-refunded-fee.spec.mjs:55:1 › 保存返回 WEEKLY_FEE_REFUNDED 后重读合成记录，禁止覆盖退款原金额 (3.4s)
+
+  13 passed (2.2m)

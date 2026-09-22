@@ -1,0 +1,13 @@
+
+> @teaching-research-alliance/web@0.1.0 test:browser
+> playwright test zzzz-refunded-fee.spec.mjs
+
+
+Running 2 tests using 1 worker
+
+(node:82592) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/zzzz-refunded-fee.spec.mjs:35:1 › 退款周费用保留原金额，只允许继续切换学生和教学期间 (5.5s)
+  ✓  2 e2e/zzzz-refunded-fee.spec.mjs:55:1 › 保存返回 WEEKLY_FEE_REFUNDED 后重读合成记录，禁止覆盖退款原金额 (6.6s)
+
+  2 passed (28.5s)

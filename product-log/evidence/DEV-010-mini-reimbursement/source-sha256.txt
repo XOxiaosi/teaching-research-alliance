@@ -1,0 +1,8 @@
+8df0814afda8cbefda37fbb9ea892879a8620b0522376141cd09f0aca3d726d1  apps/miniapp/src/pages/index/reimbursement-panel.tsx
+c53075e63a86603430fba522a53ef74894527e0feadd3f0ab162ed254745a1e5  apps/miniapp/src/pages/index/index.tsx
+9d6d401218e0142c348b889b9717316d8ccaa0f5babc259973fd55a54aec8ea8  apps/miniapp/test/reimbursement-panel.test.mjs
+9b749504d47cb8236dd025621d6f21ff58bcd7c6e68cd1d3dfc2f5fd0632575e  apps/miniapp/test/financial-panel.test.mjs
+2cbd3ac926f5ca9b2108d4ab50307a0f1dccf8b941ecf46d33eda9c492a8205b  apps/miniapp/test/weekly-fee-refund.test.mjs
+028c2616dd6602e2873026be401b751ec6c40cafb621692fc4c39e5c62b98a57  apps/miniapp/test/integration/reimbursement-live.mjs
+4fddbe413ea43db482ceca6d9b7f1d9795d8541033a20cbc31fd134e516ed2de  apps/web/src/weekly-fee-panel.tsx
+d10a783f01f3f8b6a4c399574aaf71aaca887568ab5b13424f2b5db8557eb60c  apps/web/e2e/zzzz-refunded-fee.spec.mjs

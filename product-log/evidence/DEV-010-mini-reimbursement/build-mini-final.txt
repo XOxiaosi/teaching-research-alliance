@@ -1,0 +1,251 @@
+
+> teaching-research-alliance@0.1.0 build:miniapp:dev
+> npm run build:weapp:dev --workspace @teaching-research-alliance/miniapp
+
+
+> @teaching-research-alliance/miniapp@0.1.0 build:weapp:dev
+> TARO_APP_ENV=development taro build --type weapp
+
+👽 Taro v4.2.1
+
+Tips:
+1. 建议开启持久化缓存功能，能有效提升二次编译速度，详情请参考: https://docs.taro.zone/docs/config-detail#cache。
+
+
+
+● Webpack █████████████████████████  (0%)
+
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ setup (4%)
+ normal module factory
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ setup (8%) compilation
+ RuntimeChunkPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ setup (9%) compilation
+ mini-css-extract-plugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ setup (9%) compilation
+ RealContentHashPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (10%)
+
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 0/5 modules 1 active
+ babel-loader › src/app.config.ts
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 0/5 modules 1 active
+ babel-loader › src/app.config.ts
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 1/5 modules 4 active
+ ...h-alliance/node_modules/@tarojs/webpack5-runner/dist/template/custom-wrapp
+er.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 8/29 dependenci
+es 2/7 modules 5 active
+ taro-loader › src/pages/index/index.tsx
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%)
+ .../active/apps/teaching-research-alliance/node_modules/postcss-loader/dist/c
+js.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 19/29 dependenc
+ies 2/18 modules 16 active
+ css-loader › postcss-loader › src/pages/index/index.css
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (20%) 1/5 entries 24/30 dependenc
+ies 2/20 modules 17 active
+ ...ing-research-alliance/apps/miniapp/node_modules/@tarojs/react/dist/react.e
+sm.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 24/31 dependenc
+ies 2/20 modules 18 active
+ ...tive/apps/teaching-research-alliance/node_modules/@tarojs/runtime/dist/ind
+ex.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 40/70 dependenc
+ies 2/21 modules 19 active
+ css-loader › postcss-loader › src/pages/index/index.css
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 58/82 dependenc
+ies 2/25 modules 20 active
+ ...-research-alliance/node_modules/@babel/runtime/helpers/esm/toConsumableArr
+ay.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 66/93 dependenc
+ies 3/28 modules 23 active
+ ...hing-research-alliance/node_modules/@babel/runtime/helpers/esm/objectSprea
+d2.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 66/93 dependenc
+ies 3/28 modules 24 active
+ ...ing-research-alliance/node_modules/@babel/runtime/helpers/esm/defineProper
+ty.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 82/128 dependen
+cies 3/36 modules 28 active
+ ...active/apps/teaching-research-alliance/node_modules/@tarojs/runtime/dist/e
+nv.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 110/129 depende
+ncies 6/64 modules 31 active
+ ...ps/teaching-research-alliance/node_modules/@tarojs/runtime/dist/bom/docume
+nt.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 126/155 depende
+ncies 11/73 modules 54 active
+ ...-research-alliance/node_modules/@babel/runtime/helpers/esm/arrayWithoutHol
+es.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 130/168 depende
+ncies 12/73 modules 61 active
+ ...hing-research-alliance/node_modules/@babel/runtime/helpers/esm/toPropertyK
+ey.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 237/323 depende
+ncies 16/81 modules 58 active
+ ...ing-research-alliance/node_modules/@babel/runtime/helpers/esm/classCallChe
+ck.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 271/327 depende
+ncies 24/84 modules 54 active
+ ...ps/teaching-research-alliance/node_modules/@tarojs/runtime/dist/dom/docume
+nt.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (20%) 1/5 entries 311/360 depende
+ncies 33/98 modules 61 active
+ ...aching-research-alliance/node_modules/@babel/runtime/helpers/esm/toPrimiti
+ve.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 323/376 depende
+ncies 40/102 modules 59 active
+ .../teaching-research-alliance/apps/miniapp/node_modules/react-reconciler/ind
+ex.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 385/404 depende
+ncies 49/113 modules 64 active
+ ...earch-alliance/node_modules/@babel/runtime/helpers/esm/assertThisInitializ
+ed.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 394/414 depende
+ncies 51/115 modules 63 active
+ .../node_modules/react-reconciler/cjs/react-reconciler-constants.production.m
+in.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 407/414 depende
+ncies 53/119 modules 63 active
+ .../apps/teaching-research-alliance/node_modules/@babel/runtime/helpers/esm/g
+et.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 416/422 depende
+ncies 66/121 modules 55 active
+ ...veloper/active/apps/teaching-research-alliance/node_modules/tslib/tslib.es
+6.mjs
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (21%) 1/5 entries 452/455 depende
+ncies 79/132 modules 53 active
+ ...apps/teaching-research-alliance/node_modules/@tarojs/shared/dist/native-ap
+is.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (43%) 3/5 entries 465/467 depende
+ncies 121/137 modules 16 active
+ ...s/teaching-research-alliance/node_modules/@tarojs/api/dist/interceptor/ind
+ex.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (42%) 3/5 entries 472/472 depende
+ncies 130/139 modules 9 active
+ ...ve/apps/teaching-research-alliance/apps/miniapp/node_modules/scheduler/ind
+ex.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ building (54%) 4/5 entries 474/474 depende
+ncies 135/141 modules 5 active
+ ...teaching-research-alliance/node_modules/css-loader/dist/runtime/noSourceMa
+ps.js
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (70%)
+ finish module graph
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (70%) finish module graph
+ InnerGraphPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (70%)
+ plugins
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (71%)
+ dependencies optimization
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (75%) chunk optimization
+ RemoveEmptyChunksPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (78%)
+ chunk modules optimization
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (88%)
+ runtime requirements
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (89%)
+ after hashing
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (91%)
+ chunk assets processing
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (92%) asset processing
+ TaroMiniPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (92%) asset processing
+ CssMinimizerPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+● Webpack █████████████████████████ sealing (92%) asset processing
+ RealContentHashPlugin
+
+[2K[1A[2K[1A[2K[1A[2K[1A[2K[G
+✔ Webpack
+  Compiled successfully in 44.40s
