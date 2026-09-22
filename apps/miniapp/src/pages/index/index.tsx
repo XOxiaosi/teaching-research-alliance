@@ -13,6 +13,7 @@ import {
 } from "@teaching-research-alliance/client";
 import { taroTransport } from "../../services";
 import { ReferralPanel } from "./referral-panel";
+import { FinancialPanel } from "./financial-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -75,7 +76,8 @@ const incomeLabels: Readonly<Record<string, string>> = {
   groupLeader: "教研组长收入",
   teachingMentor: "指导导师收入",
   platformFinance: "平台财务收入",
-  regionFinance: "分区财务收入"
+  regionFinance: "分区财务收入",
+  reimbursementIncome: "报销收入"
 };
 
 const statusLabels: Readonly<Record<string, string>> = {
@@ -102,6 +104,10 @@ const messages: Readonly<Record<string, string>> = {
 const isTeacher = (session: SessionSnapshot | null): boolean =>
   session?.currentRoleContext?.subject === "TEACHING_TEACHER";
 
+/** Parent navigation cannot discard a mounted financial command awaiting confirmation. */
+export const financeNavigationLocked = (busy: boolean, financeBusy: boolean, financeUnconfirmed: boolean): boolean =>
+  busy || financeBusy || financeUnconfirmed;
+
 export default function IndexPage(): ReactNode {
   const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -116,11 +122,14 @@ export default function IndexPage(): ReactNode {
   const [selectedVenueId, setSelectedVenueId] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [financeBusy,setFinanceBusy]=useState(false);
+  const [financeUnconfirmed,setFinanceUnconfirmed]=useState(false);
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
 
   const clearTeachingState = (): void => {
+    setFinanceBusy(false);setFinanceUnconfirmed(false);
     setOverview(null);
     setReferrals([]);
     setShowArchived(false);
@@ -136,7 +145,7 @@ export default function IndexPage(): ReactNode {
 
   const load = async (): Promise<void> => {
     const role = client.currentSession?.currentRoleContext?.subject;
-    if (role !== "TEACHING_TEACHER" && role !== "ACADEMIC_PLANNER") return;
+    if (role !== "TEACHING_TEACHER" && role !== "ACADEMIC_PLANNER" && role !== "PLANNING_MENTOR") return;
     const nextOverview = await client.getOwnOverview<Overview>();
     if (role === "TEACHING_TEACHER") {
       const [nextReferrals, nextWeeks, nextVenues] = await Promise.all([
@@ -272,10 +281,10 @@ export default function IndexPage(): ReactNode {
         {session !== null && (
           <Button
             className="quiet-button"
-            disabled={busy}
+            disabled={financeNavigationLocked(busy, financeBusy, financeUnconfirmed)}
             onClick={() => {
               void (async () => {
-                if (busy) return;
+                if (financeNavigationLocked(busy, financeBusy, financeUnconfirmed)) return;
                 setBusy(true);
                 let remoteEnded = true;
                 try {
@@ -344,10 +353,10 @@ export default function IndexPage(): ReactNode {
               mode="selector"
               range={roleChoices}
               value={currentRoleIndex}
-              disabled={busy || roleChoices.length === 0}
+              disabled={financeNavigationLocked(busy, financeBusy, financeUnconfirmed) || roleChoices.length === 0}
               onChange={(event) => {
                 const role = session.roleContexts[Number(event.detail.value)];
-                if (role === undefined) return;
+                if (role === undefined || financeNavigationLocked(busy, financeBusy, financeUnconfirmed)) return;
                 clearTeachingState();
                 void run(async () => {
                   await client.switchRole(role.subject);
@@ -362,8 +371,9 @@ export default function IndexPage(): ReactNode {
             </Picker>
             <Button
               className="quiet-button"
-              disabled={busy}
+              disabled={financeNavigationLocked(busy, financeBusy, financeUnconfirmed)}
               onClick={() => {
+                if (financeNavigationLocked(busy, financeBusy, financeUnconfirmed)) return;
                 clearTeachingState();
                 void run(async () => {
                   await client.refreshSession();
@@ -482,7 +492,7 @@ export default function IndexPage(): ReactNode {
                 <Text className="balance-note">个人账户余额</Text>
               </View>
               <View className="panel income-panel">
-                <Text className="panel-title">当前财年课时分润</Text>
+                <Text className="panel-title">当前财年收入</Text>
                 {incomeEntries.length === 0 ? (
                   <Text className="panel-description">暂无收入记录</Text>
                 ) : incomeEntries.map(([category, value]) => (
@@ -493,6 +503,23 @@ export default function IndexPage(): ReactNode {
                 ))}
               </View>
             </>
+          )}
+
+          {session.currentRoleContext !== null && ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(session.currentRoleContext.subject) && (
+            <FinancialPanel
+              key={`withdrawal:${session.sessionId}:${JSON.stringify(session.currentRoleContext)}`}
+              client={client}
+              session={session}
+              onInvalidated={() => {
+                clearTeachingState();
+                setSession(client.currentSession);
+                setNotice("登录或身份已失效，请重新登录或选择身份。");
+              }}
+              onSubmitted={load}
+              onDataMayChange={()=>setOverview(null)}
+              onBusyChange={setFinanceBusy}
+              onUnconfirmedChange={setFinanceUnconfirmed}
+            />
           )}
 
           {["TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(session.currentRoleContext?.subject ?? "") && (

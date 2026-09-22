@@ -1,0 +1,189 @@
+
+> teaching-research-alliance@0.1.0 build:miniapp:dev
+> npm run build:weapp:dev --workspace @teaching-research-alliance/miniapp
+
+
+> @teaching-research-alliance/miniapp@0.1.0 build:weapp:dev
+> TARO_APP_ENV=development taro build --type weapp
+
+👽 Taro v4.2.1
+
+Tips:
+1. 建议开启持久化缓存功能，能有效提升二次编译速度，详情请参考: https://docs.taro.zone/docs/config-detail#cache。
+
+
+
+● Webpack █████████████████████████  (0%)
+
+
+
+● Webpack █████████████████████████ setup (2%)
+ run
+
+
+● Webpack █████████████████████████ setup (9%) compilation
+ mini-css-extract-plugin
+
+
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 0/5 modules 1 active
+ babel-loader › src/app.config.ts
+
+
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 0/5 modules 1 active
+ babel-loader › src/app.config.ts
+
+
+● Webpack █████████████████████████ building (10%) 0/5 entries 5/5 dependencie
+s 1/5 modules 4 active
+ ...er › ../../node_modules/@tarojs/webpack5-runner/dist/template/custom-wrapp
+er.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 8/28 dependenci
+es 2/8 modules 6 active
+ babel-loader › node_modules/@tarojs/plugin-framework-react/dist/runtime.js
+
+
+● Webpack █████████████████████████ building (20%)
+ node_modules/css-loader/dist/cjs.js
+
+
+● Webpack █████████████████████████ building (20%)
+ node_modules/postcss-loader/dist/cjs.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 23/32 dependenc
+ies 2/19 modules 17 active
+ css-loader › postcss-loader › src/pages/index/index.css
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 38/105 dependen
+cies 3/21 modules 17 active
+ node_modules/react/cjs/react-jsx-runtime.production.min.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 90/114 dependen
+cies 3/60 modules 30 active
+ ....js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 107/130 depende
+ncies 10/63 modules 51 active
+ ...hing-research-alliance/node_modules/@babel/runtime/helpers/esm/objectSprea
+d2.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 115/166 depende
+ncies 11/67 modules 52 active
+ babel-loader › src/finance-attachment-helpers.ts
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 215/298 depende
+ncies 15/72 modules 49 active
+ ...ing-research-alliance/node_modules/@babel/runtime/helpers/esm/classCallChe
+ck.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 257/298 depende
+ncies 15/83 modules 62 active
+ node_modules/react-reconciler/constants.js
+
+
+● Webpack █████████████████████████ building (20%) 1/5 entries 294/338 depende
+ncies 23/98 modules 60 active
+ .../node_modules/@tarojs/runtime/dist/dom-external/mutation-observer/implemen
+ts.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 374/395 depende
+ncies 46/114 modules 65 active
+ node_modules/react-reconciler/cjs/react-reconciler.production.min.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 388/395 depende
+ncies 49/116 modules 66 active
+ .../apps/teaching-research-alliance/node_modules/@babel/runtime/helpers/esm/s
+et.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 399/409 depende
+ncies 53/121 modules 67 active
+ ...g-research-alliance/node_modules/@babel/runtime/helpers/esm/isNativeFuncti
+on.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 414/428 depende
+ncies 66/131 modules 65 active
+ ...hing-research-alliance/node_modules/@babel/runtime/helpers/esm/superPropBa
+se.js
+
+
+● Webpack █████████████████████████ building (21%) 1/5 entries 441/446 depende
+ncies 105/131 modules 26 active
+ babel-loader › ../../node_modules/@tarojs/api/dist/index.js
+
+
+● Webpack █████████████████████████ building (43%) 3/5 entries 450/452 depende
+ncies 121/135 modules 14 active
+ babel-loader › ../../node_modules/@tarojs/api/dist/interceptor/index.js
+
+
+● Webpack █████████████████████████ building (42%) 3/5 entries 458/458 depende
+ncies 129/138 modules 9 active
+ node_modules/scheduler/index.js
+
+
+● Webpack █████████████████████████ building (54%) 4/5 entries 460/460 depende
+ncies 134/140 modules 5 active
+ ../../node_modules/css-loader/dist/runtime/noSourceMaps.js
+
+
+● Webpack █████████████████████████ building (54%) 4/5 entries 463/463 depende
+ncies 137/141 modules 4 active
+ css-loader › postcss-loader › src/pages/index/index.css|0|||}}
+
+
+● Webpack █████████████████████████ sealing (70%)
+ plugins
+
+
+● Webpack █████████████████████████ sealing (71%)
+ dependencies optimization
+
+
+● Webpack █████████████████████████ sealing (75%) chunk optimization
+ RemoveEmptyChunksPlugin
+
+
+● Webpack █████████████████████████ sealing (78%)
+ chunk modules optimization
+
+
+● Webpack █████████████████████████ sealing (87%)
+ code generation
+
+
+● Webpack █████████████████████████ sealing (88%)
+ runtime requirements
+
+
+● Webpack █████████████████████████ sealing (89%)
+ after hashing
+
+
+● Webpack █████████████████████████ sealing (92%) asset processing
+ TaroMiniPlugin
+
+
+● Webpack █████████████████████████ sealing (92%) asset processing
+ CssMinimizerPlugin
+
+
+● Webpack █████████████████████████ sealing (92%) asset processing
+ RealContentHashPlugin
+
+
+✔ Webpack
+  Compiled successfully in 23.90s

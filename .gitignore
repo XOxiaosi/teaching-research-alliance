@@ -35,6 +35,7 @@ out/
 coverage/
 test-results/
 playwright-report/
+.financial-panel-test-*/
 *.tsbuildinfo
 
 # Runtime / private data / temporary output

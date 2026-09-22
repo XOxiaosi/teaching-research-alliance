@@ -1,0 +1,46 @@
+TAP version 13
+# Subtest: finance attachment helper validates real magic bytes and never treats a path or base64 string as an original
+ok 1 - finance attachment helper validates real magic bytes and never treats a path or base64 string as an original
+  ---
+  duration_ms: 41.593327
+  type: 'test'
+  ...
+# Subtest: 财务面板在同槽上传修订版后刷新，明确提交最新READY版本；未知提交保留原键和锁定字段
+ok 2 - 财务面板在同槽上传修订版后刷新，明确提交最新READY版本；未知提交保留原键和锁定字段
+  ---
+  duration_ms: 992.249016
+  type: 'test'
+  ...
+# Subtest: 原件预留明确4xx会解除上传锁，403继续走会话失效清理
+ok 3 - 原件预留明确4xx会解除上传锁，403继续走会话失效清理
+  ---
+  duration_ms: 279.725224
+  type: 'test'
+  ...
+# Subtest: 未知草稿创建在刷新后仍保留原键重试入口，不从同类草稿猜测成功
+ok 4 - 未知草稿创建在刷新后仍保留原键重试入口，不从同类草稿猜测成功
+  ---
+  duration_ms: 69.568969
+  type: 'test'
+  ...
+# Subtest: READY 修订版列表刷新失败时不会悄悄提交旧版本
+ok 5 - READY 修订版列表刷新失败时不会悄悄提交旧版本
+  ---
+  duration_ms: 118.485819
+  type: 'test'
+  ...
+# Subtest: 未知提现时父级刷新、退出和角色切换都锁定，原冻结命令仍可重试
+ok 6 - 未知提现时父级刷新、退出和角色切换都锁定，原冻结命令仍可重试
+  ---
+  duration_ms: 187.851914
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5929.22725

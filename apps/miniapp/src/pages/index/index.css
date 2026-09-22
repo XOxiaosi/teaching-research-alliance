@@ -182,6 +182,25 @@ page {
   font-size: 24rpx;
 }
 
+.finance-panel {
+  border-color: #cbded5;
+}
+
+.finance-upload,
+.finance-history,
+.finance-detail {
+  margin-top: 28rpx;
+  padding-top: 6rpx;
+  border-top: 1rpx solid #eef2ed;
+}
+
+.upload-ready {
+  display: block;
+  margin-top: 18rpx;
+  color: #22644f;
+  font-size: 25rpx;
+}
+
 .page-footer {
   padding: 24rpx 8rpx 48rpx;
   text-align: center;
