@@ -15,6 +15,8 @@ export type ApiRequest = Readonly<{
   method: HttpMethod;
   path: string;
   body: unknown;
+  /** Decoded URL query; the HTTP server rejects duplicate keys before reaching this boundary. */
+  query?: Readonly<Record<string, string>>;
   sessionId?: string;
 }>;
 
@@ -60,6 +62,9 @@ export type ApiServices = Readonly<{
     setPermission: (context: RoleContext, id: string, draft: {granteePersonId: string; canView: boolean; canWithdraw: boolean; expectedGrantId?: string|null}, key: string, at: Date) => unknown | Promise<unknown>;
   }>;
   venueReads?: Readonly<{ list: (context: RoleContext, at: Date) => unknown | Promise<unknown>; listOwned: (context: RoleContext, at: Date) => unknown | Promise<unknown>; get: (context: RoleContext, id: string, at: Date) => unknown | Promise<unknown>; }>;
+  venueBoards?: Readonly<{
+    get: (context: RoleContext, id: string, filter: { teachingWeekId?: string; startsOn?: string; endsOn?: string }, at: Date) => unknown | Promise<unknown>;
+  }>;
   referrals?: Readonly<{
     create: (context: RoleContext, draft: ReferralCreationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     copy?: (context: RoleContext, sourceReferralId: string, draft: {receiverPersonId: string; courseContextId?: string; classType?: "ONE_TO_ONE" | "SMALL_GROUP"}, key: string, at: Date) => unknown | Promise<unknown>;
@@ -347,6 +352,18 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.venueReads) throw new Error("VENUE_SERVICE_UNAVAILABLE");
       return success(await services.venueReads.listOwned(context, at));
+    }
+    const venueBoardPath = request.path.match(/^\/v1\/venues\/([^/]+)\/board$/);
+    if (request.method === "GET" && venueBoardPath) {
+      const query = request.query ?? {};
+      if (Object.keys(query).some((key) => !["weekId", "startsOn", "endsOn"].includes(key))) throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venueBoards) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      return success(await services.venueBoards.get(context, venueBoardPath[1]!, {
+        ...(query.weekId === undefined ? {} : { teachingWeekId: query.weekId }),
+        ...(query.startsOn === undefined ? {} : { startsOn: query.startsOn }),
+        ...(query.endsOn === undefined ? {} : { endsOn: query.endsOn })
+      }, at));
     }
     const venuePath = request.path.match(/^\/v1\/venues\/([^/]+)$/);
     if (request.method === "GET" && venuePath) {

@@ -29,6 +29,7 @@ import { PostgresWeeklyFeeService } from "./postgres-weekly-fee-service.js";
 import { PostgresTeachingReadService } from "./postgres-teaching-read-service.js";
 import { PostgresVenueService } from "./postgres-venue-service.js";
 import { PostgresVenueReadService } from "./postgres-venue-read-service.js";
+import { PostgresVenueBoardReadService } from "./postgres-venue-board-read-service.js";
 
 const port = Number(process.env.PORT ?? "3100");
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error("INVALID_PORT");
@@ -49,6 +50,7 @@ const server = createApiServer({
   teaching: new PostgresTeachingReadService(pool),
   venues: new PostgresVenueService(pool),
   venueReads: new PostgresVenueReadService(pool),
+  venueBoards: new PostgresVenueBoardReadService(pool),
   referrals: new PostgresReferralCreationService(pool),
   sentReferrals: new PostgresSentReferralReadService(pool),
   referralAcceptance: new PostgresReferralAcceptanceService(pool),

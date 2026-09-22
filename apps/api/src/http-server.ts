@@ -37,6 +37,16 @@ const methodFrom = (method: string | undefined): HttpMethod | undefined => {
   return undefined;
 };
 
+const queryFrom = (url: URL): Readonly<Record<string, string>> => {
+  const query: Record<string, string> = {};
+  for (const key of new Set(url.searchParams.keys())) {
+    const values = url.searchParams.getAll(key);
+    if (values.length !== 1) throw new Error("INVALID_INPUT");
+    query[key] = values[0]!;
+  }
+  return query;
+};
+
 export type ApiServerOptions = Readonly<{
   maxBodyBytes?: number;
 }>;
@@ -45,7 +55,8 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   return createServer(async (request, response) => {
     try {
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const pathname = url.pathname;
       if(pathname.startsWith("/v1/finance/")||pathname.startsWith("/v1/admin/company-funds")){
         response.setHeader("cache-control","private, no-store");
         response.setHeader("x-content-type-options","nosniff");
@@ -109,12 +120,12 @@ export const createApiServer = (services: ApiServices, options: ApiServerOptions
         }catch(error){const result=failure(error);writeJson(response,result.status,result.body);}
         return;
       }
-      const result = await handleRequest({ method, path: pathname, body: await readJson(request, maxBodyBytes),
+      const result = await handleRequest({ method, path: pathname, query: queryFrom(url), body: await readJson(request, maxBodyBytes),
         ...(bearer?.[1] === undefined ? {} : { sessionId: bearer[1] }) }, services);
       writeJson(response, result.status, result.body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
-      const code = ["INVALID_JSON", "REQUEST_BODY_TOO_LARGE"].includes(message) ? message : "INTERNAL_ERROR";
+      const code = ["INVALID_JSON", "REQUEST_BODY_TOO_LARGE", "INVALID_INPUT"].includes(message) ? message : "INTERNAL_ERROR";
       writeJson(response, code === "INTERNAL_ERROR" ? 500 : 400, {
         version: API_CONTRACT_VERSION,
         error: { code, message: code }
