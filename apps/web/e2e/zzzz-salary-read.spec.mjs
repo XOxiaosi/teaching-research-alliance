@@ -11,7 +11,7 @@ test('总部工资管理读取与身份切换清理', async ({page})=>{
  await page.getByRole('button',{name:'工资管理',exact:true}).click();
  await expect(page.locator('h1').filter({hasText:'工资管理'})).toBeVisible();
  await expect(page.getByLabel('工资月份',{exact:true})).toBeVisible();
- await expect(page.getByText('演示授课老师',{exact:true})).toBeVisible();
+ await expect(page.getByRole('region',{name:'工资管理',exact:true}).getByText('演示授课老师',{exact:true})).toBeVisible();
  await expect(page.getByText('49.00 元',{exact:true})).toBeVisible();
  await expect(page.getByText('演示授课老师 · 2026-09 · 49.00 元 · 已完成',{exact:true})).toBeVisible();
  await page.getByText('演示授课老师 · 2026-09 · 49.00 元 · 已完成',{exact:true}).click();

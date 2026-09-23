@@ -19,6 +19,7 @@ import { RefundPanel, type RefundFeeCandidate } from "./refund-panel";
 import { VenueBoardPanel } from "./venue-board-panel";
 import { OrganizationRevenuePanel, canReadMiniOrganizationRevenue } from "./organization-revenue-panel";
 import { CashWagePanel } from "./cash-wage-panel";
+import { CashWagePlanPanel } from "./cash-wage-plan-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -148,7 +149,9 @@ export default function IndexPage(): ReactNode {
   const [refundBusy,setRefundBusy]=useState(false);
   const [refundUnconfirmed,setRefundUnconfirmed]=useState(false);
   const financeBusy = withdrawalBusy || reimbursementBusy || refundBusy;
-  const financeUnconfirmed = withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [wagePlanUnconfirmed, setWagePlanUnconfirmed] = useState(false);
+  const [wageRevision, setWageRevision] = useState(0);
+  const financeUnconfirmed = wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -635,7 +638,8 @@ export default function IndexPage(): ReactNode {
           )}
 
           {canReadMiniOrganizationRevenue(currentContext ?? null) && <OrganizationRevenuePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
-          {canReadSalary && <CashWagePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
+          {canReadSalary && <CashWagePlanPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
+          {canReadSalary && <CashWagePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${wageRevision}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
 
           {canReadVenueBoard && (
             <VenueBoardPanel

@@ -1,0 +1,31 @@
+import {test,expect} from '@playwright/test';
+const password='Local-demo-only-2026';
+test('工资计划保存刷新名单，不改变个人余额或既有确认记录',async({page})=>{
+ test.skip(process.env.ALLIANCE_SYNTHETIC_E2E!=='1','Requires isolated synthetic demo');
+ await page.clock.setFixedTime(new Date('2026-09-23T04:00:00Z'));
+ const login=await page.request.post('/v1/session',{data:{phoneNormalized:'13800000001',password}});
+ expect(login.status()).toBe(200);const teacher=(await login.json()).data;
+ const headers={authorization:`Bearer ${teacher.sessionId}`};
+ const overviewBefore=await page.request.get('/v1/me',{headers});expect(overviewBefore.status()).toBe(200);const before=(await overviewBefore.json()).data;
+ await page.goto('/');await page.getByLabel('手机号',{exact:true}).fill('13800000003');await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:'登录',exact:true}).click();
+ await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();await page.getByLabel('当前身份',{exact:true}).selectOption('HEADQUARTERS_FINANCE');await page.getByRole('button',{name:'工资管理',exact:true}).click();
+ const plan=page.getByRole('region',{name:'工资计划维护',exact:true});
+ await plan.getByRole('combobox',{name:'老师',exact:true}).selectOption({label:'演示授课老师'});await plan.getByLabel('工资月',{exact:true}).fill('2026-09');await plan.getByLabel('现金计划（元）',{exact:true}).fill('53.00');await plan.getByLabel('扣豆计划（欢乐豆）',{exact:true}).fill('53.00');await plan.getByLabel('理由',{exact:true}).fill('合成浏览器验证计划不扣豆');
+ const saved=page.waitForResponse(r=>r.url().endsWith('/v1/finance/cash-wage-plans')&&r.request().method()==='POST');await plan.getByRole('button',{name:'保存工资计划',exact:true}).click();expect((await saved).status()).toBe(200);
+ await expect(plan.getByText(/工资计划已保存/)).toBeVisible();
+ const read=page.getByRole('region',{name:'工资管理',exact:true});await expect(read.getByText('53.00 元',{exact:true})).toBeVisible();await expect(read.getByText(/已确认 49.00 元 · 剩余 4.00 元/)).toBeVisible();await expect(read.getByText('演示授课老师 · 2026-09 · 49.00 元 · 已完成',{exact:true})).toHaveCount(1);
+ await plan.getByLabel('现金计划（元）',{exact:true}).fill('49.00');await plan.getByLabel('扣豆计划（欢乐豆）',{exact:true}).fill('49.00');await plan.getByLabel('理由',{exact:true}).fill('合成验收恢复演示计划');
+ const restored=page.waitForResponse(r=>r.url().endsWith('/v1/finance/cash-wage-plans')&&r.request().method()==='POST');await plan.getByRole('button',{name:'保存工资计划',exact:true}).click();expect((await restored).status()).toBe(200);await expect(read.getByText('49.00 元',{exact:true})).toBeVisible();
+ const overviewAfter=await page.request.get('/v1/me',{headers});expect(overviewAfter.status()).toBe(200);expect((await overviewAfter.json()).data).toEqual(before);
+});
+test('工资计划已保存但响应丢失时，锁定身份并用原命令重试',async({page})=>{
+ test.skip(process.env.ALLIANCE_SYNTHETIC_E2E!=='1','Requires isolated synthetic demo');
+ await page.clock.setFixedTime(new Date('2026-09-23T04:00:00Z'));
+ await page.goto('/');await page.getByLabel('手机号',{exact:true}).fill('13800000003');await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:'登录',exact:true}).click();await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();await page.getByLabel('当前身份',{exact:true}).selectOption('HEADQUARTERS_FINANCE');await page.getByRole('button',{name:'工资管理',exact:true}).click();
+ const plan=page.getByRole('region',{name:'工资计划维护',exact:true});await plan.getByRole('combobox',{name:'老师',exact:true}).selectOption({label:'演示授课老师'});await plan.getByLabel('现金计划（元）',{exact:true}).fill('49');await plan.getByLabel('扣豆计划（欢乐豆）',{exact:true}).fill('49');await plan.getByLabel('理由',{exact:true}).fill('合成已保存响应丢失');
+ const requests=[],results=[];
+ await page.route('**/v1/finance/cash-wage-plans',async route=>{requests.push(route.request().postDataJSON());const response=await route.fetch();expect(response.status()).toBe(200);results.push((await response.json()).data);if(requests.length===1)await route.abort('failed');else await route.fulfill({response});});
+ await plan.getByRole('button',{name:'保存工资计划',exact:true}).click();await expect(plan.getByRole('button',{name:'使用原提交重试',exact:true})).toBeVisible();await expect(plan.getByLabel('现金计划（元）',{exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeDisabled();
+ await page.getByLabel('当前身份',{exact:true}).selectOption('TEACHING_TEACHER');await expect(page.getByLabel('当前身份',{exact:true})).toHaveValue('HEADQUARTERS_FINANCE');await page.getByRole('button',{name:'退出登录',exact:true}).click();await expect(plan).toBeVisible();
+ await plan.getByRole('button',{name:'使用原提交重试',exact:true}).click();await expect(plan.getByText(/工资计划已保存/)).toBeVisible();expect(requests).toHaveLength(2);expect(requests[1]).toEqual(requests[0]);expect(results[1]).toEqual(results[0]);await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+});
