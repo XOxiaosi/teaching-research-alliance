@@ -10,6 +10,10 @@ import {
   type PostgresClient,
   type PostgresPool,
 } from "./postgres-ledger-repository.js";
+import {
+  generateDueBenefitTodosInTransaction,
+  resolveBenefitGenerationDate,
+} from "./postgres-benefit-todo-generator.js";
 
 export const SALARY_BENEFIT_DOCUMENT_KINDS = [
   "CASH_WAGE",
@@ -999,7 +1003,7 @@ export class PostgresSalaryBenefitsService {
   ): Promise<readonly DueTodo[]> {
     const actor = assertOperator(context),
       idem = key(idempotencyKey),
-      now = bjt(at),
+      now = resolveBenefitGenerationDate(at),
       request = hash([
         "salary-benefit.generate-benefit-todos.v1",
         now.month,
@@ -1020,81 +1024,8 @@ export class PostgresSalaryBenefitsService {
         request,
       );
       if (replay) return replay;
-      const identities = (
-        await client.query<{
-          benefit_kind: string;
-          beneficiary_person_id: string;
-          benefit_month: string;
-        }>(
-          `SELECT benefit_kind,beneficiary_person_id::text AS beneficiary_person_id,benefit_month::text AS benefit_month FROM finance_benefit_plan_version WHERE benefit_month=$1::date GROUP BY benefit_kind,beneficiary_person_id,benefit_month ORDER BY benefit_kind,beneficiary_person_id,benefit_month`,
-          [now.month],
-        )
-      ).rows;
-      const result: DueTodo[] = [];
-      for (const identity of identities) {
-        const todoExists = async (): Promise<boolean> =>
-          (
-            await client.query(
-              `SELECT 1 FROM finance_benefit_todo WHERE benefit_kind=$1 AND beneficiary_person_id=$2::uuid AND benefit_month=$3::date`,
-              [
-                identity.benefit_kind,
-                identity.beneficiary_person_id,
-                identity.benefit_month,
-              ],
-            )
-          ).rows.length > 0;
-        // Todos are immutable. Skipping an existing row before taking the plan
-        // lock also preserves confirmBenefit's todo-row -> plan-lock ordering.
-        if (await todoExists()) continue;
-        await client.query(
-          "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
-          [
-            `benefit-plan:${identity.benefit_kind}:${identity.beneficiary_person_id}:${identity.benefit_month}`,
-          ],
-        );
-        if (await todoExists()) continue;
-        const current = (
-          await client.query<{
-            id: string;
-            active: boolean;
-            execution_day: number;
-          }>(
-            `SELECT id::text AS id,active,execution_day FROM finance_benefit_plan_version WHERE benefit_kind=$1 AND beneficiary_person_id=$2::uuid AND benefit_month=$3::date ORDER BY version_no DESC LIMIT 1`,
-            [
-              identity.benefit_kind,
-              identity.beneficiary_person_id,
-              identity.benefit_month,
-            ],
-          )
-        ).rows[0];
-        if (!current?.active || current.execution_day > now.day) continue;
-        const row = (
-          await client.query<{
-            id: string;
-            plan_version_id: string;
-            benefit_kind: string;
-            beneficiary_person_id: string;
-            benefit_month: string;
-          }>(
-            `INSERT INTO finance_benefit_todo(plan_version_id,benefit_kind,beneficiary_person_id,benefit_month,generated_at) VALUES($1::uuid,$2,$3::uuid,$4::date,$5::timestamptz) ON CONFLICT ON CONSTRAINT finance_benefit_todo_business_key DO NOTHING RETURNING id::text AS id,plan_version_id::text AS plan_version_id,benefit_kind,beneficiary_person_id::text AS beneficiary_person_id,benefit_month::text AS benefit_month`,
-            [
-              current.id,
-              identity.benefit_kind,
-              identity.beneficiary_person_id,
-              identity.benefit_month,
-              at.toISOString(),
-            ],
-          )
-        ).rows[0];
-        if (row)
-          result.push({
-            id: row.id,
-            planVersionId: row.plan_version_id,
-            subjectPersonId: row.beneficiary_person_id,
-            month: row.benefit_month,
-            kind: row.benefit_kind,
-          });
-      }
+      const result: readonly DueTodo[] =
+        await generateDueBenefitTodosInTransaction(client, at, now);
       await this.record(
         client,
         actor,

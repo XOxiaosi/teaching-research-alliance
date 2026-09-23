@@ -57,3 +57,4 @@ export { PostgresOrganizationRevenueReadService } from "./postgres-organization-
 
 export { PostgresBenefitReadService } from "./postgres-benefit-read-service.js";
 export { PostgresBenefitSourceFundDirectoryService } from "./postgres-benefit-source-fund-directory-service.js";
+export { PostgresBenefitTodoSchedulerService } from "./postgres-benefit-todo-scheduler-service.js";
