@@ -5,6 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FullBackupIncomeWorkbook } from "../dist/full-backup-income-workbook.js";
+import {
+  createFullBackupManifestContext,
+} from "../dist/full-backup-manifest.js";
+import {
+  FULL_BACKUP_MANIFEST_EVIDENCE_COVERAGE_GAPS,
+} from "../dist/full-backup-manifest-evidence.js";
+import { createFullBackupLayout } from "../dist/full-backup-layout.js";
 import { fullBackupOutputColumns } from "../dist/full-backup-transformer.js";
 
 const collect = async (stream) => {
@@ -12,13 +19,83 @@ const collect = async (stream) => {
   for await (const row of stream) rows.push(row);
   return rows;
 };
+const layout = createFullBackupLayout();
+const rawSources = layout
+  .filter((item) => item.policy === "RAW_SOURCE")
+  .map((item) => ({ tableName: item.tableName, rowCount: "0" }));
+const incomeSourceTables = new Set([
+  "settlement_account",
+  "weekly_fee_entry",
+  "weekly_fee_entry_version",
+  "weekly_fee_allocation_snapshot",
+  "finance_document",
+  "finance_refund_decision",
+  "finance_refund_submission_item",
+  "weekly_fee_refund_effect",
+  "ledger_event",
+  "ledger_entry",
+]);
+const incomeSources = rawSources.filter((source) =>
+  incomeSourceTables.has(source.tableName));
+const secretExclusions = layout.flatMap((item) => item.excludedColumns.map((fieldName) => ({
+  tableName: item.tableName,
+  fieldName,
+  reason: item.policy === "AUTH_SECRET_TABLE_EXCLUDED"
+    ? "AUTH_SECRET_TABLE_EXCLUDED"
+    : "AUTH_SECRET_COLUMN_EXCLUDED",
+})));
+const sourceDigest = (tableName) => createHash("sha256")
+  .update(`${JSON.stringify({ columns: fullBackupOutputColumns(tableName) })}\n`)
+  .digest("hex");
+const manifestContext = () => createFullBackupManifestContext({
+  evidence: {
+    mode: "FULL_BACKUP_MANIFEST_EVIDENCE",
+    schemaVersion: "full-backup-manifest-evidence.v1",
+    complete: false,
+    spoolId: "index-spool",
+    snapshotId: "index-snapshot",
+    asOf: "2026-09-23T00:00:00.000Z",
+    raw: {
+      registeredDatasetCount: String(layout.length),
+      nonSecretTables: rawSources.map((source) => ({
+        ...source,
+        firstStableKey: null,
+        lastStableKey: null,
+        logicalDigest: sourceDigest(source.tableName),
+      })),
+      secretExclusions,
+    },
+    money: {
+      ledgerEntryCount: "0", validEntryAmountCount: "0", invalidEntryAmountCount: "0",
+      validEntryCentsSubtotal: "0", exactLedgerEntryCents: null, ledgerAnomalyCount: "0",
+      invalidMonthlyRowCount: "0",
+      reconciliation: {
+        accountCount: "0",
+        statusCounts: { MATCH: "0", MISMATCH: "0", MISSING_PROJECTION: "0", PROJECTION_INVALID: "0", LEDGER_TOTAL_INVALID: "0", ACCOUNT_UNRESOLVED: "0" },
+        validLedgerCentsSubtotal: "0", exactLedgerCents: null,
+        validProjectionCentsSubtotal: "0", exactProjectionCents: null,
+      },
+    },
+    periods: {
+      eventCount: "0", sourceLinkCount: "0", anomalyCount: "0",
+      statusCounts: { UNIQUE_LOCKED_SETTLEMENT_MONTH: "0", MULTIPLE_BUSINESS_PERIODS: "0", UNRESOLVED: "0", UNIMPLEMENTED_EVENT_TYPE: "0" },
+    },
+    integrity: { status: "VERIFIED_PARTIAL", scope: "REGISTERED_RAW_AND_LEDGER_EVIDENCE_ONLY", completeBackup: false },
+    businessCorrectness: { status: "NOT_ASSERTED", scope: "NO_COMPLETE_BUSINESS_CORRECTNESS_ASSERTION" },
+    coverageGaps: [...FULL_BACKUP_MANIFEST_EVIDENCE_COVERAGE_GAPS],
+  },
+  fileGroupId: "income-workbook-group",
+  generatedAt: "2026-09-23T00:00:00.000Z",
+  applicationVersion: "0.1.0",
+  generatorVersion: "worker.1",
+});
 const indexMeta = {
   mode: "DERIVED_SPOOL_INDEX",
   complete: false,
   spoolId: "index-spool",
   snapshotId: "index-snapshot",
   asOf: "2026-09-23T00:00:00.000Z",
-  sources: [],
+  sources: rawSources,
 };
 const metadata = {
   mode: "INCOME_DERIVED_VIEW",
@@ -34,7 +111,7 @@ const metadata = {
   incompleteFeeCount: "1",
   sourceBasis: {
     indexMode: "DERIVED_SPOOL_INDEX",
-    sourceRows: [],
+    sourceRows: incomeSources,
     contributionDigest: "a".repeat(64),
   },
 };
@@ -48,6 +125,7 @@ const personRow = (id, nickname) => ({
 });
 const fakeIndex = {
   metadata: () => indexMeta,
+  async *stream() {},
   lookup: async (table, pairs) =>
     table === "person" && pairs[0]?.[1] === "person-1"
       ? personRow("person-1", `显示名-${"汉".repeat(32000)}`)
@@ -155,6 +233,7 @@ test("writes fixed Chinese partial table-3 workbook with precise beans, traceabi
       index: fakeIndex,
       view: fakeView,
       outputRoot: join(root, "out"),
+      manifestContext: manifestContext(),
       maxDataRows: 1,
     }).export();
     assert.equal(result.mode, "INCOME_DERIVED_WORKBOOK");
@@ -173,6 +252,9 @@ test("writes fixed Chinese partial table-3 workbook with precise beans, traceabi
     assert.equal((await stat(dir)).mode & 0o077, 0);
     assert.deepEqual(await readdir(dir), [result.file]);
     const book = await sheets(file);
+    assert.equal(Object.keys(book)[0], "00_manifest");
+    assert.equal(book["00_manifest"].some((row) => row[0] === "complete" && row[1] === "false"), true);
+    assert.equal(book["00_manifest"].some((row) => row[0] === "sheet.01_月度收入.source_table" && row[1] === ""), true);
     assert.ok(book["00_说明"]);
     assert.ok(book["01_月度收入"]);
     assert.ok(book["02_来源明细_0001"]);
@@ -203,7 +285,7 @@ test("writes fixed Chinese partial table-3 workbook with precise beans, traceabi
       Object.entries(book)
         .filter(([name]) => name.startsWith("15_NULL坐标"))
         .flatMap(([, rows]) => rows)
-        .some((r) => r.includes("refund_finance_document_id")),
+        .some((r) => r.includes("refund_finance_document_id") || r.includes("00_manifest")),
       true,
     );
     assert.equal(
@@ -226,4 +308,69 @@ test("rejects mismatched derived/index snapshots", async () => {
     }).export(),
     /EXPORT_INCOME_WORKBOOK_SNAPSHOT_MISMATCH/,
   );
+});
+
+test("accepts the income source subset but rejects mismatched manifest sources", async () => {
+  const valid = manifestContext();
+  assert.ok(incomeSources.length < rawSources.length);
+  await assert.rejects(new FullBackupIncomeWorkbook({
+    index: fakeIndex,
+    view: fakeView,
+    outputRoot: "/tmp/never",
+    manifestContext: { ...valid, snapshotId: "other-snapshot" },
+  }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SNAPSHOT_MISMATCH/);
+  await assert.rejects(new FullBackupIncomeWorkbook({
+    index: fakeIndex,
+    view: fakeView,
+    outputRoot: "/tmp/never",
+    manifestContext: {
+      ...valid,
+      rawTables: valid.rawTables.map((source, index) =>
+        index === 0 ? { ...source, rowCount: "1" } : source),
+    },
+  }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
+  await assert.rejects(new FullBackupIncomeWorkbook({
+    index: fakeIndex,
+    view: fakeView,
+    outputRoot: "/tmp/never",
+    manifestContext: {
+      ...valid,
+      rawTables: valid.rawTables.map((source, index) =>
+        index === 0 ? { ...source, logicalDigest: "b".repeat(64) } : source),
+    },
+  }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
+  for (const key of ["firstStableKey", "lastStableKey"]) {
+    await assert.rejects(new FullBackupIncomeWorkbook({
+      index: fakeIndex,
+      view: fakeView,
+      outputRoot: "/tmp/never",
+      manifestContext: {
+        ...valid,
+        rawTables: valid.rawTables.map((source, index) =>
+          index === 0 ? { ...source, [key]: '[\["id","forged"\]]' } : source),
+      },
+    }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
+  }
+  await assert.rejects(new FullBackupIncomeWorkbook({
+    index: fakeIndex,
+    view: { ...fakeView, metadata: () => ({
+      ...metadata,
+      sourceBasis: { ...metadata.sourceBasis, sourceRows: incomeSources.slice(1) },
+    }) },
+    outputRoot: "/tmp/never",
+    manifestContext: valid,
+  }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
+  await assert.rejects(new FullBackupIncomeWorkbook({
+    index: fakeIndex,
+    view: { ...fakeView, metadata: () => ({
+      ...metadata,
+      sourceBasis: {
+        ...metadata.sourceBasis,
+        sourceRows: incomeSources.map((source, index) =>
+          index === 0 ? { ...source, rowCount: "1" } : source),
+      },
+    }) },
+    outputRoot: "/tmp/never",
+    manifestContext: valid,
+  }).export(), /EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
 });

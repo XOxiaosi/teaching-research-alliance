@@ -6,6 +6,7 @@ import {
   rm,
   type FileHandle,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import {
@@ -18,6 +19,7 @@ import {
 import { BACKUP_MAX_DATA_ROWS } from "./full-backup-layout.js";
 import {
   FullBackupDerivedSpoolIndex,
+  type DerivedSpoolIndexMetadata,
   type DerivedSpoolIndexRow,
 } from "./full-backup-derived-spool-index.js";
 import {
@@ -26,7 +28,13 @@ import {
   type IncomeDerivedMetadata,
   type IncomeDerivedMonthlyRow,
 } from "./full-backup-income-derived-view.js";
+import { fullBackupOutputColumns } from "./full-backup-transformer.js";
 import { splitBackupLongText } from "./full-backup-long-text.js";
+import {
+  createManifestWorkbookRows,
+  type FullBackupManifestContext,
+  type ManifestSheetPart,
+} from "./full-backup-manifest.js";
 import {
   writeXlsx,
   type XlsxOptions,
@@ -59,6 +67,19 @@ const KEY_LABEL: Readonly<Record<(typeof KEYS)[number], string>> =
     regionFinance: "分区财务",
     teachingTeacher: "授课教师",
   });
+/** The derived table reads only this declared subset of the frozen RAW index. */
+const INCOME_SOURCE_TABLES = Object.freeze([
+  "settlement_account",
+  "weekly_fee_entry",
+  "weekly_fee_entry_version",
+  "weekly_fee_allocation_snapshot",
+  "finance_document",
+  "finance_refund_decision",
+  "finance_refund_submission_item",
+  "weekly_fee_refund_effect",
+  "ledger_event",
+  "ledger_entry",
+]);
 const LONG_COLUMNS = [
   "long_text_ref",
   "source_table",
@@ -95,6 +116,8 @@ export type FullBackupIncomeWorkbookOptions = Readonly<{
   index: FullBackupDerivedSpoolIndex;
   view: FullBackupIncomeDerivedView;
   outputRoot: string;
+  /** Optional fixed package context. Omit it to preserve the legacy workbook shape. */
+  manifestContext?: FullBackupManifestContext;
   writeWorkbook?: Writer;
   maxDataRows?: number;
 }>;
@@ -285,6 +308,61 @@ const idLookup = async (
   index.lookup(table, [["id", id]]);
 const columns = async () => import("./full-backup-transformer.js");
 
+const assertManifestSources = async (
+  context: FullBackupManifestContext,
+  derivedIndex: FullBackupDerivedSpoolIndex,
+  index: DerivedSpoolIndexMetadata,
+  meta: IncomeDerivedMetadata,
+): Promise<void> => {
+  if (context.spoolId !== index.spoolId || context.snapshotId !== index.snapshotId ||
+    context.asOf !== index.asOf)
+    fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SNAPSHOT_MISMATCH");
+  const indexed = new Map(index.sources.map((source) => [source.tableName, source]));
+  const contextual = new Map(context.rawTables.map((source) => [source.tableName, source]));
+  if (indexed.size !== index.sources.length || contextual.size !== context.rawTables.length ||
+    contextual.size !== indexed.size)
+    fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  for (const source of context.rawTables) {
+    const indexedSource = indexed.get(source.tableName);
+    if (indexedSource === undefined || source.rowCount !== indexedSource.rowCount)
+      fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+    const digest = createHash("sha256");
+    digest.update(`${JSON.stringify({ columns: fullBackupOutputColumns(source.tableName) })}\n`, "utf8");
+    let rowCount = 0n;
+    let firstStableKey: string | null = null;
+    let lastStableKey: string | null = null;
+    for await (const row of derivedIndex.stream(source.tableName)) {
+      rowCount += 1n;
+      firstStableKey ??= row.sourceRecordKey;
+      lastStableKey = row.sourceRecordKey;
+      digest.update(`${JSON.stringify(row.values)}\n`, "utf8");
+    }
+    if (rowCount.toString() !== source.rowCount ||
+      firstStableKey !== source.firstStableKey || lastStableKey !== source.lastStableKey ||
+      digest.digest("hex") !== source.logicalDigest)
+      fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  }
+  const declared = new Map(
+    meta.sourceBasis.sourceRows.map((source) => [source.tableName, source]),
+  );
+  if (
+    meta.sourceBasis.indexMode !== "DERIVED_SPOOL_INDEX" ||
+    declared.size !== meta.sourceBasis.sourceRows.length ||
+    declared.size !== INCOME_SOURCE_TABLES.length
+  )
+    fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  for (const tableName of INCOME_SOURCE_TABLES) {
+    const declaredSource = declared.get(tableName);
+    const indexedSource = indexed.get(tableName);
+    if (
+      declaredSource === undefined ||
+      indexedSource === undefined ||
+      declaredSource.rowCount !== indexedSource.rowCount
+    )
+      fail("EXPORT_INCOME_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  }
+};
+
 /** Fixed table-3 workbook. It accepts only a matching, already materialized derived view and RAW index. */
 export class FullBackupIncomeWorkbook {
   private readonly max: number;
@@ -308,11 +386,14 @@ export class FullBackupIncomeWorkbook {
       meta.asOf !== indexMeta.asOf
     )
       fail("EXPORT_INCOME_WORKBOOK_SNAPSHOT_MISMATCH");
+    if (this.options.manifestContext !== undefined)
+      await assertManifestSources(this.options.manifestContext, this.options.index, indexMeta, meta);
     let out: string | undefined,
       monthly: DiskRows | undefined,
       trace: DiskRows | undefined,
       anomalies: DiskRows | undefined,
       explanationIndex: DiskRows | undefined,
+      manifest: DiskRows | undefined,
       long: DiskRows | undefined,
       nil: DiskRows | undefined;
     const pagers: Pager[] = [];
@@ -331,6 +412,8 @@ export class FullBackupIncomeWorkbook {
         out,
         ".income-explanation.ndjson",
       );
+      if (this.options.manifestContext !== undefined)
+        manifest = await DiskRows.create(out, ".income-manifest.ndjson");
       long = await DiskRows.create(out, ".income-long.ndjson");
       nil = await DiskRows.create(out, ".income-null.ndjson");
       const rowNumbers = new Map<string, bigint>();
@@ -563,8 +646,49 @@ export class FullBackupIncomeWorkbook {
           ]),
         );
       }
+      if (this.options.manifestContext !== undefined) {
+        const sheetParts: ManifestSheetPart[] = [];
+        const addParts = (prefix: string, source: DiskRows): void => {
+          const count = pages(source.rowCount(), this.max);
+          for (let part = 1; part <= count; part += 1) {
+            const start = BigInt(part - 1) * BigInt(this.max);
+            const remaining = source.rowCount() - start;
+            sheetParts.push({
+              sheetId: count === 1 ? prefix : `${prefix}_${String(part).padStart(4, "0")}`,
+              logicalName: prefix,
+              partNo: String(part),
+              rowCount: (remaining > BigInt(this.max) ? BigInt(this.max) : remaining).toString(),
+              sourceTable: null,
+              sourceLogicalDigest: null,
+              pageLogicalDigest: null,
+              summaryScope: "SOURCE_TABLE_DIGEST_ONLY",
+            });
+          }
+        };
+        addParts("01_月度收入", monthly!);
+        addParts("02_来源明细", trace!);
+        addParts("03_异常", anomalies!);
+        const rows = createManifestWorkbookRows({
+          context: this.options.manifestContext,
+          spoolId: indexMeta.spoolId,
+          snapshotId: indexMeta.snapshotId,
+          asOf: indexMeta.asOf,
+          file: "business-table-3-income-derived.xlsx",
+          workbookRole: "BUSINESS_DERIVED",
+          tableNumbers: [3],
+          sheetParts,
+        });
+        for (const row of rows)
+          await manifest!.add(await cells(row, "00_manifest", row[0], ["field", "content"]));
+      }
       for (const x of [monthly, trace, anomalies, explanationIndex, long, nil])
         await x.seal();
+      await manifest?.seal();
+      if (manifest !== undefined) sheets.push({
+        name: "00_manifest",
+        columns: ["字段", "内容"],
+        rows: readRows(out, manifest.relative, 2),
+      });
       sheets.push({
         name: "00_说明",
         columns: ["字段", "内容"],
@@ -637,6 +761,8 @@ export class FullBackupIncomeWorkbook {
       });
       for (const x of [monthly, trace, anomalies, explanationIndex, long, nil])
         await rm(join(out, x.relative), { force: true });
+      if (manifest !== undefined)
+        await rm(join(out, manifest.relative), { force: true });
       await syncBackupDirectory(out);
       const integrity = await hashBackupFile(
         out,
@@ -674,7 +800,7 @@ export class FullBackupIncomeWorkbook {
       } catch (e) {
         cleanup.push(e);
       }
-    for (const x of [monthly, trace, anomalies, explanationIndex, long, nil])
+    for (const x of [monthly, trace, anomalies, explanationIndex, manifest, long, nil])
       try {
         await x?.dispose();
       } catch (e) {

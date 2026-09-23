@@ -10,6 +10,11 @@ import {
 } from "./full-backup-business-facts-view.js";
 import { BACKUP_MAX_DATA_ROWS } from "./full-backup-layout.js";
 import { splitBackupLongText } from "./full-backup-long-text.js";
+import {
+  createManifestWorkbookRows,
+  type FullBackupManifestContext,
+  type ManifestSheetPart,
+} from "./full-backup-manifest.js";
 import { writeXlsx, type XlsxOptions, type XlsxSheet } from "./openxml-xlsx-writer.js";
 import type { FullBackupSpoolResult } from "./full-backup-spool.js";
 import {
@@ -51,6 +56,8 @@ export type FullBackupBusinessFactsWorkbookExporterOptions = Readonly<{
   profile: BusinessFactsWorkbookProfile;
   /** Parent for this attempt's new private output directory. */
   outputRoot: string;
+  /** Optional fixed package context. Without it, preserves the legacy workbook shape. */
+  manifestContext?: FullBackupManifestContext;
   /** @internal Test seam. Production always uses the OpenXML writer. */
   writeWorkbook?: WorkbookWriter;
   /** @internal Test seam, bounded to the production Excel page limit. */
@@ -396,6 +403,63 @@ const explanationRows = (profile: FixedProfile, description: BusinessFactsViewDe
   ["已知缺口", gaps.join(", ")],
 ];
 
+type SourceSummary = Readonly<{
+  sourceTable: string;
+  rowCount: string;
+  logicalDigest: string;
+  firstStableKey: string | null;
+  lastStableKey: string | null;
+}>;
+
+const assertManifestSources = (
+  context: FullBackupManifestContext,
+  spool: FullBackupSpoolResult,
+  sourceRows: readonly SourceSummary[],
+): void => {
+  if (context.spoolId !== spool.spoolId || context.snapshotId !== spool.snapshotId || context.asOf !== spool.asOf)
+    fail("EXPORT_BUSINESS_FACTS_WORKBOOK_MANIFEST_SNAPSHOT_MISMATCH");
+  const datasets = new Map(spool.datasets.map((dataset) => [dataset.tableName, dataset]));
+  const rawTables = new Map(context.rawTables.map((table) => [table.tableName, table]));
+  for (const source of sourceRows) {
+    const dataset = datasets.get(source.sourceTable);
+    const raw = rawTables.get(source.sourceTable);
+    if (dataset === undefined || raw === undefined || dataset.excluded ||
+      dataset.rowCount !== source.rowCount || dataset.logicalDigest !== source.logicalDigest ||
+      raw.rowCount !== source.rowCount || raw.logicalDigest !== source.logicalDigest ||
+      raw.firstStableKey !== source.firstStableKey || raw.lastStableKey !== source.lastStableKey)
+      fail("EXPORT_BUSINESS_FACTS_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  }
+};
+
+const manifestRowKey = (rowNumber: bigint, row: TextRow): string =>
+  `${rowNumber.toString()}:${row[0] ?? ""}`;
+
+const collectAuxiliaryRows = async (
+  longIndex: NdjsonIndex,
+  nullIndex: NdjsonIndex,
+  sourceTable: string,
+  columns: readonly string[],
+  rows: readonly TextRow[],
+): Promise<void> => {
+  let rowNumber = 0n;
+  for (const row of rows) {
+    rowNumber += 1n;
+    const recordKey = manifestRowKey(rowNumber, row);
+    for (const [index, value] of row.entries()) {
+      const field = columns[index]!;
+      if (value === null) {
+        await nullIndex.add([sourceTable, recordKey, rowNumber.toString(), field]);
+        continue;
+      }
+      const split = splitBackupLongText(value);
+      if (split !== null) {
+        for (const [part, chunk] of split.chunks.entries())
+          await longIndex.add([split.reference, sourceTable, recordKey, rowNumber.toString(), field, String(part + 1), chunk]);
+      }
+    }
+  }
+};
+
 /**
  * Writes one fixed stored-fact business table from an already complete RAW
  * spool. It cannot accept caller-defined sheets, columns, paths, or profiles.
@@ -437,12 +501,16 @@ export class FullBackupBusinessFactsWorkbookExporter {
       longIndex = await NdjsonIndex.create(outputDirectory, `${this.profile.temporaryIndexPrefix}-long-text.ndjson`);
       nullIndex = await NdjsonIndex.create(outputDirectory, `${this.profile.temporaryIndexPrefix}-null-coordinates.ndjson`);
 
-      const sourceRows: Array<{ sourceTable: string; rowCount: string; logicalDigest: string }> = [];
+      const sourceRows: SourceSummary[] = [];
       const datasets = new Map(this.options.spool.datasets.map((dataset) => [dataset.tableName, dataset]));
       for (const source of description.sources) {
         let count = 0n;
+        let firstStableKey: string | null = null;
+        let lastStableKey: string | null = null;
         for await (const row of view.readSourceRows(this.profile.tableNumber, source.sourceTable)) {
           assertRow(source, row);
+          if (firstStableKey === null) firstStableKey = row.sourceRecordKey;
+          lastStableKey = row.sourceRecordKey;
           for (const [index, value] of row.values.entries()) {
             const field = source.columns[index]!.sourceColumn;
             if (value === null) {
@@ -459,16 +527,69 @@ export class FullBackupBusinessFactsWorkbookExporter {
         const logicalDigest = datasets.get(source.sourceTable)?.logicalDigest;
         if (typeof logicalDigest !== "string") fail("EXPORT_BUSINESS_FACTS_WORKBOOK_SOURCE_METADATA_INVALID");
         const sourceDigest = logicalDigest as string;
-        sourceRows.push({ sourceTable: source.sourceTable, rowCount: count.toString(), logicalDigest: sourceDigest });
+        sourceRows.push(Object.freeze({
+          sourceTable: source.sourceTable,
+          rowCount: count.toString(),
+          logicalDigest: sourceDigest,
+          firstStableKey,
+          lastStableKey,
+        }));
         pagers.push(new SourcePager(view, this.profile.tableNumber, source, count, this.maxDataRows));
       }
+
+      const manifestParts: ManifestSheetPart[] = [];
+      for (const [index, source] of description.sources.entries()) {
+        const sourceCount = BigInt(sourceRows[index]!.rowCount);
+        const pages = pageCount(sourceCount, this.maxDataRows);
+        for (let page = 1; page <= pages; page += 1) {
+          const start = BigInt(page - 1) * BigInt(this.maxDataRows);
+          const remaining = sourceCount - start;
+          manifestParts.push(Object.freeze({
+            sheetId: sourceSheetName(this.profile, index, source, page, pages),
+            logicalName: source.sourceTable,
+            partNo: String(page),
+            rowCount: (remaining > BigInt(this.maxDataRows) ? BigInt(this.maxDataRows) : remaining).toString(),
+            sourceTable: source.sourceTable,
+            sourceLogicalDigest: sourceRows[index]!.logicalDigest,
+            pageLogicalDigest: null,
+            summaryScope: "SOURCE_TABLE_DIGEST_ONLY" as const,
+          }));
+        }
+      }
+
+      const manifestColumns = ["字段", "内容"] as const;
+      const manifestRows = this.options.manifestContext === undefined
+        ? undefined
+        : (() => {
+          assertManifestSources(this.options.manifestContext!, this.options.spool, sourceRows);
+          return createManifestWorkbookRows({
+            context: this.options.manifestContext!,
+            spoolId: this.options.spool.spoolId,
+            snapshotId: this.options.spool.snapshotId,
+            asOf: this.options.spool.asOf,
+            file: this.profile.file,
+            workbookRole: "BUSINESS_FACT",
+            tableNumbers: [this.profile.tableNumber],
+            sheetParts: manifestParts,
+          });
+        })();
+      if (manifestRows !== undefined)
+        await collectAuxiliaryRows(longIndex, nullIndex, "00_manifest", manifestColumns, manifestRows);
       await longIndex.seal();
       await nullIndex.seal();
       const longPager = new IndexPager(outputDirectory, longIndex.path(), LONG_TEXT_COLUMNS.length, longIndex.rowCount(), this.maxDataRows);
       const nullPager = new IndexPager(outputDirectory, nullIndex.path(), NULL_COORDINATE_COLUMNS.length, nullIndex.rowCount(), this.maxDataRows);
       indexPagers.push(longPager, nullPager);
 
-      const sheets: XlsxSheet[] = [{ name: "00_说明", columns: ["字段", "内容"], rows: explanationRows(this.profile, description, this.options.spool, gaps, sourceRows) }];
+      const sheets: XlsxSheet[] = [];
+      if (manifestRows !== undefined) {
+        sheets.push({
+          name: "00_manifest",
+          columns: manifestColumns,
+          rows: manifestRows.map((row) => row.map(workbookValue)),
+        });
+      }
+      sheets.push({ name: "00_说明", columns: ["字段", "内容"], rows: explanationRows(this.profile, description, this.options.spool, gaps, sourceRows) });
       for (const [index, source] of description.sources.entries()) {
         const sourceCount = BigInt(sourceRows[index]!.rowCount);
         const pages = pageCount(sourceCount, this.maxDataRows);
@@ -504,7 +625,13 @@ export class FullBackupBusinessFactsWorkbookExporter {
         spoolId: this.options.spool.spoolId, snapshotId: description.snapshotId, asOf: description.asOf,
         file: this.profile.file, sizeBytes: integrity.sizeBytes, sha256: integrity.sha256,
         coveredTables: [this.profile.tableNumber] as readonly [1] | readonly [2] | readonly [4] | readonly [5] | readonly [6] | readonly [8],
-        gaps, schemaVersion: description.schemaVersion, sourceRows: Object.freeze(sourceRows.map((source) => Object.freeze(source))),
+        gaps,
+        schemaVersion: description.schemaVersion,
+        sourceRows: Object.freeze(sourceRows.map((source) => Object.freeze({
+          sourceTable: source.sourceTable,
+          rowCount: source.rowCount,
+          logicalDigest: source.logicalDigest,
+        }))),
       });
     } catch (error) {
       primaryError = error;

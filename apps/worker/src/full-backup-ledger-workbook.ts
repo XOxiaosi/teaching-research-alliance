@@ -1,12 +1,22 @@
 import { chmod, mkdir, mkdtemp, open, rm, type FileHandle } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { assertPrivateBackupDirectory, hashBackupFile, openPrivateBackupFile, syncBackupDirectory, writeBackupBytes } from "./backup-file-io.js";
 import { BACKUP_MAX_DATA_ROWS } from "./full-backup-layout.js";
-import { FullBackupDerivedSpoolIndex, type DerivedSpoolIndexRow } from "./full-backup-derived-spool-index.js";
+import {
+  FullBackupDerivedSpoolIndex,
+  type DerivedSpoolIndexMetadata,
+  type DerivedSpoolIndexRow,
+} from "./full-backup-derived-spool-index.js";
 import { FullBackupLedgerBusinessPeriodSource } from "./full-backup-ledger-business-period-source.js";
 import { FullBackupLedgerDerivedView, type LedgerDerivedEntry, type LedgerDerivedMonthlyRow, type LedgerDerivedReconciliationRow } from "./full-backup-ledger-derived-view.js";
 import { splitBackupLongText } from "./full-backup-long-text.js";
+import { fullBackupOutputColumns } from "./full-backup-transformer.js";
+import type {
+  FullBackupManifestContext,
+  ManifestSheetPart,
+} from "./full-backup-manifest.js";
 import { writeXlsx, type XlsxOptions, type XlsxSheet } from "./openxml-xlsx-writer.js";
 
 type Text = string | null;
@@ -34,12 +44,46 @@ const controlledText = (value: string): string => {
   if (splitBackupLongText(value) !== null) fail("EXPORT_LEDGER_WORKBOOK_METADATA_TOO_LONG");
   return value;
 };
+const assertManifestSources = async (
+  context: FullBackupManifestContext,
+  derivedIndex: FullBackupDerivedSpoolIndex,
+  index: DerivedSpoolIndexMetadata,
+): Promise<void> => {
+  if (context.spoolId !== index.spoolId || context.snapshotId !== index.snapshotId ||
+    context.asOf !== index.asOf)
+    fail("EXPORT_LEDGER_WORKBOOK_MANIFEST_SNAPSHOT_MISMATCH");
+  const indexed = new Map(index.sources.map((source) => [source.tableName, source]));
+  if (indexed.size !== index.sources.length || context.rawTables.length !== indexed.size)
+    fail("EXPORT_LEDGER_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  for (const source of context.rawTables) {
+    const indexedSource = indexed.get(source.tableName);
+    if (indexedSource === undefined || source.rowCount !== indexedSource.rowCount)
+      fail("EXPORT_LEDGER_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+    const digest = createHash("sha256");
+    digest.update(`${JSON.stringify({ columns: fullBackupOutputColumns(source.tableName) })}\n`, "utf8");
+    let rowCount = 0n;
+    let firstStableKey: string | null = null;
+    let lastStableKey: string | null = null;
+    for await (const row of derivedIndex.stream(source.tableName)) {
+      rowCount += 1n;
+      firstStableKey ??= row.sourceRecordKey;
+      lastStableKey = row.sourceRecordKey;
+      digest.update(`${JSON.stringify(row.values)}\n`, "utf8");
+    }
+    if (rowCount.toString() !== source.rowCount ||
+      firstStableKey !== source.firstStableKey || lastStableKey !== source.lastStableKey ||
+      digest.digest("hex") !== source.logicalDigest)
+      fail("EXPORT_LEDGER_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+  }
+};
 
 export type FullBackupLedgerWorkbookOptions = Readonly<{
   index: FullBackupDerivedSpoolIndex;
   ledger: FullBackupLedgerDerivedView;
   periods: FullBackupLedgerBusinessPeriodSource;
   outputRoot: string;
+  /** Optional fixed package context. Omit it to preserve the legacy workbook shape. */
+  manifestContext?: FullBackupManifestContext;
   /** @internal Test seam. Production always uses the OpenXML string-only writer. */
   writeWorkbook?: Writer;
   /** @internal Test seam bounded by the production page limit. */
@@ -161,9 +205,16 @@ export class FullBackupLedgerWorkbook {
     if (index.spoolId !== ledger.spoolId || index.snapshotId !== ledger.snapshotId || index.asOf !== ledger.asOf ||
         index.spoolId !== periods.spoolId || index.snapshotId !== periods.snapshotId || index.asOf !== periods.asOf)
       fail("EXPORT_LEDGER_WORKBOOK_SNAPSHOT_MISMATCH");
+    if (this.options.manifestContext !== undefined)
+      await assertManifestSources(this.options.manifestContext, this.options.index, index);
     let out: string | undefined; let primary: unknown; let result: FullBackupLedgerWorkbookResult | undefined;
     let entry: DiskRows | undefined, monthly: DiskRows | undefined, reconciliation: DiskRows | undefined, ledgerAnomaly: DiskRows | undefined;
-    let period: DiskRows | undefined, link: DiskRows | undefined, periodAnomaly: DiskRows | undefined, long: DiskRows | undefined, nil: DiskRows | undefined;
+    let period: DiskRows | undefined;
+    let link: DiskRows | undefined;
+    let periodAnomaly: DiskRows | undefined;
+    let manifest: DiskRows | undefined;
+    let long: DiskRows | undefined;
+    let nil: DiskRows | undefined;
     const pagers: Pager[] = [];
     try {
       await mkdir(this.options.outputRoot, { recursive: true, mode: 0o700 }); const root = await assertPrivateBackupDirectory(this.options.outputRoot);
@@ -175,6 +226,8 @@ export class FullBackupLedgerWorkbook {
       period = await DiskRows.create(out, ".ledger-period.ndjson");
       link = await DiskRows.create(out, ".ledger-period-link.ndjson");
       periodAnomaly = await DiskRows.create(out, ".ledger-period-anomaly.ndjson");
+      if (this.options.manifestContext !== undefined)
+        manifest = await DiskRows.create(out, ".ledger-manifest.ndjson");
       long = await DiskRows.create(out, ".ledger-long.ndjson");
       nil = await DiskRows.create(out, ".ledger-null.ndjson");
       const rowNumbers = new Map<string, bigint>();
@@ -273,8 +326,53 @@ export class FullBackupLedgerWorkbook {
           row.code, row.eventId, row.eventSourceRecordKey, row.sourceTable, row.sourceRecordKey, row.sourceRowNumber,
         ]);
       }
+      if (this.options.manifestContext !== undefined) {
+        const { createManifestWorkbookRows } = await import("./full-backup-manifest.js");
+        const sheetParts: ManifestSheetPart[] = [];
+        const addParts = (prefix: string, source: DiskRows): void => {
+          const count = pages(source.rowCount(), this.max);
+          for (let part = 1; part <= count; part += 1) {
+            const start = BigInt(part - 1) * BigInt(this.max);
+            const remaining = source.rowCount() - start;
+            sheetParts.push({
+              sheetId: count === 1 ? prefix : `${prefix}_${String(part).padStart(4, "0")}`,
+              logicalName: prefix,
+              partNo: String(part),
+              rowCount: (remaining > BigInt(this.max) ? BigInt(this.max) : remaining).toString(),
+              sourceTable: null,
+              sourceLogicalDigest: null,
+              pageLogicalDigest: null,
+              summaryScope: "SOURCE_TABLE_DIGEST_ONLY",
+            });
+          }
+        };
+        for (const [prefix, source] of [
+          ["01_原始分录", entry!], ["02_入账月汇总", monthly!],
+          ["03_账户余额对账", reconciliation!], ["04_账本异常", ledgerAnomaly!],
+          ["05_业务期间", period!], ["06_业务期间链接", link!],
+          ["07_业务期间异常", periodAnomaly!],
+        ] as const) addParts(prefix, source);
+        const rows = createManifestWorkbookRows({
+          context: this.options.manifestContext,
+          spoolId: index.spoolId,
+          snapshotId: index.snapshotId,
+          asOf: index.asOf,
+          file: "business-table-7-ledger-derived.xlsx",
+          workbookRole: "BUSINESS_DERIVED",
+          tableNumbers: [7],
+          sheetParts,
+        });
+        for (const row of rows)
+          await record(manifest!, "00_manifest", row[0], ["field", "content"], row);
+      }
       for (const rows of [entry, monthly, reconciliation, ledgerAnomaly, period, link, periodAnomaly, long, nil]) await rows.seal();
-      const sheets: XlsxSheet[] = [{ name: "00_说明", columns: ["字段", "内容"], rows: [
+      await manifest?.seal();
+      const sheets: XlsxSheet[] = [];
+      if (manifest !== undefined) sheets.push({
+        name: "00_manifest", columns: ["字段", "内容"],
+        rows: readRows(out, manifest.relative, 2),
+      });
+      sheets.push({ name: "00_说明", columns: ["字段", "内容"], rows: [
         ["导出模式", "LEDGER_DERIVED_WORKBOOK"], ["完整备份", "false"],
         ["覆盖业务表", "7（账本派生）"], ["schema_version", LEDGER_WORKBOOK_SCHEMA_VERSION],
         ["RAW spool", controlledText(index.spoolId)], ["快照", controlledText(index.snapshotId)],
@@ -287,7 +385,7 @@ export class FullBackupLedgerWorkbook {
         ["账本异常数", controlledText(ledger.anomalyCount)],
         ["业务期间异常数", controlledText(periods.anomalyCount)],
         ["已知缺口", controlledText(ledgerWorkbookGaps(ledger.coverageGaps).join(", "))],
-      ] }];
+      ] });
       const add = (name: string, rows: DiskRows, columns: readonly string[]) => {
         const pager = new Pager(out!, rows, columns.length, this.max);
         pagers.push(pager);
@@ -312,6 +410,7 @@ export class FullBackupLedgerWorkbook {
       const file = "business-table-7-ledger-derived.xlsx";
       await this.writer({ outputPath: join(out, file), sheets });
       for (const rows of [entry, monthly, reconciliation, ledgerAnomaly, period, link, periodAnomaly, long, nil]) await rm(join(out, rows.relative), { force: true });
+      if (manifest !== undefined) await rm(join(out, manifest.relative), { force: true });
       await syncBackupDirectory(out); const integrity = await hashBackupFile(out, file); await syncBackupDirectory(root);
       result = Object.freeze({
         mode: "LEDGER_DERIVED_WORKBOOK",
@@ -338,7 +437,7 @@ export class FullBackupLedgerWorkbook {
     } catch (error) { primary = error; }
     const cleanup: unknown[] = [];
     for (const pager of pagers) try { await pager.dispose(primary); } catch (error) { cleanup.push(error); }
-    for (const rows of [entry, monthly, reconciliation, ledgerAnomaly, period, link, periodAnomaly, long, nil]) {
+    for (const rows of [entry, monthly, reconciliation, ledgerAnomaly, period, link, periodAnomaly, manifest, long, nil]) {
       try { await rows?.dispose(); } catch (error) { cleanup.push(error); }
     }
     if ((primary !== undefined || cleanup.length > 0 || result === undefined) && out) {

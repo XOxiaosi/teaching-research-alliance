@@ -3,6 +3,7 @@ import {
   type FullBackupBusinessFactsWorkbookExportResult,
 } from "./full-backup-business-facts-workbook-exporter.js";
 import type { XlsxOptions } from "./openxml-xlsx-writer.js";
+import type { FullBackupManifestContext } from "./full-backup-manifest.js";
 import type { FullBackupSpoolResult } from "./full-backup-spool.js";
 
 type WorkbookWriter = (options: XlsxOptions) => Promise<void>;
@@ -15,6 +16,7 @@ export type FullBackupDeductionWorkbookExporterOptions = Readonly<{
   spoolDirectory: string;
   spool: FullBackupSpoolResult;
   outputRoot: string;
+  manifestContext?: FullBackupManifestContext;
   /** @internal Test seam. Production always uses the OpenXML writer. */
   writeWorkbook?: WorkbookWriter;
   /** @internal Test seam, bounded by the generic exporter's production limit. */

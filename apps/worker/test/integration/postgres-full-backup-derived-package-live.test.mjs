@@ -21,6 +21,9 @@ import { FullBackupTransformer } from "../../dist/full-backup-transformer.js";
 import { FullBackupWorkbookExporter } from "../../dist/full-backup-workbook-exporter.js";
 import { PostgresFullBackupSource } from "../../dist/postgres-full-backup-source.js";
 
+import { FullBackupManifestEvidence } from "../../dist/full-backup-manifest-evidence.js";
+import { createFullBackupManifestContext } from "../../dist/full-backup-manifest.js";
+
 const run = promisify(execFile);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const profiles = [
@@ -141,20 +144,29 @@ test("real PG approved refund with READY originals packages six facts and both d
       index,
       attemptRoot: join(root, "periods"),
     });
+    const evidence = await FullBackupManifestEvidence.collect({spoolDirectory, spool, index, ledger, periods});
+    const manifestContext = createFullBackupManifestContext({
+      evidence, fileGroupId: "derived-package-pg-manifest", generatedAt: new Date().toISOString(),
+      applicationVersion: "0.1.0", generatorVersion: "test-1",
+    });
     const incomeResult = await new FullBackupIncomeWorkbook({
         index,
         view: income,
         outputRoot: join(root, "income-book"),
+        manifestContext,
       }).export(),
       ledgerResult = await new FullBackupLedgerWorkbook({
         index,
         ledger,
         periods,
         outputRoot: join(root, "ledger-book"),
+        manifestContext,
       }).export();
     const incomeBook = await xlsxSheets(
       join(root, "income-book", incomeResult.outputId, incomeResult.file),
     );
+    assert.equal(Object.keys(incomeBook)[0], "00_manifest");
+    assert.ok(incomeBook["00_manifest"].flat().includes(spool.snapshotId));
     const trace = incomeBook["02_来源明细"];
     const traceHeader = trace[0];
     assert.equal(
@@ -171,6 +183,8 @@ test("real PG approved refund with READY originals packages six facts and both d
     const ledgerBook = await xlsxSheets(
       join(root, "ledger-book", ledgerResult.outputId, ledgerResult.file),
     );
+    assert.equal(Object.keys(ledgerBook)[0], "00_manifest");
+    assert.ok(ledgerBook["00_manifest"].flat().includes(spool.snapshotId));
     const ledgerEntries = ledgerBook["01_原始分录"];
     const ledgerHeader = ledgerEntries[0];
     assert.equal(
