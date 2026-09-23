@@ -121,6 +121,7 @@ type SummaryRow = Readonly<{
   fund_assignment_responsibility: string | null;
   fund_assignment_valid_from: string | null;
   fund_assignment_valid_to: string | null;
+  fund_assignment_closure_valid: boolean;
   ledger_entry_count: string | null;
   source_ledger_entries: string | null;
   destination_ledger_entries: string | null;
@@ -332,6 +333,21 @@ const summarySelect = `
          assignment.responsibility_code AS fund_assignment_responsibility,
          to_char(assignment.valid_from AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_from,
          to_char(assignment.valid_to AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_to,
+         (SELECT count(*)=1
+            FROM company_finance_fund_assignment successor
+            JOIN company_finance_fund_command_idempotency closure_command
+              ON closure_command.operation='ASSIGN'
+             AND closure_command.result_json->>'previousAssignmentId'=assignment.id::text
+             AND closure_command.result_json->>'id'=successor.id::text
+             AND closure_command.result_json->>'fundId'=successor.fund_id::text
+             AND closure_command.result_json->>'validFrom'=to_char(successor.valid_from AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+             AND closure_command.actor_person_id=successor.created_by_person_id
+             AND closure_command.created_at=successor.created_at
+           WHERE assignment.valid_to IS NOT NULL AND successor.valid_from=assignment.valid_to
+             AND successor.duty_subject=assignment.duty_subject AND successor.scope_type=assignment.scope_type
+             AND successor.scope_id IS NOT DISTINCT FROM assignment.scope_id
+             AND successor.responsibility_code=assignment.responsibility_code
+         ) AS fund_assignment_closure_valid,
          ledger_counts.entry_count::text AS ledger_entry_count,ledger_counts.source_entries::text AS source_ledger_entries,
          ledger_counts.destination_entries::text AS destination_ledger_entries,ledger_counts.other_entries::text AS other_ledger_entries,
          commands.command_count::text AS command_count,commands.submit_command_count::text AS submit_command_count,
@@ -444,6 +460,12 @@ const noTransfer = (row: SummaryRow): boolean => [
 ].every((value) => value === null)
   && row.ledger_entry_count === "0" && row.source_ledger_entries === "0" && row.destination_ledger_entries === "0" && row.other_ledger_entries === "0";
 
+// A later assignment closure does not change the authorization that existed at execution.
+// A previously fixed end remains immutable; both historical and frozen identities are still checked.
+const matchesHistoricalEnd = (frozen: string | null, current: string | null, executedAt: string): boolean =>
+  frozen === current || (frozen === null && current !== null
+    && new Date(current).getTime() > new Date(executedAt).getTime());
+
 const toParsedSummary = (row: SummaryRow): ParsedSummary => {
   const status = row.status as (typeof statuses)[number];
   const documentVersion = parseVersion(row.version);
@@ -553,9 +575,11 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
         || snapshotString(authorization, "executorSubjectCode") !== "HEADQUARTERS_FINANCE"
         || snapshotString(authorization, "executorScopeType") !== "GLOBAL"
         || snapshotUuid(authorization, "roleAssignmentId") !== roleAssignmentId
-        || snapshotTime(authorization, "roleValidFrom") !== roleValidFrom || snapshotNullableTime(authorization, "roleValidTo") !== roleValidTo
+        || snapshotTime(authorization, "roleValidFrom") !== roleValidFrom || !matchesHistoricalEnd(snapshotNullableTime(authorization, "roleValidTo"), roleValidTo, executedAt)
         || snapshotUuid(authorization, "companyFundAssignmentId") !== companyFundAssignmentId
-        || snapshotTime(authorization, "fundAssignmentValidFrom") !== assignmentValidFrom || snapshotNullableTime(authorization, "fundAssignmentValidTo") !== assignmentValidTo
+        || snapshotTime(authorization, "fundAssignmentValidFrom") !== assignmentValidFrom || !matchesHistoricalEnd(snapshotNullableTime(authorization, "fundAssignmentValidTo"), assignmentValidTo, executedAt)
+        || (snapshotNullableTime(authorization, "fundAssignmentValidTo") === null && assignmentValidTo !== null
+          && row.fund_assignment_closure_valid !== true)
         || snapshotUuid(authorization, "sourceFundId") !== sourceFundId || snapshotString(authorization, "sourceFundCode") !== row.source_fund_code
         || snapshotUuid(authorization, "sourceAccountId") !== sourceAccountId || snapshotUuid(authorization, "destinationAccountId") !== destinationAccountId
         || snapshotUuid(authorization, "applicantPersonId") !== applicantId || snapshotTime(authorization, "submittedAt") !== submittedAt

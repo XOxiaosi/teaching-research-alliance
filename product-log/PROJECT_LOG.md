@@ -1195,3 +1195,11 @@
 - 表4普通报销业务工作簿仍未实现，缺口改为`REIMBURSEMENT_TRANSFER_BUSINESS_WORKBOOK_PENDING`；不把来源映射等同完整Excel交付。表5导出器自动携带schema版本，实际内容行为未改变。
 - 主任务实跑：worker构建；schema/事实视图/表5导出器unit16/16；真实PG报销提交→审批→执行→spool→view及表5实际XLSX回归2/2（8.43s），来源100→-50、个人20→170及1笔执行/2份绑定/3条命令逐列保真；最终统一`npm run check`418/418（54.02s），迁移26项、diff通过。独立只读审查无P1/P2。
 - 证据：`/tmp/alliance-reimbursement-facts-v3-unit.log`、`/tmp/alliance-reimbursement-facts-v3-pg.log`、`/tmp/alliance-reimbursement-ui-history-schema-final-check.log`。保持本地合成环境；下一步继续业务工作簿和剩余源模型，不发布完整备份完成结论。
+
+
+## 2026-09-23 · DEV-008A 历史任命闭合后的报销读取
+
+- 修复P28：财务角色或公司资金关系在执行后结束，不使旧完成报销及个人收入不可读。原授权快照、原资金及原账户保持；固定结束时间仍严格校验。资金关系从无结束时间到后来闭合时，要求唯一后继起点及不可变ASSIGN命令对应，不能把任意改晚的结束时间视为合法历史。
+- 真实资金create/assign切换后，个人detail/listOwn/getOwnOverview仍读到原完成记录；原快照两个结束时间仍null。执行前失效、已封口边界被改离后继起点均拒读。角色当前无正式终止页面，测试只用数据库合法历史闭合，不声称已有完整任职管理。
+- 主任务API构建、历史读取及既有报销执行/完成态/个人收入PG6/6（18.52s），最终统一检查418/418，diff通过；独立实现审查及PG验证通过。证据 `/tmp/alliance-reimbursement-history-final-pg.log`、`/tmp/alliance-reimbursement-ui-history-schema-final-check.log`。
+- 同时登记只读关系审查P27：人员校区中的region_id与校区分区历史可能分叉，尚无正式变更发布入口；后续调校区/分区必须一起验证，不能由修改一侧声称已重算。此项只是实现缺口登记，不改变PRODUCT或宣称关系变更完成。
