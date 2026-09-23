@@ -18,6 +18,7 @@ type Props = Readonly<{
   client: TeacherApiClient;
   session: SessionSnapshot;
   sessionKey: string;
+  busy?: boolean;
   onInvalidated?: () => void;
   onSaved?: () => void;
   onUnconfirmedChange?: (pending: boolean) => void;
@@ -35,7 +36,7 @@ const days = (month: string): number => new Date(Number(month.slice(0, 4)), Numb
 const roleSignature = (s: SessionSnapshot): string => { const c = s.currentRoleContext; return c === null ? "none" : [c.personId, c.subject, c.scope, c.regionId ?? "", c.campusId ?? "", c.venueId ?? ""].join("|"); };
 const amount = (value: string): string => parseBeanAmountToCents(value.trim());
 
-export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
+export function BenefitPlanPanel({ client, session, sessionKey, busy = false, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
   const [people, setPeople] = useState<ManagedCashWageTeacherDirectory["items"] | null>(null);
   const [funds, setFunds] = useState<readonly BenefitSourceFund[] | null>(null);
   const [month, setMonth] = useState(monthNow);
@@ -85,7 +86,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
     finally { if (generation.current === token) refreshAttempt.current = false; }
   };
   const save = async (): Promise<void> => {
-    if (activeAttempt.current) return;
+    if (busy || activeAttempt.current) return;
     if (phase !== "idle" && submission !== null) { if (phase === "unknown") void execute(submission); return; }
     setMessage("");
     let next: BenefitPlanSubmission;
@@ -97,7 +98,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
     command.current = next; setSubmission(next); setPhase("pending"); await execute(next);
   };
   const execute = async (next: BenefitPlanSubmission): Promise<void> => {
-    if (command.current !== next) return;
+    if (busy || command.current !== next) return;
     const token = generation.current;
     activeAttempt.current = true;
     try { await client.setBenefitPlan(next); if (generation.current !== token || command.current !== next) return; activeAttempt.current = false; command.current = null; setSubmission(null); setPhase("idle"); setMessage("福利计划已保存；本次仅保存计划，不产生已发或已扣豆记录。"); onSaved?.(); }
@@ -112,7 +113,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
   };
 
   if (!canRead) return <View className="panel"><Text>当前身份没有维护总部福利计划的权限。</Text></View>;
-  const locked = phase !== "idle";
+  const locked = busy || phase !== "idle";
   const selectedRoster: readonly BenefitRosterItem[] = roster?.items ?? [];
   const matchingRoster = conflictDraft === null ? [] : selectedRoster.filter(item => item.benefitKind === conflictDraft.benefitKind && item.beneficiaryPersonId === conflictDraft.beneficiaryPersonId && item.benefitMonth === conflictDraft.benefitMonth);
   if (people === null || funds === null) return <View className="panel"><Text>{message || "正在读取福利计划目录…"}</Text>{message && <Button onClick={() => setRevision(v => v + 1)}>重试读取目录</Button>}</View>;
@@ -128,7 +129,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
     <Text>启用</Text><Button size="mini" disabled={locked} onClick={() => setActive(v => !v)}>{active ? "已启用" : "已停用"}</Button>
     <Text>理由</Text><Textarea value={reason} disabled={locked} onInput={e => setReason(e.detail.value)} />
     <Button disabled={locked} onClick={() => void save()}>{phase === "pending" ? "保存中…" : phase === "unknown" ? "结果未确认" : "保存福利计划"}</Button>
-    {phase === "unknown" && <Button onClick={() => void save()}>使用原提交重试</Button>}
+    {phase === "unknown" && <Button disabled={busy} onClick={() => void save()}>使用原提交重试</Button>}
     {message && <Text>{message}</Text>}
     {phase === "conflict" && roster === null && <Button onClick={() => void refreshRoster()}>重试读取最新计划</Button>}
     {conflictDraft !== null && roster !== null && <View className="benefit-plan-latest"><Text>当前月匹配计划（请人工核对）</Text>{matchingRoster.length === 0 && <Text>最新名单中无该计划，请确认后再建立新计划。</Text>}{matchingRoster.map(item => <View key={`${item.benefitKind}:${item.beneficiaryPersonId}`}><Text>{kindLabel[item.benefitKind]} · {item.beneficiaryDisplayName} · 第 {item.currentPlan.version} 版 · {item.currentPlan.executionDay} 日 · {formatCentsAsBeans(item.currentPlan.amountCents)} 欢乐豆 · {item.currentPlan.sourceFund.displayName}（{item.currentPlan.sourceFund.code}）· {item.currentPlan.active ? "启用" : "停用"}</Text></View>)}<Button onClick={() => { setConflictDraft(null); setRoster(null); setPhase("idle"); setMessage("已完成人工核对，请修改或重新提交。"); }}>我已核对，允许重新提交</Button></View>}

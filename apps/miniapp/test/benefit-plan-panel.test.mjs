@@ -27,12 +27,12 @@ test.before(async () => {
 });
 test.after(async () => { await rm(temp, { recursive: true, force: true }); });
 
-async function mount(overrides = {}, subject = "HEADQUARTERS_FINANCE", contextPatch = {}) {
+async function mount(overrides = {}, subject = "HEADQUARTERS_FINANCE", contextPatch = {}, panelProps = {}) {
   const dom = new JSDOM("<div id='host'></div>", { url: "http://localhost" });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
   const host = document.querySelector("#host"); const root = createRoot(host); let invalidated = 0; let saved = 0; const locks = [];
   const client = { hasRoleContext: true, listManagedCashWageTeachers: async () => ({ items: [{ id: "teacher", nickname: "王老师" }] }), listBenefitSourceFunds: async () => ({ items: [{ fundId: "fund", code: "FINANCE", displayName: "运营资金" }] }), createBenefitPlanSubmission: draft => ({ draft, idempotencyKey: `key-${Date.now()}-${Math.random()}` }), setBenefitPlan: async () => ({}), listManagedBenefitRoster: async month => ({ benefitMonth: month, items: [] }), ...overrides };
-  const render = async (key = "s") => { await act(async () => root.render(React.createElement(Panel, { client, session: { ...session(subject), currentRoleContext: { ...session(subject).currentRoleContext, ...contextPatch } }, sessionKey: key, onSaved: () => saved++, onInvalidated: () => invalidated++, onUnconfirmedChange: value => locks.push(value) }))); await flush(); };
+  const render = async (key = "s") => { await act(async () => root.render(React.createElement(Panel, { ...panelProps, client, session: { ...session(subject), currentRoleContext: { ...session(subject).currentRoleContext, ...contextPatch } }, sessionKey: key, onSaved: () => saved++, onInvalidated: () => invalidated++, onUnconfirmedChange: value => locks.push(value) }))); await flush(); };
   await render();
   const button = text => [...host.querySelectorAll("button")].find(x => x.textContent === text);
   const click = async text => { await act(async () => { button(text).click(); }); await flush(); };
@@ -80,4 +80,16 @@ test("conflict refresh failure keeps parent locked and offers a retry", async ()
 
 test("directory 401/403 invalidates the parent", async () => {
   for (const status of [401, 403]) { const v = await mount({ listBenefitSourceFunds: async () => { throw new ApiClientError(status, "FORBIDDEN_SCOPE"); } }); try { await flush(); assert.equal(v.invalidated(), 1); } finally { await v.close(); } }
+});
+
+
+test("parent busy blocks plan controls and direct save handler", async () => {
+  let writes = 0;
+  const v = await mount({ setBenefitPlan: async () => writes++ }, "HEADQUARTERS_FINANCE", {}, { busy: true });
+  try {
+    assert.equal(v.button("保存福利计划").disabled, true);
+    await v.fill();
+    await act(async () => props(v.button("保存福利计划")).onClick());
+    assert.equal(writes, 0);
+  } finally { await v.close(); }
 });

@@ -23,6 +23,7 @@ import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel";
 import { BonusProjectPanel } from "./bonus-project-panel";
 import { BenefitPlanPanel } from "./benefit-plan-panel";
+import { BenefitConfirmationPanel } from "./benefit-confirmation-panel";
 import { BenefitPanel } from "./benefit-panel";
 import "./index.css";
 
@@ -159,7 +160,9 @@ export default function IndexPage(): ReactNode {
   const [wageConfirmationUnconfirmed, setWageConfirmationUnconfirmed] = useState(false);
   const [benefitPlanUnconfirmed, setBenefitPlanUnconfirmed] = useState(false);
   const [benefitRevision, setBenefitRevision] = useState(0);
-  const financeUnconfirmed = benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [benefitExecutionRevision, setBenefitExecutionRevision] = useState(0);
+  const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
+  const financeUnconfirmed = benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -650,7 +653,7 @@ export default function IndexPage(): ReactNode {
           {canReadSalary && <CashWageConfirmationPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadSalary && <CashWagePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${wageRevision}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadSalary && <BonusProjectPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
-          {canReadSalary && <><BenefitPlanPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${benefitRevision}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /></>}
+          {canReadSalary && <><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /></>}
 
           {canReadVenueBoard && (
             <VenueBoardPanel

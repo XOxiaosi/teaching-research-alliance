@@ -25,6 +25,7 @@ import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel.js";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel.js";
 import { BonusProjectPanel } from "./bonus-project-panel.js";
 import { BenefitPlanPanel } from "./benefit-plan-panel.js";
+import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
@@ -168,7 +169,9 @@ function App(): ReactNode {
   const [wageRevision, setWageRevision] = useState(0);
   const [benefitPlanUnconfirmed, setBenefitPlanUnconfirmed] = useState(false);
   const [benefitRevision, setBenefitRevision] = useState(0);
-  const financeUnconfirmed = benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [benefitExecutionRevision, setBenefitExecutionRevision] = useState(0);
+  const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
+  const financeUnconfirmed = benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -340,25 +343,25 @@ function App(): ReactNode {
   const goPage = (next: typeof activePage): void => { if (financeUnconfirmed) { setMessage("当前有结果待确认的提交，请先完成确认或安全重试。"); return; } setActivePage(next); setMessage(""); window.scrollTo({top:0}); };
   const navigation = <>
     {currentRole === "TEACHING_TEACHER" && <>
-      <button disabled={busy} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><span aria-hidden="true" className="nav-icon">▤</span>周费用录入</button>
-      <button disabled={busy} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>
+      <button disabled={busy || financeUnconfirmed} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><span aria-hidden="true" className="nav-icon">▤</span>周费用录入</button>
+      <button disabled={busy || financeUnconfirmed} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>
     </>}
-    {canCreateReferral(session) && <button disabled={busy} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
-    {canWithdraw && <button disabled={busy} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
-    {canReadVenueBoard && <button disabled={busy} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
-    {canReadOrg && <button disabled={busy} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><span aria-hidden="true" className="nav-icon">▦</span>组织营收</button>}
-    {canReadSalary && <button disabled={busy} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><span aria-hidden="true" className="nav-icon">▣</span>工资管理</button>}
-    {canReadSalary && <button disabled={busy} aria-current={page === "salary-confirmation" ? "page" : undefined} onClick={() => goPage("salary-confirmation")}>工资发放确认</button>}
-    {canReadSalary && <button disabled={busy} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}>奖金项目名称</button>}
-    {canReadSalary && <button disabled={busy} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><span aria-hidden="true" className="nav-icon">▣</span>医社保与公积金</button>}
-    {canProcessWithdrawal && <button disabled={busy} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
-    {canSelfPurchase && <button disabled={busy} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
-    {canConfigureFunds && <button disabled={busy} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
-    {canReadPurchases && <button disabled={busy} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
-    {canWithdraw && <button disabled={busy} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><span aria-hidden="true" className="nav-icon">▧</span>我的报销</button>}
-    {canReadReimbursements && <button disabled={busy} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><span aria-hidden="true" className="nav-icon">▤</span>报销记录</button>}
-    {canReadOwnRefunds && <button disabled={busy} aria-current={page === "refunds" ? "page" : undefined} onClick={() => goPage("refunds")}><span aria-hidden="true" className="nav-icon">↩</span>学生退款</button>}
-    {canReadManagedRefunds && <button disabled={busy} aria-current={page === "refund-history" ? "page" : undefined} onClick={() => goPage("refund-history")}><span aria-hidden="true" className="nav-icon">↪</span>退款审核</button>}
+    {canCreateReferral(session) && <button disabled={busy || financeUnconfirmed} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
+    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
+    {canReadVenueBoard && <button disabled={busy || financeUnconfirmed} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
+    {canReadOrg && <button disabled={busy || financeUnconfirmed} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><span aria-hidden="true" className="nav-icon">▦</span>组织营收</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><span aria-hidden="true" className="nav-icon">▣</span>工资管理</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary-confirmation" ? "page" : undefined} onClick={() => goPage("salary-confirmation")}>工资发放确认</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}>奖金项目名称</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><span aria-hidden="true" className="nav-icon">▣</span>医社保与公积金</button>}
+    {canProcessWithdrawal && <button disabled={busy || financeUnconfirmed} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
+    {canSelfPurchase && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
+    {canConfigureFunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
+    {canReadPurchases && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
+    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><span aria-hidden="true" className="nav-icon">▧</span>我的报销</button>}
+    {canReadReimbursements && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><span aria-hidden="true" className="nav-icon">▤</span>报销记录</button>}
+    {canReadOwnRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refunds" ? "page" : undefined} onClick={() => goPage("refunds")}><span aria-hidden="true" className="nav-icon">↩</span>学生退款</button>}
+    {canReadManagedRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refund-history" ? "page" : undefined} onClick={() => goPage("refund-history")}><span aria-hidden="true" className="nav-icon">↪</span>退款审核</button>}
   </>;
   return (
     <div className="shell">
@@ -422,7 +425,7 @@ function App(): ReactNode {
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary-confirmation"}><CashWageConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "bonus-projects"}><BonusProjectPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
-            {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}
@@ -438,7 +441,7 @@ function App(): ReactNode {
             {currentRole === "TEACHING_TEACHER" && <section className="panel"><div className="section-title"><h2>我的生源库</h2><span>{receivedReferrals.length} 条学生课程记录</span></div>
               {receivedReferrals.length === 0 ? <p>暂无学生记录</p> : <div className="students">{receivedReferrals.map((referral) => <article key={referral.referralId}>
                 <div><h3>{referral.studentDisplayName}</h3><p>{referral.courseContextId} · {statusLabels[referral.referralStatus] ?? referral.referralStatus}</p></div>
-                <Button variant="outline" disabled={busy} onClick={() => { setActivePage("fees"); window.scrollTo({top:0}); }}>前往录费</Button>
+                <Button variant="outline" disabled={busy || financeUnconfirmed} onClick={() => goPage("fees")}>前往录费</Button>
               </article>)}</div>}
             </section>}
             </div>

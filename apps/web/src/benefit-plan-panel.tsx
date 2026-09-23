@@ -14,6 +14,7 @@ type Props = {
   client: TeacherApiClient;
   session: SessionSnapshot;
   sessionKey: string;
+  busy?: boolean;
   onInvalidated?: () => void;
   onSaved?: () => void;
   onUnconfirmedChange?: (pending: boolean) => void;
@@ -33,7 +34,7 @@ const authorized = (session: SessionSnapshot): boolean => {
 };
 const authError = (cause: unknown): boolean => cause instanceof RoleSelectionRequiredError || cause instanceof ApiClientError && [401, 403].includes(cause.status) || typeof cause === "object" && cause !== null && [401, 403].includes((cause as { status?: number }).status ?? 0);
 
-export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
+export function BenefitPlanPanel({ client, session, sessionKey, busy = false, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
   const [month, setMonth] = useState(monthNow);
   const [people, setPeople] = useState<readonly { id: string; nickname: string }[] | null>(null);
   const [funds, setFunds] = useState<readonly { fundId: string; code: string; displayName: string }[] | null>(null);
@@ -121,7 +122,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
     }
   };
   const save = async (): Promise<void> => {
-    if (writeLock.current || refreshLock.current || state === "pending" || conflict) return;
+    if (busy || writeLock.current || refreshLock.current || state === "pending" || conflict) return;
     const token = generation.current;
     let next = submission;
     try {
@@ -150,7 +151,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
   };
 
   if (!canRead) return <section className="panel" aria-label="福利计划维护"><h2>福利计划</h2><p>当前身份没有维护总部福利计划的权限。</p></section>;
-  const locked = state !== "idle" || conflict || refreshingRoster || people?.length === 0 || funds?.length === 0;
+  const locked = busy || state !== "idle" || conflict || refreshingRoster || people?.length === 0 || funds?.length === 0;
   const matchedConflict = conflictTarget && roster?.items.find((item) => item.benefitKind === conflictTarget.kind && item.beneficiaryPersonId === conflictTarget.personId && item.benefitMonth === conflictTarget.month);
   return <section className="panel" aria-label="福利计划维护"><h2>福利计划维护</h2>{people === null || funds === null || roster === null ? <><p role="status">{message || "正在读取福利计划目录…"}</p>{message && <button type="button" onClick={() => setDirectoryRevision((value) => value + 1)}>重试读取目录</button>}</> : <><div aria-label="最新福利计划"><h3>当前月计划</h3>{conflict ? conflictReady ? matchedConflict ? <p>{matchedConflict.beneficiaryDisplayName} · {matchedConflict.benefitMonth.slice(0, 7)} · v{matchedConflict.currentPlan.version} · {matchedConflict.currentPlan.executionDay}日 · {formatCentsAsBeans(matchedConflict.currentPlan.amountCents)} 欢乐豆 · 账户 {matchedConflict.currentPlan.sourceFund.displayName}（{matchedConflict.currentPlan.sourceFund.code}）· {matchedConflict.currentPlan.active ? "启用" : "停用"}</p> : <p role="alert">最新名单中无该计划，请确认后再提交。</p> : <p role="status">正在读取最新福利计划，请勿提交。</p> : roster.items.length === 0 ? <p>当前月暂无计划。</p> : roster.items.map((item) => <p key={`${item.benefitKind}:${item.beneficiaryPersonId}`}>{item.beneficiaryDisplayName} · {item.benefitKind === "SOCIAL_INSURANCE" ? "医社保" : "公积金"} · v{item.currentPlan.version} · {item.currentPlan.executionDay}日 · {formatCentsAsBeans(item.currentPlan.amountCents)} 欢乐豆</p>)}</div>{people.length === 0 && <p role="alert">当前身份下暂无可选受益人。</p>}{funds.length === 0 && <p role="alert">当前业务时点暂无可用福利扣费账户。</p>}{(people.length === 0 || funds.length === 0) && <button type="button" onClick={() => setDirectoryRevision((value) => value + 1)}>重试读取目录</button>}<form onSubmit={(event) => { event.preventDefault(); void save(); }}>
     <label>福利类型<select aria-label="福利类型" value={kind} disabled={locked} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="SOCIAL_INSURANCE">医社保</option><option value="HOUSING_FUND">公积金</option></select></label>
@@ -164,7 +165,7 @@ export function BenefitPlanPanel({ client, session, sessionKey, onInvalidated, o
     {conflict && <>{conflictReady ? <><p role="alert">请核对最新计划与版本后再提交。</p><button type="button" disabled={state !== "idle"} onClick={() => { setConflict(false); setConflictTarget(null); }}>已核对最新版本</button></> : <><p role="status">{message || "正在读取最新福利计划，请勿提交。"}</p><button type="button" onClick={() => { const token = generation.current; void refreshRoster(token); }}>重试读取最新计划</button></>}</>}
     {postSaveRefreshError && !conflict && <button type="button" disabled={refreshingRoster} onClick={() => { setPostSaveRefreshError(false); const token = generation.current; void refreshAfterSave(token); }}>{refreshingRoster ? "读取中…" : "重试读取最新计划/名单"}</button>}
     <button type="submit" disabled={locked}>{state === "pending" ? "保存中…" : state === "unknown" ? "结果未确认" : "保存计划"}</button>
-    {state === "unknown" && <button type="button" onClick={() => void save()}>使用原提交重试</button>}
+    {state === "unknown" && <button type="button" disabled={busy} onClick={() => void save()}>使用原提交重试</button>}
     <p>保存计划，不扣豆。</p>{message && <p role="status">{message}</p>}
   </form></>}</section>;
 }
