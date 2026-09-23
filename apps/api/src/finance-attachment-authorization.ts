@@ -61,7 +61,7 @@ export const canReserveFinanceAttachment = (
   purpose: FinanceAttachmentPurpose
 ): boolean => {
   if (isPersonalAttachmentContext(context)) {
-    return !isReceiptPurpose(purpose)
+    return document.kind !== "CASH_WAGE" && !isReceiptPurpose(purpose)
       && document.applicantPersonId === context.personId
       && document.status === "DRAFT";
   }
@@ -97,7 +97,7 @@ export const canReadFinanceAttachment = (
   document: FinanceAttachmentDocumentState
 ): boolean =>
   isGlobalAttachmentReader(context)
-  || (isPersonalAttachmentContext(context) && document.applicantPersonId === context.personId);
+  || (document.kind !== "CASH_WAGE" && isPersonalAttachmentContext(context) && document.applicantPersonId === context.personId);
 
 /** Personal attachment access is confined to the Beijing financial year containing `at`. */
 export const isWithinPersonalFinanceYear = (businessAt: string, at: Date): boolean => {

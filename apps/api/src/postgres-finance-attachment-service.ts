@@ -355,7 +355,7 @@ export class PostgresFinanceAttachmentService {
                FROM finance_refund_attachment_binding
            ) binding ON binding.finance_attachment_version_id=version.id AND binding.finance_document_id=document.id
           WHERE document.id=$1::uuid
-            AND ($2::boolean OR (document.applicant_person_id=$3::uuid
+            AND ($2::boolean OR (document.kind <> 'CASH_WAGE' AND document.applicant_person_id=$3::uuid
               AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,refund_submission.submitted_at,document.created_at)>=$4::timestamptz
               AND COALESCE(withdrawal_submission.submitted_at,self_purchase.completed_at,reimbursement_submission.submitted_at,refund_submission.submitted_at,document.created_at)<$5::timestamptz))
           ORDER BY attachment.created_at NULLS LAST,attachment.id NULLS LAST,version.version_no NULLS LAST`,
