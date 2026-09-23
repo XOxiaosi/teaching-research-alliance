@@ -14,6 +14,7 @@ import { FullBackupSpool } from '../../dist/full-backup-spool.js';
 import { FullBackupWorkbookExporter } from '../../dist/full-backup-workbook-exporter.js';
 import { FullBackupLocalPackageAssembler } from '../../dist/full-backup-local-package-assembler.js';
 import { FullBackupAttachmentExporter } from '../../dist/full-backup-attachment-exporter.js';
+import { FullBackupBusinessFactsView } from '../../dist/full-backup-business-facts-view.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4AWP8DwQMQMDEAAUAPfgEADYYS7QAAAAASUVORK5CYII=', 'base64');
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -24,7 +25,7 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
     const { pool } = database;
     const personId = randomUUID(), documentId = randomUUID();
     const at = new Date('2026-09-23T00:00:00Z');
-    await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1::uuid,'backup-owner','合成用户','ACTIVE')", [personId]);
+    await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1::uuid,'000001老师','合成用户','ACTIVE')", [personId]);
     await pool.query("INSERT INTO finance_document(id,applicant_person_id,kind,status,version,created_at,updated_at) VALUES ($1::uuid,$2::uuid,'REIMBURSEMENT','DRAFT',1,$3::timestamptz,$3::timestamptz)", [documentId, personId, at.toISOString()]);
     const store = await LocalAttachmentStore.create(join(root, 'store'), resolve(import.meta.dirname, '../../../..'));
     const reserve = new PostgresFinanceAttachmentService(pool);
@@ -45,6 +46,32 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
     }).create();
     await upload(pending);
     const later = await create('later'); await upload(later);
+    await pool.query("UPDATE person SET nickname = 'changed-after-snapshot' WHERE id = $1::uuid", [personId]);
+    const facts = new FullBackupBusinessFactsView({ spoolDirectory: join(root, 'spools', spool.spoolId), spool });
+    const describe = facts.describe(1);
+    assert.equal(describe.snapshotId, spool.snapshotId);
+    assert.equal(describe.asOf, spool.asOf);
+    assert.equal(describe.complete, false);
+    assert.equal(JSON.stringify(describe).includes(root), false);
+    const peopleSource = describe.sources.find(source => source.sourceTable === 'person');
+    assert.ok(peopleSource);
+    const people = [];
+    for await (const row of facts.readSourceRows(1, 'person')) people.push(row);
+    assert.equal(people.length, 1);
+    assert.equal(people[0].sourceRecordKey, JSON.stringify([['id', personId]]));
+    assert.equal(people[0].values[peopleSource.columns.findIndex(column => column.sourceColumn === 'nickname')], '000001老师');
+    const attachmentSource = facts.describe(4).sources.find(source => source.sourceTable === 'finance_attachment_version');
+    assert.ok(attachmentSource);
+    const attachmentFacts = [];
+    for await (const row of facts.readSourceRows(4, 'finance_attachment_version')) {
+      attachmentFacts.push(Object.fromEntries(attachmentSource.columns.map((column, index) => [column.sourceColumn, row.values[index]])));
+      assert.equal(row.sourceRecordKey, JSON.stringify([['id', attachmentFacts.at(-1).id]]));
+    }
+    assert.equal(attachmentFacts.length, 3);
+    assert.equal(attachmentFacts.find(row => row.id === pending.versionId).status, 'UPLOADING');
+    assert.deepEqual(attachmentFacts.filter(row => row.status === 'READY').map(row => row.id).sort(), [first.versionId, second.versionId].sort());
+    assert.equal(attachmentFacts.some(row => row.id === later.versionId), false);
+    for (const table of [3, 7]) assert.throws(() => facts.describe(table), /EXPORT_BUSINESS_FACTS_DERIVED_REQUIRED/);
     const reads = [];
     const result = await new FullBackupAttachmentExporter({
       spoolDirectory: join(root, 'spools', spool.spoolId), spool, outputRoot: join(root, 'outputs'),
