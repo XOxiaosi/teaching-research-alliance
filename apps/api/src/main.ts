@@ -54,3 +54,5 @@ export { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.j
 export { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
 
 export { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";
+
+export { PostgresBenefitReadService } from "./postgres-benefit-read-service.js";

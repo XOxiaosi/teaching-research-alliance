@@ -462,6 +462,10 @@ export type ApiServices = Readonly<{
       at: Date,
     ) => unknown | Promise<unknown>;
   }>;
+  benefitReads?: Readonly<{
+    listRoster: (context: RoleContext, month: string, at: Date) => unknown | Promise<unknown>;
+    getDetail: (context: RoleContext, id: string) => unknown | Promise<unknown>;
+  }>;
   cashWageReads?: Readonly<{
     listRoster: (
       context: RoleContext,
@@ -1419,6 +1423,21 @@ export const handleRequest = async (
       return success(
         await services.cashWageReads.getDetail(context, cashWageDetailPath[1]!),
       );
+    }
+    const benefitDetailPath = request.path.match(/^\/v1\/finance\/benefits\/([^/]+)$/);
+    if (request.method === "GET" && (request.path === "/v1/finance/benefit-roster" || benefitDetailPath !== null)) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const query = request.query ?? {};
+      const roster = benefitDetailPath === null;
+      if (Object.keys(body).some(field => field !== "sessionId") ||
+          Object.keys(query).some(field => !roster || field !== "month") ||
+          (roster && (query.month === undefined || !/^\d{4}-(0[1-9]|1[0-2])-01$/.test(query.month)))) throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (permissionScope(context.subject, "READ_MANAGED_CASH_WAGES") !== "GLOBAL" || context.scope !== "GLOBAL" || context.regionId !== undefined || context.campusId !== undefined || context.venueId !== undefined) throw new Error("FORBIDDEN_SCOPE");
+      if (!services.benefitReads) throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      return success(roster
+        ? await services.benefitReads.listRoster(context, query.month!, at)
+        : await services.benefitReads.getDetail(context, benefitDetailPath![1]!));
     }
     const salaryBenefitAction =
       request.method === "POST" ? request.path : undefined;

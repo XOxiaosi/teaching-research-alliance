@@ -800,6 +800,81 @@ export type BonusGrantSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
+export type BenefitPlanVersion = Readonly<{
+  id: string;
+  version: number;
+  executionDay: number;
+  amountCents: string;
+  sourceFund: Readonly<{ id: string; code: string; displayName: string }>;
+  active: boolean;
+  reason: string;
+  changedAt: string;
+  changedByPersonId: string;
+}>;
+export type BenefitTodo = Readonly<{
+  id: string;
+  planVersionId: string;
+  generatedAt: string;
+}>;
+export type BenefitReversal = Readonly<{
+  documentId: string;
+  reason: string;
+  reversedAt: string;
+  reversedByPersonId: string;
+}>;
+export type BenefitExecution = Readonly<{
+  documentId: string;
+  status: "COMPLETED" | "REVERSED";
+  version: number;
+  planVersionId: string;
+  sourceFund: Readonly<{ id: string; code: string; displayName: string }>;
+  amountCents: string;
+  executedByPersonId: string;
+  executedByDisplayName: string;
+  executedAt: string;
+  reason: string;
+  reversal: BenefitReversal | null;
+}>;
+export type BenefitRosterItem = Readonly<{
+  benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
+  beneficiaryPersonId: string;
+  beneficiaryDisplayName: string;
+  benefitMonth: string;
+  planVersions: readonly BenefitPlanVersion[];
+  currentPlan: BenefitPlanVersion;
+  todo: BenefitTodo | null;
+  execution: BenefitExecution | null;
+  status:
+    | "INACTIVE"
+    | "SCHEDULED"
+    | "DUE_NOT_GENERATED"
+    | "PENDING"
+    | "COMPLETED"
+    | "REVERSED";
+}>;
+export type BenefitAttachment = Readonly<{
+  versionId: string;
+  purpose: "SUPPORTING_DOCUMENT" | "APPLICATION_SCREENSHOT";
+  originalFilename: string;
+  mediaType: "application/pdf" | "image/png" | "image/jpeg";
+  sizeBytes: number;
+  sha256: string;
+}>;
+export type BenefitDetail = BenefitExecution &
+  Readonly<{
+    benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
+    beneficiaryPersonId: string;
+    beneficiaryDisplayName: string;
+    benefitMonth: string;
+    todo: BenefitTodo;
+    todoPlan: BenefitPlanVersion;
+    executionPlan: BenefitPlanVersion;
+    attachments: readonly BenefitAttachment[];
+    reversalAttachments: readonly BenefitAttachment[];
+  }>;
+
+export type ManagedBenefitRoster = Readonly<{ benefitMonth: string; items: readonly BenefitRosterItem[] }>;
+
 export type BenefitPlanDraft = Readonly<{
   benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
   beneficiaryPersonId: string;
@@ -2003,6 +2078,18 @@ export class TeacherApiClient {
     return this.authenticatedRequest<OrganizationRevenue>(
       "GET", `/v1/organizations/revenue?fromMonth=${encodeURIComponent(filter.fromMonth)}&toMonth=${encodeURIComponent(filter.toMonth)}`
     );
+  }
+
+  public async listManagedBenefitRoster(month: string): Promise<ManagedBenefitRoster> {
+    validateMonth(month, "month");
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<ManagedBenefitRoster>("GET", `/v1/finance/benefit-roster?month=${encodeURIComponent(month)}`);
+  }
+
+  public async getManagedBenefitDetail(documentId: string): Promise<BenefitDetail> {
+    requireNonBlank(documentId, "documentId");
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<BenefitDetail>("GET", `/v1/finance/benefits/${encodeURIComponent(documentId)}`);
   }
 
   public async listManagedCashWageTeachers(): Promise<ManagedCashWageTeacherDirectory> {

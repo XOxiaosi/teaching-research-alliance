@@ -411,6 +411,20 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   },
   {
     method: "GET",
+    path: "/v1/finance/benefit-roster",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "benefit-roster.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/benefits/:documentId",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "benefit-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
     path: "/v1/finance/cash-wage-roster",
     action: "READ_MANAGED_CASH_WAGES",
     responseVersion: "cash-wage-roster.v1",
