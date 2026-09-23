@@ -26,6 +26,7 @@ import { BenefitPlanPanel } from "./benefit-plan-panel";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel";
 import { BenefitPanel } from "./benefit-panel";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel";
+import { AccountAccessPanel, canManageMiniAccountAccess } from "./account-access-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -90,7 +91,8 @@ const roleLabels: Readonly<Record<string, string>> = {
   SYSTEM_ADMIN: "系统管理员",
   SYSTEM_OWNER: "开发者",
   CAMPUS_PRINCIPAL: "运营校长",
-  VENUE_OWNER: "场地运营"
+  VENUE_OWNER: "场地运营",
+  TEACHER: "普通老师"
 };
 
 const incomeLabels: Readonly<Record<string, string>> = {
@@ -123,7 +125,9 @@ const messages: Readonly<Record<string, string>> = {
   VENUE_NOT_FOUND: "所选场地已停用或不存在，请重新选择。",
   VENUE_ACCOUNT_REQUIRED: "场地账户未配置完整，请联系管理员。",
   INVALID_INPUT: "请检查金额、教学周和场地后重试。",
-  INTERNAL_ERROR: "暂时无法完成，请稍后重试。"
+  INTERNAL_ERROR: "暂时无法完成，请稍后重试。",
+  REGISTRATION_NICKNAME_CONFLICT: "这个昵称已被使用，请换一个昵称。",
+  REGISTRATION_PHONE_CONFLICT: "这个手机号已注册，请直接登录或联系管理员。"
 };
 
 const isTeacher = (session: SessionSnapshot | null): boolean =>
@@ -143,6 +147,11 @@ export default function IndexPage(): ReactNode {
   const [boardVenues, setBoardVenues] = useState<readonly Venue[]>([]);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [nickname, setNickname] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [registrationUnconfirmed, setRegistrationUnconfirmed] = useState(false);
   const [selectedReferralId, setSelectedReferralId] = useState("");
   const [selectedWeekId, setSelectedWeekId] = useState("");
   const [selectedVenueId, setSelectedVenueId] = useState("");
@@ -164,7 +173,8 @@ export default function IndexPage(): ReactNode {
   const [benefitExecutionRevision, setBenefitExecutionRevision] = useState(0);
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
-  const financeUnconfirmed = relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [accountAccessUnconfirmed, setAccountAccessUnconfirmed] = useState(false);
+  const financeUnconfirmed = accountAccessUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -194,8 +204,9 @@ export default function IndexPage(): ReactNode {
     const generation = ++loadGeneration.current;
     const sessionKey = `${currentSession?.accountId ?? ""}:${currentSession?.personId ?? ""}:${currentSession?.currentRoleContext?.subject ?? ""}:${currentSession?.currentRoleContext?.scope ?? ""}`;
     const role = currentSession?.currentRoleContext?.subject;
-    const canLoadOverview = role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
-    const canLoadBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(role ?? "");
+    const roleName = String(role ?? "");
+    const canLoadOverview = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(roleName);
+    const canLoadBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER", "TEACHER"].includes(roleName);
     if (!canLoadOverview && !canLoadBoard) return;
     const nextOverview = canLoadOverview ? await client.getOwnOverview<Overview>() : null;
     const [nextReferrals, nextWeeks, nextVenues, nextBoardVenues] = await Promise.all([
@@ -227,7 +238,17 @@ export default function IndexPage(): ReactNode {
       if (error instanceof RoleSelectionRequiredError) {
         setNotice("当前身份需要重新选择。");
       } else if (error instanceof ApiClientError) {
+        if (authMode === "register" && error.status >= 500) {
+          setRegistrationUnconfirmed(true);
+          setAuthMode("login");
+          setNotice("注册结果未确认。系统没有再次创建账户；请用刚填写的手机号和密码尝试登录确认。");
+        } else {
         setNotice(messages[error.code] ?? "操作未完成，请检查当前身份后重试。");
+        }
+        if (error.status === 401 || error.status === 403) {
+          setPassword("");
+          setPasswordConfirmation("");
+        }
         if (error.status === 409) {
           pendingSubmission.current = null;
           pendingAcceptance.current = null;
@@ -243,7 +264,13 @@ export default function IndexPage(): ReactNode {
       } else if (error instanceof Error && error.message === "ARCHIVED_NEW_FEE") {
         setNotice("已归档记录不能新增周费用，只能修改已有费用。");
       } else {
-        setNotice("网络未确认结果。保持内容不变，再次保存可安全重试。");
+        if (authMode === "register") {
+          setRegistrationUnconfirmed(true);
+          setAuthMode("login");
+          setNotice("注册结果未确认。系统没有再次创建账户；请用刚填写的手机号和密码尝试登录确认。");
+        } else {
+          setNotice("网络未确认结果。保持内容不变，再次保存可安全重试。");
+        }
       }
       if (!client.hasRoleContext) clearTeachingState();
     } finally {
@@ -335,9 +362,10 @@ export default function IndexPage(): ReactNode {
   const historicalVenue = selectedFee !== undefined && !venues.some((venue) => venue.id === selectedFee.venueId) ? selectedFee.venueId : "";
   const venuePickerIndex = selectedVenueId === "" ? 0 : historicalVenue !== "" && selectedVenueId === historicalVenue ? 1 : venues.findIndex((venue) => venue.id === selectedVenueId) + 1 + (historicalVenue !== "" ? 1 : 0);
   const currentContext = session?.currentRoleContext;
+  const canManageAccountAccess = session !== null && canManageMiniAccountAccess(session);
   const canManageRelationships = currentContext !== null && currentContext?.scope === "GLOBAL" && currentContext?.regionId === undefined && currentContext?.campusId === undefined && currentContext?.venueId === undefined && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext?.subject ?? "");
-  const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentContext?.subject ?? "");
-  const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentContext?.subject ?? "");
+  const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER", "TEACHER"].includes(String(currentContext?.subject ?? ""));
+  const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
     && currentContext.campusId === undefined && currentContext.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext.subject);
@@ -403,14 +431,25 @@ export default function IndexPage(): ReactNode {
 
       {session === null ? (
         <View className="panel login-panel">
-          <Text className="panel-title">登录你的账户</Text>
-          <Text className="panel-description">使用手机号和密码进入个人工作台。</Text>
+          <Text className="panel-title">{authMode === "login" ? "登录你的账户" : "注册普通账户"}</Text>
+          <Text className="panel-description">{authMode === "login" ? "使用手机号和密码进入个人工作台。" : "注册后以普通老师身份进入个人工作台；管理职责和特殊业务身份由管理员另行配置。"}</Text>
+          <View className="auth-mode-actions">
+            <Button className="quiet-button" disabled={busy || authMode === "login"} onClick={() => { setAuthMode("login"); setPassword(""); setPasswordConfirmation(""); }}>账号登录</Button>
+            <Button className="quiet-button" disabled={busy || authMode === "register" || registrationUnconfirmed} onClick={() => { setAuthMode("register"); setPassword(""); setPasswordConfirmation(""); }}>注册普通账户</Button>
+          </View>
+          {authMode === "register" && <>
+            <Text className="field-label">昵称</Text>
+            <Input className="text-input" value={nickname} placeholder="用于工作台展示" disabled={busy} onInput={(event) => setNickname(event.detail.value)} />
+            <Text className="field-label">姓名</Text>
+            <Input className="text-input" value={legalName} placeholder="请输入真实姓名" disabled={busy} onInput={(event) => setLegalName(event.detail.value)} />
+          </>}
           <Text className="field-label">手机号</Text>
           <Input
             className="text-input"
             type="number"
             value={phone}
             placeholder="请输入手机号"
+            disabled={busy}
             onInput={(event) => setPhone(event.detail.value)}
           />
           <Text className="field-label">密码</Text>
@@ -418,22 +457,36 @@ export default function IndexPage(): ReactNode {
             className="text-input"
             password
             value={password}
-            placeholder="请输入密码"
+            placeholder={authMode === "login" ? "请输入密码" : "至少 8 位"}
+            disabled={busy}
             onInput={(event) => setPassword(event.detail.value)}
           />
+          {authMode === "register" && <>
+            <Text className="field-label">确认密码</Text>
+            <Input className="text-input" password value={passwordConfirmation} placeholder="再次输入密码" disabled={busy} onInput={(event) => setPasswordConfirmation(event.detail.value)} />
+          </>}
           <Button
             className="primary-button"
             disabled={busy}
             onClick={() => {
               void run(async () => {
-                await client.login({ phoneNormalized: phone, password });
+                if (authMode === "register") {
+                  if (!nickname.trim() || !legalName.trim() || !phone.trim()) { setNotice("请填写昵称、姓名和手机号。"); return; }
+                  if (password !== passwordConfirmation) { setNotice("两次输入的密码不一致。"); return; }
+                  await client.registerAccount({ nickname: nickname.trim(), legalName: legalName.trim(), phoneNormalized: phone, password });
+                } else {
+                  await client.login({ phoneNormalized: phone, password });
+                  setRegistrationUnconfirmed(false);
+                }
                 setPassword("");
+                setPasswordConfirmation("");
                 setSession(client.currentSession);
                 if (client.hasRoleContext) await load();
+                if (authMode === "register") setNotice("注册成功，已按普通老师身份进入个人工作台。");
               });
             }}
           >
-            {busy ? "正在登录…" : "登录"}
+            {busy ? (authMode === "login" ? "正在登录…" : "正在注册…") : authMode === "login" ? "登录" : "注册并进入工作台"}
           </Button>
         </View>
       ) : (
@@ -601,7 +654,7 @@ export default function IndexPage(): ReactNode {
             </>
           )}
 
-          {session.currentRoleContext !== null && ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(session.currentRoleContext.subject) && (
+          {personalFinance && (
             <FinancialPanel
               key={`withdrawal:${session.sessionId}:${JSON.stringify(session.currentRoleContext)}`}
               client={client}
@@ -634,6 +687,17 @@ export default function IndexPage(): ReactNode {
               onDataMayChange={() => setOverview(null)}
             />
           )}
+
+          {canManageAccountAccess && <AccountAccessPanel
+            key={`account-access:${session.sessionId}:${JSON.stringify(currentContext)}`}
+            client={client}
+            session={session}
+            sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`}
+            busy={busy}
+            onUnconfirmedChange={setAccountAccessUnconfirmed}
+            onInvalidated={() => { clearTeachingState(); setPassword(""); setPasswordConfirmation(""); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }}
+            onOwnPasswordReset={() => { clearTeachingState(); setAuthMode("login"); setPhone(""); setPassword(""); setPasswordConfirmation(""); setSession(null); setNotice("当前账户密码已重置，请使用新密码重新登录。"); }}
+          />}
 
           {(canReadOwnRefunds || canReadManagedRefunds) && (
             <RefundPanel

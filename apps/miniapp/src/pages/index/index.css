@@ -147,6 +147,24 @@ page {
   gap: 16rpx;
 }
 
+.auth-mode-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.auth-mode-actions .quiet-button {
+  flex: 1;
+}
+
+.account-access-panel .notice {
+  margin: 24rpx 0 0;
+}
+
+.account-access-reason {
+  min-height: 150rpx;
+  width: 100%;
+}
+
 .balance-card {
   display: flex;
   flex-direction: column;

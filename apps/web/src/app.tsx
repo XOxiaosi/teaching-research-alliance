@@ -28,6 +28,7 @@ import { BenefitPlanPanel } from "./benefit-plan-panel.js";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel.js";
+import { AccountAccessPanel, AccountAuthenticationPanel, canManageAccounts } from "./account-access-panel.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
 
@@ -92,6 +93,7 @@ const readBoardVenues = async (currentClient: TeacherApiClient, personId: string
 };
 
 const roleLabels: Readonly<Record<string, string>> = {
+  TEACHER: "普通老师",
   TEACHING_TEACHER: "授课老师",
   ACADEMIC_PLANNER: "学业规划师",
   GROUP_LEADER: "教研组长",
@@ -134,13 +136,13 @@ const clientMessages: Readonly<Record<string, string>> = {
 };
 
 const canCreateReferral = (session: SessionSnapshot | null): boolean => {
-  const role = session?.currentRoleContext?.subject;
+  const role = session?.currentRoleContext?.subject as string | undefined;
   return role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
 };
 
 const hasOwnOverview = (session: SessionSnapshot | null): boolean => {
-  const role = session?.currentRoleContext?.subject;
-  return role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
+  const role = session?.currentRoleContext?.subject as string | undefined;
+  return role === "TEACHER" || role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
 };
 
 function App(): ReactNode {
@@ -156,9 +158,7 @@ function App(): ReactNode {
   const [receivingTeachers, setReceivingTeachers] = useState<readonly ReceivingTeacher[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change">("fees");
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "accounts" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change">("fees");
   const [withdrawalUnconfirmed, setWithdrawalUnconfirmed] = useState(false);
   const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
   const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
@@ -173,7 +173,8 @@ function App(): ReactNode {
   const [benefitExecutionRevision, setBenefitExecutionRevision] = useState(0);
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
-  const financeUnconfirmed = relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [accountUnconfirmed, setAccountUnconfirmed] = useState(false);
+  const financeUnconfirmed = relationshipUnconfirmed || accountUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -201,6 +202,7 @@ function App(): ReactNode {
     setFundUnconfirmed(false);
     setReimbursementUnconfirmed(false);
     setRefundUnconfirmed(false);
+    setAccountUnconfirmed(false);
     setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
@@ -227,7 +229,7 @@ function App(): ReactNode {
     const loadOverview = hasOwnOverview(currentSession);
     const loadReferrals = canCreateReferral(currentSession);
     const loadTeaching = role === "TEACHING_TEACHER";
-    const loadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(role ?? "");
+    const loadVenueBoard = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(role ?? "");
     if (!loadOverview && !loadReferrals && !loadVenueBoard) return;
 
     const loadBoardVenues = loadVenueBoard && role !== "VENUE_OWNER" ? readBoardVenues(client, currentSession?.personId) : Promise.resolve([] as readonly Venue[]);
@@ -306,12 +308,13 @@ function App(): ReactNode {
     setMessage(result.replay ? "推荐已确认，未重复创建。" : "推荐已提交，等待接收老师处理。");
   };
 
-  const currentRole = session?.currentRoleContext?.subject ?? "";
-  const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentRole);
-  const canWithdraw = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentRole);
+  const currentRole: string = session?.currentRoleContext?.subject ?? "";
+  const canReadVenueBoard = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentRole);
+  const canWithdraw = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentRole);
   const canProcessWithdrawal = currentRole === "HEADQUARTERS_FINANCE" && session?.currentRoleContext?.scope === "GLOBAL";
   const globalScope = session?.currentRoleContext?.scope === "GLOBAL";
   const canConfigureFunds = globalScope && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
+  const canManageAccountAccess = canManageAccounts(session);
   const canReadPurchases = canProcessWithdrawal || canConfigureFunds;
   const context = session?.currentRoleContext;
   const canReadReimbursements = globalScope && context?.regionId === undefined && context?.campusId === undefined && context?.venueId === undefined
@@ -323,7 +326,8 @@ function App(): ReactNode {
   const canReadOwnRefunds = currentRole === "TEACHING_TEACHER";
   const canReadManagedRefunds = globalScope && context?.regionId === undefined && context?.campusId === undefined && context?.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
-  const page = activePage === "group-leader-change" && canManageRelationships ? "group-leader-change"
+  const page = activePage === "accounts" && canManageAccountAccess ? "accounts"
+    : activePage === "group-leader-change" && canManageRelationships ? "group-leader-change"
     : activePage === "organization-revenue" && canReadOrg ? "organization-revenue"
     : activePage === "refunds" && canReadOwnRefunds ? "refunds"
     : activePage === "refund-history" && canReadManagedRefunds ? "refund-history"
@@ -331,7 +335,8 @@ function App(): ReactNode {
     : activePage === "purchase-history" && canReadPurchases ? "purchase-history"
     : activePage === "reimbursements" && canWithdraw ? "reimbursements"
     : activePage === "reimbursement-history" && canReadReimbursements ? "reimbursement-history"
-    : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals", "venue-board"].includes(activePage) ? activePage : "fees")
+    : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals", "reimbursements", "venue-board"].includes(activePage) ? activePage : "fees")
+    : currentRole === "TEACHER" ? (["overview", "withdrawals", "reimbursements", "venue-board"].includes(activePage) ? activePage : "overview")
     : activePage === "venue-board" && canReadVenueBoard ? "venue-board"
     : activePage === "bonus-projects" && canReadSalary ? "bonus-projects"
     : activePage === "benefits" && canReadSalary ? "benefits"
@@ -340,7 +345,7 @@ function App(): ReactNode {
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals")
     : canReadVenueBoard ? "venue-board"
     : canReadOrg ? "organization-revenue" : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance" : "overview";
-  const pageTitle = { "group-leader-change": "普通周组长变更", "salary-confirmation": "工资发放确认", "bonus-projects": "奖金项目名称", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
+  const pageTitle = { accounts: "账号管理", "group-leader-change": "普通周组长变更", "salary-confirmation": "工资发放确认", "bonus-projects": "奖金项目名称", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -348,8 +353,8 @@ function App(): ReactNode {
   const navigation = <>
     {currentRole === "TEACHING_TEACHER" && <>
       <button disabled={busy || financeUnconfirmed} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><span aria-hidden="true" className="nav-icon">▤</span>周费用录入</button>
-      <button disabled={busy || financeUnconfirmed} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>
     </>}
+    {(currentRole === "TEACHING_TEACHER" || currentRole === "TEACHER") && <button disabled={busy || financeUnconfirmed} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>}
     {canCreateReferral(session) && <button disabled={busy || financeUnconfirmed} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
     {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
     {canReadVenueBoard && <button disabled={busy || financeUnconfirmed} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
@@ -362,6 +367,7 @@ function App(): ReactNode {
     {canProcessWithdrawal && <button disabled={busy || financeUnconfirmed} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
     {canSelfPurchase && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
     {canConfigureFunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
+    {canManageAccountAccess && <button disabled={busy || financeUnconfirmed} aria-current={page === "accounts" ? "page" : undefined} onClick={() => goPage("accounts")}><span aria-hidden="true" className="nav-icon">◉</span>账号管理</button>}
     {canReadPurchases && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
     {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><span aria-hidden="true" className="nav-icon">▧</span>我的报销</button>}
     {canReadReimbursements && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><span aria-hidden="true" className="nav-icon">▤</span>报销记录</button>}
@@ -390,20 +396,11 @@ function App(): ReactNode {
         </header>
         {message !== "" && <p role="status" className="message">{message}</p>}
         {session === null ? (
-          <form className="panel login" onSubmit={(event) => {
-            event.preventDefault();
-            void run(async () => {
-              await client.login({ phoneNormalized: phone, password });
-              setPassword("");
-              setSession(client.currentSession);
-              await load();
-            });
-          }}>
-            <h2>登录你的账户</h2><p>使用手机号与密码，进入你的个人工作台。</p>
-            <label>手机号<input autoComplete="username" value={phone} onChange={(event) => setPhone(event.target.value)} required /></label>
-            <label>密码<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-            <Button disabled={busy}>{busy ? "正在登录…" : "登录"}</Button>
-          </form>
+          <AccountAuthenticationPanel client={client} busy={busy} run={run} onAuthenticated={async () => {
+            clear();
+            setSession(client.currentSession);
+            await load();
+          }} />
         ) : (
           <>
             <section className="rolebar">
@@ -426,6 +423,7 @@ function App(): ReactNode {
               <WeeklyFeePanel key={`${session.accountId}:${currentRole}`} client={client} referrals={receivedReferrals} weeks={weeks} venues={venues} busy={busy} loaded={dataLoaded} run={run} reload={load} onUnconfirmedChange={setFeeUnconfirmed} onDataMayChange={() => setOverviewFresh(false)} />
               <div className="recording-guide"><span className="guide-mark" aria-hidden="true">i</span><div><h3>填写累计值，不是本次新增金额</h3><p>例如：已录入 1000 豆，后来又产生 200 豆费用，本次应填写 1200 豆。不同课程分别记录，已有费用更正后自动更新结算。</p></div></div>
             </div>}
+            {canManageAccountAccess && <AccountAccessPanel key={`accounts:${financeKey}`} client={client} session={session} sessionKey={financeKey} busy={busy} active={page === "accounts"} onUnconfirmedChange={setAccountUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} onSelfPasswordReset={() => { clear(); setSession(client.currentSession); setMessage("本人密码已重置，请使用新密码重新登录。"); }} />}
             {canManageRelationships && <div hidden={page !== "group-leader-change"}><GroupLeaderChangePanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadOrg && <div hidden={page !== "organization-revenue"}><OrganizationRevenuePanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
@@ -433,7 +431,7 @@ function App(): ReactNode {
             {canReadSalary && <div hidden={page !== "bonus-projects"}><BonusProjectPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
-            <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
+            <div hidden={(["TEACHING_TEACHER", "TEACHER"].includes(currentRole) && page !== "overview") || (!["TEACHING_TEACHER", "TEACHER"].includes(currentRole) && page !== "referrals")}>
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}
             {overview !== null && overviewFresh && <div className="overview">
               <section className="balance"><span>个人可用余额 / 欢乐豆</span><strong>{formatCentsAsBeans(overview.balanceCents)}</strong><small>个人账户余额</small></section>

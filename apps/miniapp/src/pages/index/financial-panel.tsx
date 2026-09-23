@@ -9,7 +9,7 @@ const purposes = [{ value: "SUPPORTING_DOCUMENT", label: "业务单据" }, { val
 type Purpose = (typeof purposes)[number]["value"];
 type AttachmentReservationSubmission = FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission;
 type PendingUpload = Readonly<{ file: PickedFinanceAttachment; submission: AttachmentReservationSubmission; attempted?: boolean; versionId?: string }>;
-const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
+const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"] as const;
 const statusLabel: Record<string, string> = { PENDING_TRANSFER: "已提交，等待转账", TRANSFERRED: "已转账", FINANCE_REVOKED: "财务已撤回" };
 const sourceLabel = (source: WithdrawalSource, balanceUnconfirmed = false): string => `${source.sourceType === "PERSON" ? "个人账户" : "场地账户"} · ${source.label} · ${balanceUnconfirmed ? "余额待确认" : `可用 ${formatCentsAsBeans(source.balanceCents)} 豆`}`;
 const sameSessionScope = (left: SessionSnapshot, right: SessionSnapshot | null): boolean =>

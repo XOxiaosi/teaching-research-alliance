@@ -175,3 +175,18 @@ footer { font-size:12px; color:#78869a; padding-top:24px; border-top:1px solid #
 .group-leader-change-panel .group-leader-reason > span { display:block; }
 .group-leader-change-panel .group-leader-reason textarea { display:block; width:100%; min-height:96px; resize:vertical; font:inherit; color:#253a55; border:1px solid #cfd8e5; border-radius:8px; background:#fff; padding:11px 12px; margin-top:8px; }
 .group-leader-change-panel .group-leader-reason textarea:focus { border-color:#477bec; outline:3px solid #245edb17; }
+
+.account-authentication-tabs { display:flex; gap:10px; margin-bottom:22px; }
+.account-authentication-tabs [data-ui="button"] { flex:1; }
+.account-authentication label { margin:18px 0; }
+.account-access-panel { max-width:900px; }
+.account-directory { display:grid; gap:10px; margin:18px 0 24px; }
+.account-directory article { border:1px solid #e2e8f0; border-radius:9px; padding:15px 18px; }
+.account-directory p { margin:4px 0; font-size:13px; }
+.account-reset-form { border-top:1px solid #e2e8f0; padding-top:22px; }
+.account-reset-form fieldset { display:grid; grid-template-columns:1fr 1fr; gap:18px 24px; border:0; padding:0; margin:16px 0; min-width:0; }
+.account-reset-form label:first-child,.account-reset-form label:last-child { grid-column:1 / -1; }
+.account-reset-form textarea { display:block; width:100%; min-height:86px; resize:vertical; font:inherit; color:#253a55; border:1px solid #cfd8e5; border-radius:8px; background:#fff; padding:11px 12px; margin-top:8px; }
+.account-reset-form textarea:focus { border-color:#477bec; outline:3px solid #245edb17; }
+.account-access-notice { color:#785b24; background:#fff9ed; border:1px solid #ead9ab; border-radius:9px; padding:14px 18px; }
+@media(max-width:760px) { .account-reset-form fieldset { grid-template-columns:1fr; } .account-reset-form label:first-child,.account-reset-form label:last-child { grid-column:auto; } }
