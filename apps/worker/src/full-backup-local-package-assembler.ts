@@ -20,6 +20,11 @@ import { readBackupSpoolDataset } from "./full-backup-spool-reader.js";
 import type { FullBackupSpoolResult } from "./full-backup-spool.js";
 import { fullBackupOutputColumns } from "./full-backup-transformer.js";
 import type { FullBackupWorkbookExportResult } from "./full-backup-workbook-exporter.js";
+import { FullBackupManifestEvidence } from "./full-backup-manifest-evidence.js";
+import { createFullBackupManifestContext, type FullBackupManifestContext } from "./full-backup-manifest.js";
+import type { FullBackupDerivedSpoolIndex } from "./full-backup-derived-spool-index.js";
+import { verifyWorkbookManifest } from "./full-backup-workbook-manifest-reader.js";
+
 
 import {
   verifyDerivedComponents,
@@ -118,6 +123,8 @@ export type FullBackupLocalPackage = Readonly<{
   /** Present only when all six fixed stored-fact business workbooks were verified and copied. */
   businessFacts?: readonly RawSourcePackageBusinessFact[];
   businessDerived?: readonly RawSourcePackageDerived[];
+  /** External file manifest excludes itself from payload counts and hashes. */
+  packageManifest?: RawSourcePackageFile;
 }>;
 export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   spoolDirectory: string;
@@ -133,6 +140,8 @@ export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   businessDerived?: FullBackupDerivedBundle;
   /** Same-spool trusted readers remain caller-owned and open until assembly finishes. */
   derivedVerificationViews?: FullBackupDerivedVerificationViews;
+  /** Opt-in final file inventory, still an incomplete implementation artifact. */
+  finalManifest?: Readonly<{ context: FullBackupManifestContext; index: FullBackupDerivedSpoolIndex }>;
 }>;
 
 function fail(code: string): never { throw new Error(code); }
@@ -316,8 +325,29 @@ export class FullBackupLocalPackageAssembler {
   public async assemble(): Promise<FullBackupLocalPackage> {
     assertSnapshots(this.options);
     const businessFactComponents = verifyBusinessFacts(this.options);
+    if (this.options.finalManifest !== undefined &&
+        (businessFactComponents.length !== 6 || this.options.businessDerived === undefined || this.options.derivedVerificationViews === undefined))
+      fail("EXPORT_PACKAGE_MANIFEST_REQUIRES_ALL_WORKBOOKS");
     const derivedComponents = await verifyDerivedComponents(this.options.spool, this.options.businessDerived,
       this.options.derivedVerificationViews, businessFactComponents.length === FIXED_BUSINESS_FACTS.length);
+    let manifestContext: FullBackupManifestContext | undefined;
+    if (this.options.finalManifest !== undefined) {
+      if (businessFactComponents.length !== 6 || derivedComponents.length !== 2 || this.options.derivedVerificationViews === undefined)
+        fail("EXPORT_PACKAGE_MANIFEST_REQUIRES_ALL_WORKBOOKS");
+      const supplied = this.options.finalManifest.context;
+      const evidence = await FullBackupManifestEvidence.collect({
+        spoolDirectory: this.options.spoolDirectory, spool: this.options.spool,
+        index: this.options.finalManifest.index,
+        ledger: this.options.derivedVerificationViews.ledger,
+        periods: this.options.derivedVerificationViews.periods,
+      });
+      manifestContext = createFullBackupManifestContext({
+        evidence, fileGroupId: supplied.fileGroupId, generatedAt: supplied.generatedAt,
+        applicationVersion: supplied.applicationVersion, generatorVersion: supplied.generatorVersion,
+      });
+      if (JSON.stringify(supplied) !== JSON.stringify(manifestContext))
+        fail("EXPORT_PACKAGE_MANIFEST_CONTEXT_MISMATCH");
+    }
     const workbookRoot = await assertPrivateBackupDirectory(this.options.workbookDirectory);
     const attachmentRoot = await assertPrivateBackupDirectory(this.options.attachmentDirectory);
     const spoolRoot = await assertPrivateBackupDirectory(this.options.spoolDirectory);
@@ -356,6 +386,10 @@ export class FullBackupLocalPackageAssembler {
         const expected = workbookFiles.get(file)!;
         const copied = await copyVerifiedBackupFile({ sourceRoot: workbookRoot, sourcePath: file, destinationRoot: stage, destinationPath: `workbooks/${file}`,
           expectedBytes: BigInt(expected.sizeBytes), expectedSha256: expected.sha256 });
+        if (manifestContext !== undefined) await verifyWorkbookManifest({
+          root: stage, relativePath: copied.path, context: manifestContext,
+          file, workbookRole: "RAW", tableNumbers: [],
+        });
         workbookResults.push(copied);
         await addPayload(copied);
       }
@@ -376,6 +410,10 @@ export class FullBackupLocalPackageAssembler {
             destinationPath,
             expectedBytes: component.expectedBytes,
             expectedSha256: component.expectedSha256,
+          });
+          if (manifestContext !== undefined) await verifyWorkbookManifest({
+            root: stage, relativePath: copied.path, context: manifestContext,
+            file: component.file, workbookRole: "BUSINESS_FACT", tableNumbers: [component.tableNumber],
           });
           await addPayload(copied);
           businessFacts.push(Object.freeze({
@@ -404,12 +442,18 @@ export class FullBackupLocalPackageAssembler {
           const verified = await hashBackupFile(stage, copied.path);
           if (verified.sha256 !== copied.sha256 || verified.sizeBytes !== copied.sizeBytes)
             fail("EXPORT_PACKAGE_DERIVED_COPY_MISMATCH");
+          if (manifestContext !== undefined) await verifyWorkbookManifest({
+            root: stage, relativePath: copied.path, context: manifestContext,
+            file: component.file, workbookRole: "BUSINESS_DERIVED", tableNumbers: [component.metadata.tableNumber],
+          });
           await addPayload(copied);
           businessDerived.push(Object.freeze({ ...component.metadata, file: copied }));
         }
         await syncBackupDirectory(destinationDerived);
       }
-      const incompleteReasons = businessDerived.length > 0 ? BUSINESS_DERIVED_INCOMPLETE_REASONS :
+      const incompleteReasons = manifestContext !== undefined
+        ? ["BUSINESS_DERIVED_VIEWS_UNPUBLISHED", "BUSINESS_FACTS_DECLARED_FIELDS_ONLY", "PRIMARY_SHEET_SUMMARIES_ONLY"]
+        : businessDerived.length > 0 ? BUSINESS_DERIVED_INCOMPLETE_REASONS :
         businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS;
       const packageCoverageGaps = [...new Set([
         ...this.options.spool.coverageGaps,
@@ -494,8 +538,6 @@ export class FullBackupLocalPackageAssembler {
       const anomalies: RawSourcePackageFile = { path: "metadata/transform-anomalies.ndjson", ...anomalyHash };
       await addPayload(anomalies);
       await payloadIndex.sync();
-      await payloadIndex.close();
-      payloadIndex = undefined;
       const finalIndex = await openOutput(stage, "raw-source-package-index.json");
       try {
         const datasetSummary = this.options.spool.datasets.map((item) => ({ tableName: item.tableName, rowCount: item.rowCount, logicalDigest: item.logicalDigest, excluded: item.excluded }));
@@ -512,8 +554,37 @@ export class FullBackupLocalPackageAssembler {
         await writeBackupBytes(finalIndex, Buffer.from("]}"));
         await finalIndex.sync();
       } finally { await finalIndex.close(); }
-      await rm(join(stage, payloadIndexPath), { force: true });
       const packageIndexHash = await hashBackupFile(stage, "raw-source-package-index.json");
+      let packageManifest: RawSourcePackageFile | undefined;
+      if (manifestContext !== undefined) {
+        await addPayload({ path: "raw-source-package-index.json", ...packageIndexHash });
+        await payloadIndex.sync();
+        const manifest = await openOutput(stage, "package-manifest.json");
+        try {
+          const header = {
+            mode: "FULL_BACKUP_PACKAGE_MANIFEST", schemaVersion: "full-backup-package-manifest.v1",
+            complete: false, backupStatus: "INCOMPLETE_IMPLEMENTATION", context: manifestContext,
+            integrityScope: "REGISTERED_SNAPSHOT_AND_COPIED_PAYLOAD_BYTES",
+            businessCorrectness: "NOT_ASSERTED", coverageGaps: packageCoverageGaps, incompleteReasons,
+            workbookCount: "20", readyAttachmentCount: ready.toString(), unreadyAttachmentCount: unready.toString(),
+            payloadFileCount: payloadFileCount.toString(), payloadBytes: totalBytes.toString(),
+            inventoryOrder: "FIXED_WORKBOOKS_THEN_ORDERED_ATTACHMENTS_THEN_CONTROLS",
+            selfHashPolicy: "MANIFEST_EXCLUDED_FROM_FILES_HASH_RETURNED_SEPARATELY",
+          };
+          await writeBackupBytes(manifest, Buffer.from(`${JSON.stringify(header).slice(0, -1)},"files":[`));
+          let first = true;
+          for await (const line of lines(stage, payloadIndexPath)) {
+            await writeBackupBytes(manifest, Buffer.from(`${first ? "" : ","}${line}`));
+            first = false;
+          }
+          await writeBackupBytes(manifest, Buffer.from("]}"));
+          await manifest.sync();
+        } finally { await manifest.close(); }
+        packageManifest = { path: "package-manifest.json", ...await hashBackupFile(stage, "package-manifest.json") };
+      }
+      await payloadIndex.close();
+      payloadIndex = undefined;
+      await rm(join(stage, payloadIndexPath), { force: true });
       await syncBackupDirectory(metadataDirectory);
       await syncBackupDirectory(stage);
       try { await open(finalDirectory, constants.O_RDONLY | constants.O_NOFOLLOW).then((handle) => handle.close().then(() => fail("EXPORT_PACKAGE_TARGET_EXISTS"))).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; }); }
@@ -527,7 +598,8 @@ export class FullBackupLocalPackageAssembler {
         payloadFileCount: payloadFileCount.toString(), totalBytes: totalBytes.toString(), readyAttachmentCount: ready.toString(), unreadyAttachmentCount: unready.toString(),
         coverageGaps: packageCoverageGaps, incompleteReasons: [...incompleteReasons],
         ...(businessFacts.length === 0 ? {} : { businessFacts: Object.freeze(businessFacts) }),
-        ...(businessDerived.length === 0 ? {} : { businessDerived: Object.freeze(businessDerived) }) };
+        ...(businessDerived.length === 0 ? {} : { businessDerived: Object.freeze(businessDerived) }),
+        ...(packageManifest === undefined ? {} : { packageManifest }) };
     } catch (error) {
       primaryError = error;
       throw error;
