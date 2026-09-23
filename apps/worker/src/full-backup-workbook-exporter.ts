@@ -16,6 +16,11 @@ import type { FullBackupSpoolDataset, FullBackupSpoolResult } from "./full-backu
 import { readBackupSpoolDataset } from "./full-backup-spool-reader.js";
 import { fullBackupOutputColumns } from "./full-backup-transformer.js";
 import { hashBackupFile } from "./backup-file-io.js";
+import {
+  createManifestWorkbookRows,
+  type FullBackupManifestContext,
+  type ManifestSheetPart,
+} from "./full-backup-manifest.js";
 
 type TextRow = readonly (string | null)[];
 type SpoolDatasetReader = (directory: string, dataset: FullBackupSpoolDataset) => AsyncIterable<TextRow>;
@@ -49,6 +54,8 @@ export type FullBackupWorkbookExporterOptions = Readonly<{
   outputRoot: string;
   /** Internal test seam; production always uses the validated spool reader. */
   readDataset?: SpoolDatasetReader;
+  /** Trusted same-snapshot context; standalone RAW exports may omit it. */
+  manifestContext?: FullBackupManifestContext;
   /** Internal test seam; production always uses the OpenXML writer. */
   writeWorkbook?: WorkbookWriter;
   /** Internal test seam for verifying failed temporary-index cleanup. */
@@ -404,25 +411,74 @@ export class FullBackupWorkbookExporter {
           for (const item of items) {
             const dataset = datasets.get(item.tableName) ?? fail("EXPORT_WORKBOOK_SPOOL_LAYOUT_MISMATCH");
             let rowNumber = 0n;
+            let firstStableKey: string | null = null;
+            let lastStableKey: string | null = null;
             for await (const row of readDataset(this.options.spoolDirectory, dataset)) {
               rowNumber += 1n;
               const recordKey = sourceRecordKey(item.tableName, dataset.columns, row);
+              firstStableKey ??= recordKey;
+              lastStableKey = recordKey;
               await longText.collect(item.tableName, recordKey, dataset.columns, rowNumber, row);
               await nullCoordinates.collect(item.tableName, recordKey, dataset.columns, rowNumber, row);
             }
+            if (this.options.manifestContext !== undefined) {
+              const source = this.options.manifestContext.rawTables.find((value) => value.tableName === item.tableName);
+              if (source === undefined || source.rowCount !== rowNumber.toString() ||
+                  source.firstStableKey !== firstStableKey || source.lastStableKey !== lastStableKey)
+                fail("EXPORT_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+            }
           }
           const sheets: XlsxSheet[] = [];
+          const manifestParts: ManifestSheetPart[] = [];
           for (const item of items) {
             const dataset = datasets.get(item.tableName) ?? fail("EXPORT_WORKBOOK_SPOOL_LAYOUT_MISMATCH");
             const pager = new DatasetPager(this.options.spoolDirectory, dataset, item, readDataset);
             pagers.push(pager);
             for (let part = 1; part <= pager.pageCount(); part += 1) {
+              const start = BigInt(part - 1) * BigInt(BACKUP_MAX_DATA_ROWS);
+              const remaining = BigInt(dataset.rowCount!) - start;
+              manifestParts.push({
+                sheetId: backupSheetPartId(item, part),
+                logicalName: item.tableName,
+                partNo: String(part),
+                rowCount: (remaining > BigInt(BACKUP_MAX_DATA_ROWS) ? BigInt(BACKUP_MAX_DATA_ROWS) : remaining).toString(),
+                sourceTable: item.tableName,
+                sourceLogicalDigest: dataset.logicalDigest,
+                pageLogicalDigest: null,
+                summaryScope: "SOURCE_TABLE_DIGEST_ONLY",
+              });
               sheets.push({
                 name: backupSheetPartId(item, part),
                 columns: dataset.columns,
                 rows: pager.rowsFor(part, longText),
               });
             }
+          }
+          const file = `workbook-${workbookId}.xlsx`;
+          if (this.options.manifestContext !== undefined) {
+            const context = this.options.manifestContext;
+            for (const item of items) {
+              const source = context.rawTables.find((row) => row.tableName === item.tableName);
+              const dataset = datasets.get(item.tableName)!;
+              if (source === undefined || source.rowCount !== dataset.rowCount || source.logicalDigest !== dataset.logicalDigest)
+                fail("EXPORT_WORKBOOK_MANIFEST_SOURCE_MISMATCH");
+            }
+            const manifestRows = createManifestWorkbookRows({
+              context, spoolId: this.options.spool.spoolId,
+              snapshotId: this.options.spool.snapshotId, asOf: this.options.spool.asOf,
+              file, workbookRole: "RAW", tableNumbers: [], sheetParts: manifestParts,
+            });
+            const columns = ["字段", "内容"];
+            let rowNumber = 0n;
+            for (const row of manifestRows) {
+              rowNumber += 1n;
+              await longText.collect("00_manifest", row[0], columns, rowNumber, row);
+              await nullCoordinates.collect("00_manifest", row[0], columns, rowNumber, row);
+            }
+            sheets.unshift({
+              name: "00_manifest", columns,
+              rows: manifestRows.map((row) => longText.references(columns, row)),
+            });
           }
           for (let part = 1; part <= longText.pageCount(); part += 1) {
             sheets.push({
@@ -438,7 +494,6 @@ export class FullBackupWorkbookExporter {
               rows: nullCoordinates.rowsForPart(part),
             });
           }
-          const file = `workbook-${workbookId}.xlsx`;
           await writeWorkbook({ outputPath: join(directory, file), sheets });
           const integrity = await hashBackupFile(directory, file);
           workbooks.push({ workbookId, file, datasetCount: String(items.length), ...integrity });

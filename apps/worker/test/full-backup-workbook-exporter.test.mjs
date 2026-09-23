@@ -336,3 +336,56 @@ test("成功写盘后私有索引清理失败会使整次导出失败", async ()
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("RAW manifest uses verified same-snapshot evidence in all twelve workbooks and preserves NULL coordinates", async () => {
+  const { FullBackupDerivedSpoolIndex } = await import('../dist/full-backup-derived-spool-index.js');
+  const { FullBackupLedgerDerivedView } = await import('../dist/full-backup-ledger-derived-view.js');
+  const { FullBackupLedgerBusinessPeriodSource } = await import('../dist/full-backup-ledger-business-period-source.js');
+  const { FullBackupManifestEvidence } = await import('../dist/full-backup-manifest-evidence.js');
+  const { createFullBackupManifestContext } = await import('../dist/full-backup-manifest.js');
+  const root = await mkdtemp(join(tmpdir(), 'alliance-raw-manifest-'));
+  let index, ledger, periods;
+  try {
+    const spool = await createSpool(join(root, 'spools'), 'manifest-source');
+    const spoolDirectory = join(root, 'spools', spool.spoolId);
+    index = await FullBackupDerivedSpoolIndex.create({spoolDirectory,spool,attemptRoot:join(root,'index')});
+    ledger = await FullBackupLedgerDerivedView.create({index,attemptRoot:join(root,'ledger')});
+    periods = await FullBackupLedgerBusinessPeriodSource.create({index,attemptRoot:join(root,'periods')});
+    const evidence = await FullBackupManifestEvidence.collect({spoolDirectory,spool,index,ledger,periods});
+    const context = createFullBackupManifestContext({evidence,fileGroupId:'synthetic-file-group',generatedAt:'2026-09-23T01:00:00.000Z',applicationVersion:'0.1.0',generatorVersion:'test-1'});
+    const outputRoot=join(root,'out');
+    const result=await new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:context}).export();
+    assert.equal(result.workbooks.length,12);
+    const {stdout}=await run('python3',['-c',`import zipfile,xml.etree.ElementTree as E,json,sys,pathlib
+ns={'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+result=[]
+for p in sorted(pathlib.Path(sys.argv[1]).glob('*.xlsx')):
+ z=zipfile.ZipFile(p); book=E.fromstring(z.read('xl/workbook.xml'))
+ names=[s.attrib['name'] for s in book.findall('.//m:sheet',ns)]
+ assert names[0]=='00_manifest',names
+ doc=E.fromstring(z.read('xl/worksheets/sheet1.xml'))
+ assert not doc.findall('.//m:f',ns)
+ rows=[[ ''.join(c.itertext()) for c in r.findall('m:c',ns)] for r in doc.findall('.//m:row',ns)]
+ flat=json.dumps(rows,ensure_ascii=False)
+ assert 'synthetic-file-group' in flat and 'INCOMPLETE_IMPLEMENTATION' in flat
+ assert 'package-manifest.json' in flat
+ assert '${spool.snapshotId}' in flat
+ null_idx=next(i for i,n in enumerate(names) if n.startswith('15_NULL'))
+ null_data=z.read('xl/worksheets/sheet'+str(null_idx+1)+'.xml').decode()
+ assert '00_manifest' in null_data and 'backup_id' in null_data
+ result.append(p.name)
+print(json.dumps(result))`,join(outputRoot,result.outputId)]);
+    assert.equal(JSON.parse(stdout).length,12);
+    await assert.rejects(new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:{...context,snapshotId:'another-snapshot'}}).export(),/MANIFEST/);
+    const changed={...context,rawTables:context.rawTables.map(row=>row.tableName==='person'?{...row,rowCount:'2'}:row)};
+    await assert.rejects(new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:changed}).export(),/MANIFEST/);
+    for (const field of ['firstStableKey', 'lastStableKey']) {
+      const forged = {...context,rawTables:context.rawTables.map(row=>row.tableName==='person'?{...row,[field]:'forged-record-key'}:row)};
+      await assert.rejects(new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:forged}).export(),/EXPORT_WORKBOOK_MANIFEST_SOURCE_MISMATCH/);
+    }
+    assert.deepEqual(await readdir(outputRoot),[result.outputId]);
+  } finally {
+    await periods?.close();await ledger?.close();await index?.close();
+    await rm(root,{recursive:true,force:true});
+  }
+});
