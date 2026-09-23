@@ -102,7 +102,10 @@ export class WeeklyFeeService {
     if (week.status !== "OPEN") throw new Error("PERIOD_LOCKED");
     if (week.settlementMonth !== draft.settlementMonth) throw new Error("PERIOD_MONTH_MISMATCH");
     const venue = this.venues.get(draft.venueId);
-    if (venue === undefined || venue.status !== "ACTIVE") throw new Error("VENUE_NOT_ACTIVE");
+    if (venue === undefined
+      || (venue.status !== "ACTIVE" && (previous === undefined || previous.venueId !== draft.venueId))) {
+      throw new Error("VENUE_NOT_ACTIVE");
+    }
 
     const record: WeeklyFeeRecord = {
       ...draft,

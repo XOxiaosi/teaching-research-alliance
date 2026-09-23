@@ -299,7 +299,7 @@ export class PostgresWeeklyFeeRepository {
       [draft.venueId]
     );
     const venue = venueResult.rows[0];
-    if (venue === undefined || venue.status !== "ACTIVE") throw new Error("VENUE_NOT_ACTIVE");
+    if (venue === undefined) throw new Error("VENUE_NOT_ACTIVE");
 
     const current = await client.query<FeeRow>(
       `${feeSelect}
@@ -309,6 +309,11 @@ export class PostgresWeeklyFeeRepository {
       [draft.referralCaseId, draft.teachingWeekId]
     );
     const previous = current.rows[0];
+    // A venue becoming inactive only prevents a new selection.  A correction
+    // to the same already-recorded venue must retain that historical choice.
+    if (venue.status !== "ACTIVE" && (previous === undefined || previous.venue_id !== draft.venueId)) {
+      throw new Error("VENUE_NOT_ACTIVE");
+    }
     if (previous !== undefined) {
       const refunded = await client.query<{ refunded: boolean }>(
         `SELECT EXISTS (
