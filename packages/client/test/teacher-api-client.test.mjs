@@ -1210,6 +1210,74 @@ test("HQ和带局部资源的管理员不能读取或提交公司资金配置，
   assert.throws(() => localAdmin.createCompanyFundSubmission({ fundCode: "HQ_LOCAL", displayName: "局部管理员" }), ApiClientError);
 });
 
+test("福利扣费业务账户目录只读严格GLOBAL三类角色，GET不带query或body", async () => {
+  const subjects = ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"];
+  for (const subject of subjects) {
+    const requests = [];
+    const client = new TeacherApiClient({
+      transport: async (request) => {
+        if (request.path === "/v1/session") return success(administratorSession(subject));
+        requests.push(request);
+        return success({ items: [{ fundId: "fund-1", code: "HQ_OPERATING", displayName: "总部业务资金" }] });
+      },
+    });
+    await client.login({ phoneNormalized: "13800000000", password: "password" });
+    assert.deepEqual(await client.listBenefitSourceFunds(), {
+      items: [{ fundId: "fund-1", code: "HQ_OPERATING", displayName: "总部业务资金" }],
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, "GET");
+    assert.equal(requests[0].path, "/v1/finance/benefit-source-funds");
+    assert.match(requests[0].headers.authorization, /^Bearer /);
+    assert.equal(requests[0].body, undefined);
+    assert.equal(requests[0].path.includes("?"), false);
+  }
+});
+
+test("福利扣费业务账户目录拒绝普通角色和窄范围角色，并沿用401/403认证语义", async () => {
+  const forbidden = [
+    ["TEACHING_TEACHER", { scope: "SELF" }],
+    ["REGION_FINANCE", { scope: "REGION", regionId: "region-1" }],
+    ["CAMPUS_PRINCIPAL", { scope: "CAMPUS", campusId: "campus-1" }],
+    ["HEADQUARTERS_FINANCE", { scope: "GLOBAL", regionId: "region-1" }],
+    ["HEADQUARTERS_FINANCE", { scope: "GLOBAL", campusId: "campus-1" }],
+    ["HEADQUARTERS_FINANCE", { scope: "GLOBAL", venueId: "venue-1" }],
+  ];
+  for (const [subject, extra] of forbidden) {
+    let calls = 0;
+    const client = new TeacherApiClient({
+      transport: async (request) => {
+        if (request.path === "/v1/session") return success(administratorSession(subject, extra));
+        calls += 1;
+        throw new Error("forbidden local role must not call API");
+      },
+    });
+    await client.login({ phoneNormalized: "13800000000", password: "password" });
+    await assert.rejects(client.listBenefitSourceFunds(), ApiClientError);
+    assert.equal(calls, 0);
+  }
+
+  const unauthenticated = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession());
+      return { status: 401, body: { error: { code: "UNAUTHENTICATED", message: "expired" } } };
+    },
+  });
+  await unauthenticated.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(unauthenticated.listBenefitSourceFunds(), ApiClientError);
+  assert.equal(unauthenticated.currentSession, null);
+
+  const forbiddenServer = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession());
+      return { status: 403, body: { error: { code: "FORBIDDEN_SCOPE", message: "role" } } };
+    },
+  });
+  await forbiddenServer.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(forbiddenServer.listBenefitSourceFunds(), ApiClientError);
+  assert.equal(forbiddenServer.currentSession?.currentRoleContext, null);
+});
+
 test("普通报销冻结金额理由和两份原件，未知结果以同键重试且不发送伪造字段", async () => {
   const bodies = [];
   let attempts = 0;

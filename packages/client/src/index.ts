@@ -875,6 +875,16 @@ export type BenefitDetail = BenefitExecution &
 
 export type ManagedBenefitRoster = Readonly<{ benefitMonth: string; items: readonly BenefitRosterItem[] }>;
 
+/** Minimal active business-account metadata allowed for benefit deduction selection. */
+export type BenefitSourceFund = Readonly<{
+  fundId: string;
+  code: string;
+  displayName: string;
+}>;
+export type BenefitSourceFundDirectory = Readonly<{
+  items: readonly BenefitSourceFund[];
+}>;
+
 export type BenefitPlanDraft = Readonly<{
   benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
   beneficiaryPersonId: string;
@@ -2068,6 +2078,14 @@ export class TeacherApiClient {
     return this.authenticatedRequest<BonusProjectCatalog>(
       "GET",
       "/v1/finance/bonus-projects",
+    );
+  }
+
+  public async listBenefitSourceFunds(): Promise<BenefitSourceFundDirectory> {
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<BenefitSourceFundDirectory>(
+      "GET",
+      "/v1/finance/benefit-source-funds",
     );
   }
 

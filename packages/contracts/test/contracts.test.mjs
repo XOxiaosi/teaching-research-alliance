@@ -133,3 +133,16 @@ test("工资、奖金和社保写接口统一要求严格全局财务管理动�
     assert.equal(hasPermission(subject, "MANAGE_CASH_WAGES"), false);
   }
 });
+
+test("福利扣费业务账户目录契约固定为只读全局管理端点", () => {
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/finance/benefit-source-funds"),
+    {
+      method: "GET",
+      path: "/v1/finance/benefit-source-funds",
+      action: "READ_MANAGED_CASH_WAGES",
+      responseVersion: "benefit-source-funds.v1",
+      requiresRoleContext: true,
+    },
+  );
+});

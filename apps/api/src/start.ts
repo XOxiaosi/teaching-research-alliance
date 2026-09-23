@@ -1,4 +1,5 @@
 import { PostgresBenefitReadService } from "./postgres-benefit-read-service.js";
+import { PostgresBenefitSourceFundDirectoryService } from "./postgres-benefit-source-fund-directory-service.js";
 import { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";
 import { PostgresRefundSubmissionService } from "./postgres-refund-submission-service.js";
 import { PostgresRefundReviewService } from "./postgres-refund-review-service.js";
@@ -113,6 +114,7 @@ const server = createApiServer({
       }
     : {}),
   benefitReads: new PostgresBenefitReadService(pool),
+  benefitSourceFunds: new PostgresBenefitSourceFundDirectoryService(pool),
   cashWageReads: new PostgresCashWageReadService(pool),
   cashWageTeacherDirectory: new PostgresCashWageTeacherDirectoryService(pool),
   financeAttachments: new PostgresFinanceAttachmentService(pool),

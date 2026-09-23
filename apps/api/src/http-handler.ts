@@ -466,6 +466,28 @@ export type ApiServices = Readonly<{
     listRoster: (context: RoleContext, month: string, at: Date) => unknown | Promise<unknown>;
     getDetail: (context: RoleContext, id: string) => unknown | Promise<unknown>;
   }>;
+  benefitSourceFunds?: Readonly<{
+    list: (
+      context: RoleContext,
+      at: Date,
+    ) =>
+      | Readonly<{
+          items: readonly Readonly<{
+            fundId: string;
+            code: string;
+            displayName: string;
+          }>[];
+        }>
+      | Promise<
+          Readonly<{
+            items: readonly Readonly<{
+              fundId: string;
+              code: string;
+              displayName: string;
+            }>[];
+          }>
+        >;
+  }>;
   cashWageReads?: Readonly<{
     listRoster: (
       context: RoleContext,
@@ -1423,6 +1445,34 @@ export const handleRequest = async (
       return success(
         await services.cashWageReads.getDetail(context, cashWageDetailPath[1]!),
       );
+    }
+    if (
+      request.method === "GET" &&
+      request.path === "/v1/finance/benefit-source-funds"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (
+        Object.keys(parsedBody).length > 0 ||
+        Object.keys(request.query ?? {}).length > 0
+      )
+        throw new Error("INVALID_INPUT");
+      const context = currentContext(
+        await services.sessions.get(sessionIdFrom(body), at),
+      );
+      if (
+        (context.subject !== "HEADQUARTERS_FINANCE" &&
+          context.subject !== "SYSTEM_ADMIN" &&
+          context.subject !== "SYSTEM_OWNER") ||
+        context.scope !== "GLOBAL" ||
+        context.regionId !== undefined ||
+        context.campusId !== undefined ||
+        context.venueId !== undefined
+      )
+        throw new Error("FORBIDDEN_SCOPE");
+      if (!services.benefitSourceFunds)
+        throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      return success(await services.benefitSourceFunds.list(context, at));
     }
     const benefitDetailPath = request.path.match(/^\/v1\/finance\/benefits\/([^/]+)$/);
     if (request.method === "GET" && (request.path === "/v1/finance/benefit-roster" || benefitDetailPath !== null)) {

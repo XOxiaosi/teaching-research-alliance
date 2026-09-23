@@ -459,6 +459,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     requiresRoleContext: true,
   },
   {
+    method: "GET",
+    path: "/v1/finance/benefit-source-funds",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "benefit-source-funds.v1",
+    requiresRoleContext: true,
+  },
+  {
     method: "POST",
     path: "/v1/admin/bonus-projects/:projectNo/name",
     action: "MANAGE_BONUS_PROJECT_CATALOG",
