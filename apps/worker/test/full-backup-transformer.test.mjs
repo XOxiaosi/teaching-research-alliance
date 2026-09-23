@@ -207,7 +207,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v3");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v4");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");

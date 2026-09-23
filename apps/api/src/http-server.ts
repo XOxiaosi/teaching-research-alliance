@@ -79,7 +79,9 @@ export const createApiServer = (
       if (
         (pathname.startsWith("/v1/organizations/") || pathname.startsWith("/v1/finance/")) ||
         pathname.startsWith("/v1/admin/company-funds") ||
-        pathname.startsWith("/v1/admin/bonus-projects")
+        pathname.startsWith("/v1/admin/bonus-projects") ||
+        pathname === "/v1/admin/person-relationships" ||
+        pathname.startsWith("/v1/admin/person-relationships/")
       ) {
         response.setHeader("cache-control", "private, no-store");
         response.setHeader("x-content-type-options", "nosniff");

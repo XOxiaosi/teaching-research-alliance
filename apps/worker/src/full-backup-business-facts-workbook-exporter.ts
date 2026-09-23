@@ -88,6 +88,8 @@ const FIXED_PROFILES: Readonly<Record<BusinessFactsWorkbookProfile, FixedProfile
       person: "人员", user_account: "用户账号", teacher_profile: "教师资料", person_campus_assignment: "人员校区归属",
       role_assignment: "角色授予", person_relationship: "人员关系", organization_unit: "组织单元", venue: "场地",
       venue_permission_grant: "场地权限", settlement_account: "结算账户",
+      person_relationship_change_preview: "组长变更预览", person_relationship_change: "组长变更批次",
+      person_relationship_change_effect: "组长份额迁移",
     }),
   }),
   STUDENT: Object.freeze({

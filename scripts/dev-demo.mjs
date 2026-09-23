@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, randomBytes } from "node:crypto";
 import { DEFAULT_RATE_POLICY_VALUES } from "@teaching-research-alliance/domain";
 import { createTestDatabase } from "../apps/api/test/integration/postgres-test-database.mjs";
-import { PostgresRefundSubmissionService, PostgresRefundReviewService, PostgresRefundReadService, PostgresReimbursementSubmissionService, PostgresReimbursementReviewService, PostgresReimbursementReadService, PostgresReimbursementTransferService, PostgresReimbursementReversalService, createApiServer, PostgresSelfPurchaseReversalService, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, PostgresVenueService, PostgresVenueReadService, PostgresVenueBoardReadService, PostgresBenefitSourceFundDirectoryService, PostgresBenefitReadService, PostgresCashWageReadService, PostgresCashWageTeacherDirectoryService, PostgresOrganizationRevenueReadService, PostgresSalaryBenefitsService, PostgresBonusProjectCatalogService, hashPassword } from "../apps/api/dist/main.js";
+import { PostgresRefundSubmissionService, PostgresRefundReviewService, PostgresRefundReadService, PostgresReimbursementSubmissionService, PostgresReimbursementReviewService, PostgresReimbursementReadService, PostgresReimbursementTransferService, PostgresReimbursementReversalService, createApiServer, PostgresSelfPurchaseReversalService, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, PostgresVenueService, PostgresVenueReadService, PostgresVenueBoardReadService, PostgresBenefitSourceFundDirectoryService, PostgresBenefitReadService, PostgresCashWageReadService, PostgresCashWageTeacherDirectoryService, PostgresOrganizationRevenueReadService, PostgresSalaryBenefitsService, PostgresBonusProjectCatalogService, PostgresGroupLeaderRelationshipService, PostgresGroupLeaderDirectoryService, hashPassword } from "../apps/api/dist/main.js";
 
 // Explicitly synthetic, isolated, disposable local demonstration data.
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL_REQUIRED");
@@ -67,7 +67,7 @@ process.once("SIGTERM", () => { void close(); });
 try {
   const suffix = randomUUID();
   const ids = Object.fromEntries([
-    "admin", "planner", "planningMentor", "groupLeader", "teachingMentor", "teacher", "teacherB", "platformFinance", "regionFinance",
+    "admin", "planner", "planningMentor", "groupLeader", "groupLeaderCandidateA", "groupLeaderCandidateB", "teachingMentor", "teacher", "teacherB", "platformFinance", "regionFinance",
     "region", "campus", "year", "period", "week", "student", "referral", "venue"
   ].map((key) => [key, randomUUID()]));
     for (const [key, id] of Object.entries(ids)) {
@@ -99,6 +99,9 @@ try {
     await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "CAMPUS", ids.campus, ids.admin);
     await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "ASSOCIATED_TEACHERS", ids.planner, ids.admin);
     await addRole(pool, ids.groupLeader, "GROUP_LEADER", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
+    // Two independent, login-enabled candidates make the real browser group-leader flow selectable.
+    await addRole(pool, ids.groupLeaderCandidateA, "GROUP_LEADER", "ASSOCIATED_TEACHERS", null, ids.admin);
+    await addRole(pool, ids.groupLeaderCandidateB, "GROUP_LEADER", "ASSOCIATED_TEACHERS", null, ids.admin);
     await addRole(pool, ids.teachingMentor, "TEACHING_MENTOR", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
     await addRole(pool, ids.teacher, "TEACHING_TEACHER", "SELF", ids.teacher, ids.admin);
     await addRole(pool, ids.teacherB, "TEACHING_TEACHER", "SELF", ids.teacherB, ids.admin);
@@ -135,6 +138,8 @@ try {
     await addAccount(pool, "PERSON", ids.planner, `person:planner:${suffix}`);
     await addAccount(pool, "PERSON", ids.planningMentor, `person:planning-mentor:${suffix}`);
     await addAccount(pool, "PERSON", ids.groupLeader, `person:group-leader:${suffix}`);
+    await addAccount(pool, "PERSON", ids.groupLeaderCandidateA, `person:group-leader-candidate-a:${suffix}`);
+    await addAccount(pool, "PERSON", ids.groupLeaderCandidateB, `person:group-leader-candidate-b:${suffix}`);
     await addAccount(pool, "PERSON", ids.teachingMentor, `person:teaching-mentor:${suffix}`);
     await addAccount(pool, "PERSON", ids.teacher, `person:teacher:${suffix}`);
     await addAccount(pool, "PERSON", ids.teacherB, `person:teacher-b:${suffix}`);
@@ -158,13 +163,16 @@ try {
     }
     const password = "Local-demo-only-2026";
     const hash = await hashPassword(password);
-    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"],[ids.regionFinance,"13800000005"]]) {
+    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"],[ids.regionFinance,"13800000005"],[ids.groupLeaderCandidateA,"13800000006"],[ids.groupLeaderCandidateB,"13800000007"]]) {
       await pool.query("INSERT INTO user_account(person_id,phone_normalized,password_hash,login_status) VALUES ($1,$2,$3,'ACTIVE')", [personId,phone,hash]);
     }
     await pool.query("UPDATE person SET nickname='演示授课老师' WHERE id=$1", [ids.teacher]);
     await pool.query("UPDATE person SET nickname='演示规划师' WHERE id=$1", [ids.planner]);
     await pool.query("UPDATE person SET nickname='演示总部财务' WHERE id=$1", [ids.platformFinance]);
     await pool.query("UPDATE person SET nickname='演示管理员' WHERE id=$1", [ids.admin]);
+    await pool.query("UPDATE person SET nickname='演示原组长' WHERE id=$1", [ids.groupLeader]);
+    await pool.query("UPDATE person SET nickname='演示候选组长甲' WHERE id=$1", [ids.groupLeaderCandidateA]);
+    await pool.query("UPDATE person SET nickname='演示候选组长乙' WHERE id=$1", [ids.groupLeaderCandidateB]);
     attachmentRoot=await mkdtemp(join(tmpdir(),"alliance-demo-attachments-"));
     const attachmentStore=await LocalAttachmentStore.create(attachmentRoot,fileURLToPath(new URL("../",import.meta.url)));
     const financeCrypto=new FinanceSensitiveFieldCrypto("synthetic-demo",{"synthetic-demo":randomBytes(32).toString("hex")});
@@ -199,7 +207,8 @@ try {
       }
       await salary.confirmBenefit(salaryContext, { documentId: benefitDoc.id, expectedVersion: 1, todoId: benefitTodos[0].id, expectedPlanVersionId: benefitPlan.planVersionId, reason: "Synthetic benefit executed", attachmentVersionIds: benefitAttachments }, `demo-benefit-confirm-${suffix}`, at);
     }
-    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),refunds:new PostgresRefundSubmissionService(pool,attachmentStore),refundReviews:new PostgresRefundReviewService(pool,attachmentStore),refundReads:new PostgresRefundReadService(pool),reimbursements:new PostgresReimbursementSubmissionService(pool,attachmentStore),reimbursementReviews:new PostgresReimbursementReviewService(pool,attachmentStore),reimbursementReads:new PostgresReimbursementReadService(pool),reimbursementTransfers:new PostgresReimbursementTransferService(pool,attachmentStore),reimbursementReversals:new PostgresReimbursementReversalService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),venues:new PostgresVenueService(pool),venueReads:new PostgresVenueReadService(pool),venueBoards:new PostgresVenueBoardReadService(pool),benefitSourceFunds:new PostgresBenefitSourceFundDirectoryService(pool),benefitReads:new PostgresBenefitReadService(pool),salaryBenefits:salary,bonusProjects:new PostgresBonusProjectCatalogService(pool),cashWageTeacherDirectory:new PostgresCashWageTeacherDirectoryService(pool),cashWageReads:new PostgresCashWageReadService(pool),organizationRevenue:new PostgresOrganizationRevenueReadService(pool),now:()=>at});
+    const groupLeaderRelationships = new PostgresGroupLeaderRelationshipService(pool);
+    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),refunds:new PostgresRefundSubmissionService(pool,attachmentStore),refundReviews:new PostgresRefundReviewService(pool,attachmentStore),refundReads:new PostgresRefundReadService(pool),reimbursements:new PostgresReimbursementSubmissionService(pool,attachmentStore),reimbursementReviews:new PostgresReimbursementReviewService(pool,attachmentStore),reimbursementReads:new PostgresReimbursementReadService(pool),reimbursementTransfers:new PostgresReimbursementTransferService(pool,attachmentStore),reimbursementReversals:new PostgresReimbursementReversalService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),venues:new PostgresVenueService(pool),venueReads:new PostgresVenueReadService(pool),venueBoards:new PostgresVenueBoardReadService(pool),benefitSourceFunds:new PostgresBenefitSourceFundDirectoryService(pool),benefitReads:new PostgresBenefitReadService(pool),salaryBenefits:salary,bonusProjects:new PostgresBonusProjectCatalogService(pool),cashWageTeacherDirectory:new PostgresCashWageTeacherDirectoryService(pool),cashWageReads:new PostgresCashWageReadService(pool),organizationRevenue:new PostgresOrganizationRevenueReadService(pool),groupLeaderRelationships,groupLeaderDirectory:new PostgresGroupLeaderDirectoryService(pool,groupLeaderRelationships),now:()=>at});
     await new Promise((resolve,reject) => { server.once('error',reject); server.listen(port,'127.0.0.1',resolve); });
     console.log(`合成演示API http://127.0.0.1:${port}；业务时钟固定为北京时间2026-09-21 12:00；正常退出时删除本次独立演示数据。`);
     console.log(`授课老师：13800000001；规划师：13800000002；总部财务：13800000003；管理员：13800000004；合成演示密码：${password}`);

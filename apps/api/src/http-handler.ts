@@ -6,6 +6,9 @@ import {
   type HttpMethod,
   type PermissionSubject,
   type RoleContext,
+  type GroupLeaderRelationshipCandidatesDto,
+  type GroupLeaderRelationshipPreviewDto,
+  type GroupLeaderRelationshipPublishDto,
 } from "@teaching-research-alliance/contracts";
 import type { ReferralCreationDraft } from "./postgres-referral-creation-service.js";
 import type { FinanceAttachmentReservationDraft } from "./postgres-finance-attachment-service.js";
@@ -15,6 +18,12 @@ import type {
 } from "@teaching-research-alliance/domain";
 import { RatePolicyService } from "@teaching-research-alliance/domain";
 import { type SessionView } from "./session-service.js";
+import type {
+  GroupLeaderChangePreviewDraft,
+  GroupLeaderChangePreviewResult,
+  GroupLeaderChangePublishResult,
+} from "./postgres-group-leader-relationship-service.js";
+import type { GroupLeaderRelationshipDirectory } from "./postgres-group-leader-directory-service.js";
 
 export type ApiRequest = Readonly<{
   method: HttpMethod;
@@ -66,6 +75,13 @@ export type ApiServices = Readonly<{
   sessions: SessionApiService;
   weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
+  groupLeaderRelationships?: Readonly<{
+    preview: (context: RoleContext, draft: GroupLeaderChangePreviewDraft, at: Date) => GroupLeaderChangePreviewResult | Promise<GroupLeaderChangePreviewResult>;
+    publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => GroupLeaderChangePublishResult | Promise<GroupLeaderChangePublishResult>;
+  }>;
+  groupLeaderDirectory?: Readonly<{
+    list: (context: RoleContext, at: Date) => GroupLeaderRelationshipDirectory | Promise<GroupLeaderRelationshipDirectory>;
+  }>;
   organizationRevenue?: Readonly<{
     get: (context: RoleContext, filter: {fromMonth: string; toMonth: string}, at: Date) => unknown | Promise<unknown>;
   }>;
@@ -660,6 +676,7 @@ const sessionIdFrom = (body: Record<string, unknown>): string =>
   requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
+  if (code === "RELATIONSHIP_SERVICE_UNAVAILABLE") return 503;
   if (code === "ORGANIZATION_REVENUE_DATA_UNAVAILABLE") return 500;
   if (code === "ORGANIZATION_REVENUE_SERVICE_UNAVAILABLE") return 503;
   if (code === "VENUE_SERVICE_UNAVAILABLE") return 503;
@@ -691,6 +708,13 @@ const errorStatus = (code: string): number => {
       "FINANCE_BENEFIT_PLAN_INACTIVE",
       "BONUS_PROJECT_VERSION_REQUIRED",
       "BONUS_PROJECT_VERSION_CONFLICT",
+      "RELATIONSHIP_PREVIEW_STALE",
+      "RELATIONSHIP_PREVIEW_ALREADY_PUBLISHED",
+      "RELATIONSHIP_EFFECTIVE_WEEK_NOT_CURRENT",
+      "RELATIONSHIP_SPECIAL_PERIOD_SCOPE_REQUIRED",
+      "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
+      "GROUP_LEADER_RELATIONSHIP_MISSING",
+      "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
     ].includes(code)
   )
     return 409;
@@ -795,6 +819,52 @@ const currentContext = (view: SessionView) => {
     throw new Error("ROLE_CONTEXT_REQUIRED");
   return view.currentRoleContext;
 };
+
+const assertRelationshipManager = (context: RoleContext): void => {
+  if (permissionScope(context.subject, "MANAGE_PERSON_RELATIONSHIPS") !== "GLOBAL"
+    || context.scope !== "GLOBAL" || context.regionId !== undefined
+    || context.campusId !== undefined || context.venueId !== undefined
+    || !["SYSTEM_OWNER", "SYSTEM_ADMIN"].includes(context.subject)) {
+    throw new Error("FORBIDDEN_SCOPE");
+  }
+};
+
+const relationshipPreviewResponse = (result: GroupLeaderChangePreviewResult): GroupLeaderRelationshipPreviewDto => ({
+  previewId: result.previewId,
+  teacherPersonId: result.teacherPersonId,
+  sourceRelatedPersonId: result.sourceRelatedPersonId,
+  sourceRelatedNickname: result.sourceRelatedNickname,
+  newRelatedPersonId: result.newRelatedPersonId,
+  effectiveTeachingWeekId: result.effectiveTeachingWeekId,
+  effectiveAt: result.effectiveAt,
+  nextBoundaryAt: result.nextBoundaryAt,
+  consideredFeeCount: result.consideredFeeCount,
+  movedFeeCount: result.movedFeeCount,
+  zeroShareFeeCount: result.zeroShareFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  movedAmountCents: result.movedAmountCents,
+});
+
+const relationshipPublishResponse = (result: GroupLeaderChangePublishResult): GroupLeaderRelationshipPublishDto => ({
+  changeId: result.changeId,
+  previewId: result.previewId,
+  relationshipVersion: result.relationshipVersion,
+  resultRelationshipId: result.resultRelationshipId,
+  postingStatus: result.postingStatus,
+  consideredFeeCount: result.consideredFeeCount,
+  movedFeeCount: result.movedFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  movedAmountCents: result.movedAmountCents,
+  replay: result.replay,
+});
+
+const relationshipCandidatesResponse = (directory: GroupLeaderRelationshipDirectory): GroupLeaderRelationshipCandidatesDto => ({
+  groupLeaders: directory.groupLeaders.map((item) => ({ personId: item.personId, nickname: item.nickname })),
+  teachers: directory.teachers.map((item) => ({ personId: item.personId, nickname: item.nickname })),
+  currentWeeks: directory.currentWeeks.map((week) => ({
+    id: week.id, startsOn: week.startsOn, endsOn: week.endsOn, settlementMonth: week.settlementMonth,
+  })),
+});
 
 const subjectFrom = (value: string): PermissionSubject => {
   const subjects: readonly PermissionSubject[] = [
@@ -1223,6 +1293,52 @@ export const handleRequest = async (
           requiredString(body, "previewId"),
         ),
       );
+    }
+    if (
+      request.method === "GET" &&
+      request.path === "/v1/admin/person-relationships/group-leader-candidates"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId") || Object.keys(request.query ?? {}).length !== 0)
+        throw new Error("INVALID_INPUT");
+      if (!services.groupLeaderDirectory) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(relationshipCandidatesResponse(await services.groupLeaderDirectory.list(context, at)));
+    }
+    if (
+      request.method === "POST" &&
+      request.path === "/v1/admin/person-relationships/preview"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "teacherPersonId", "newRelatedPersonId", "effectiveTeachingWeekId", "reason"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.groupLeaderRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(relationshipPreviewResponse(await services.groupLeaderRelationships.preview(context, {
+        teacherPersonId: requiredString(body, "teacherPersonId"),
+        newRelatedPersonId: requiredString(body, "newRelatedPersonId"),
+        effectiveTeachingWeekId: requiredString(body, "effectiveTeachingWeekId"),
+        reason: requiredString(body, "reason"),
+      }, at)));
+    }
+    if (
+      request.method === "POST" &&
+      request.path === "/v1/admin/person-relationships"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "previewId", "idempotencyKey"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.groupLeaderRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(relationshipPublishResponse(await services.groupLeaderRelationships.publish(
+        context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at,
+      )));
     }
     if (request.method === "GET" && request.path === "/v1/referrals/sent") {
       const session = await services.sessions.get(request.sessionId ?? "", at);

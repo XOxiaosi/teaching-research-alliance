@@ -28,7 +28,7 @@ test("真实79表只读快照可流式spool，秘密会话表不计数不读取"
       batchSize: 1,
     }).create();
     assert.equal(spool.mode, "RAW_SOURCE_SPOOL");
-    assert.equal(spool.datasets.length, 79);
+    assert.equal(spool.datasets.length, 82);
     const session = spool.datasets.find((dataset) => dataset.tableName === "user_session");
     assert.deepEqual(session, {
       tableName: "user_session", columns: [], rowCount: null, logicalDigest: null, spoolFile: null, excluded: true,

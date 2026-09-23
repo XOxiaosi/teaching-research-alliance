@@ -169,3 +169,9 @@ footer { font-size:12px; color:#78869a; padding-top:24px; border-top:1px solid #
   .venue-board-filters { grid-template-columns:1fr; }
   .venue-board-fee { align-items:flex-start; flex-direction:column; gap:6px; }
 }
+
+.group-leader-change-panel > label { margin:18px 0; color:#34465e; }
+.group-leader-change-panel .group-leader-reason { display:block; }
+.group-leader-change-panel .group-leader-reason > span { display:block; }
+.group-leader-change-panel .group-leader-reason textarea { display:block; width:100%; min-height:96px; resize:vertical; font:inherit; color:#253a55; border:1px solid #cfd8e5; border-radius:8px; background:#fff; padding:11px 12px; margin-top:8px; }
+.group-leader-change-panel .group-leader-reason textarea:focus { border-color:#477bec; outline:3px solid #245edb17; }

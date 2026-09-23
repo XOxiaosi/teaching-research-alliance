@@ -39,6 +39,8 @@ import { PostgresVenueBoardReadService } from "./postgres-venue-board-read-servi
 import { PostgresSalaryBenefitsService } from "./postgres-salary-benefits-service.js";
 import { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.js";
 import { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
+import { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
+import { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
 
 const port = Number(process.env.PORT ?? "3100");
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
@@ -66,6 +68,7 @@ if (process.env.FINANCE_KEY_RING_JSON) {
   }
 }
 const pool = createPostgresPool();
+const groupLeaderRelationships = new PostgresGroupLeaderRelationshipService(pool);
 const server = createApiServer({
   organizationRevenue: new PostgresOrganizationRevenueReadService(pool),
   sessions: new PostgresSessionService(pool),
@@ -124,6 +127,8 @@ const server = createApiServer({
   benefitSourceFunds: new PostgresBenefitSourceFundDirectoryService(pool),
   cashWageReads: new PostgresCashWageReadService(pool),
   cashWageTeacherDirectory: new PostgresCashWageTeacherDirectoryService(pool),
+  groupLeaderRelationships,
+  groupLeaderDirectory: new PostgresGroupLeaderDirectoryService(pool, groupLeaderRelationships),
   financeAttachments: new PostgresFinanceAttachmentService(pool),
   ...(attachmentStore
     ? {

@@ -352,6 +352,19 @@ export const API_ERROR_CODES = [
   "TEACHING_WEEK_NOT_FOUND",
   "WEEKLY_FEE_NOT_FOUND",
   "RATE_PREVIEW_NOT_FOUND",
+  "RELATIONSHIP_SERVICE_UNAVAILABLE",
+  "RELATIONSHIP_PREVIEW_NOT_FOUND",
+  "RELATIONSHIP_EFFECTIVE_WEEK_NOT_FOUND",
+  "RELATIONSHIP_PREVIEW_STALE",
+  "RELATIONSHIP_PREVIEW_ALREADY_PUBLISHED",
+  "RELATIONSHIP_EFFECTIVE_WEEK_NOT_CURRENT",
+  "RELATIONSHIP_SPECIAL_PERIOD_SCOPE_REQUIRED",
+  "GROUP_LEADER_CANDIDATE_NOT_ELIGIBLE",
+  "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
+  "GROUP_LEADER_RELATIONSHIP_MISSING",
+  "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+  "RELATIONSHIP_TARGET_UNCHANGED",
+  "RELATIONSHIP_TEACHER_NOT_ELIGIBLE",
   "PERSONAL_ACCOUNT_NOT_FOUND",
   "INTERNAL_ERROR",
   "FORBIDDEN_SCOPE",
@@ -379,8 +392,62 @@ export type EndpointContract = Readonly<{
   requiresRoleContext: boolean;
 }>;
 
+export type GroupLeaderRelationshipPersonDto = Readonly<{
+  personId: string;
+  nickname: string;
+}>;
+
+export type GroupLeaderRelationshipCurrentWeekDto = Readonly<{
+  id: string;
+  startsOn: string;
+  endsOn: string;
+  settlementMonth: string;
+}>;
+
+export type GroupLeaderRelationshipCandidatesDto = Readonly<{
+  groupLeaders: readonly GroupLeaderRelationshipPersonDto[];
+  teachers: readonly GroupLeaderRelationshipPersonDto[];
+  currentWeeks: readonly GroupLeaderRelationshipCurrentWeekDto[];
+}>;
+
+export type GroupLeaderRelationshipPreviewDto = Readonly<{
+  previewId: string;
+  teacherPersonId: string;
+  sourceRelatedPersonId: string;
+  sourceRelatedNickname: string;
+  newRelatedPersonId: string;
+  effectiveTeachingWeekId: string;
+  effectiveAt: string;
+  nextBoundaryAt: string | null;
+  consideredFeeCount: number;
+  movedFeeCount: number;
+  zeroShareFeeCount: number;
+  excludedRefundCount: number;
+  movedAmountCents: string;
+}>;
+
+export type GroupLeaderRelationshipPublishDto = Readonly<{
+  changeId: string;
+  previewId: string;
+  relationshipVersion: number;
+  resultRelationshipId: string;
+  postingStatus: "POSTED" | "NO_BALANCE_CHANGE";
+  consideredFeeCount: number;
+  movedFeeCount: number;
+  excludedRefundCount: number;
+  movedAmountCents: string;
+  replay: boolean;
+}>;
+
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "GET", path: "/v1/organizations/revenue", action: "VIEW_ORGANIZATION_REVENUE", responseVersion: "organization-revenue.v1", requiresRoleContext: true },
+  {
+    method: "GET",
+    path: "/v1/admin/person-relationships/group-leader-candidates",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "group-leader-relationship-candidates.v1",
+    requiresRoleContext: true,
+  },
   {
     method: "POST",
     path: "/v1/finance/salary-benefits/documents",

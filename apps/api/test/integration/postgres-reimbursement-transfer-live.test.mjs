@@ -161,7 +161,7 @@ test("普通报销执行冻结审批链，允许负源余额且只入账一次",
       tempRoot: join(root, "spool"),
       batchSize: 1,
     }).create();
-    assert.equal(spool.datasets.length, 79, "完整源表目录包括普通报销划拨事实");
+    assert.equal(spool.datasets.length, 82, "完整源表目录包括普通报销划拨事实");
     const rowsFor = async (tableName) => {
       const dataset = spool.datasets.find(dataset => dataset.tableName === tableName);
       assert.ok(dataset && !dataset.excluded, tableName);

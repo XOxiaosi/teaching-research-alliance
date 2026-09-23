@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { allocationDelta, allocateSettlement, postLedgerEvent, type WeeklyFeeDraft } from "@teaching-research-alliance/domain";
 import { createPostgresLedgerTransaction, type PostgresPool } from "./postgres-ledger-repository.js";
+import { lockSettlementAllocationShared } from "./postgres-settlement-allocation-gate.js";
 import { PostgresWeeklyFeeRepository, type PersistedWeeklyFeeRecord } from "./postgres-weekly-fee-repository.js";
 import { resolveSettlementContext } from "./postgres-settlement-context.js";
 import type { SettlementSnapshot } from "./settlement-posting-service.js";
@@ -26,6 +27,7 @@ export class PostgresWeeklySettlementService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await lockSettlementAllocationShared(client);
       // A whole-month lock also protects aggregate queries against concurrent first inserts.
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`settlement-month:${draft.settlementMonth}`]);
       const fees = new PostgresWeeklyFeeRepository(this.pool);

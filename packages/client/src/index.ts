@@ -1,4 +1,7 @@
 import type {
+  GroupLeaderRelationshipCandidatesDto,
+  GroupLeaderRelationshipPreviewDto,
+  GroupLeaderRelationshipPublishDto,
   PermissionScope,
   PermissionSubject,
   RoleContext,
@@ -53,6 +56,23 @@ export type WeeklyFeeDraftInput = Readonly<{
 
 export type WeeklyFeeSubmission = Readonly<{
   draft: WeeklyFeeDraftInput;
+  idempotencyKey: string;
+}>;
+
+/** Strict GLOBAL administrators preview a prospective group-leader relationship change. */
+export type GroupLeaderRelationshipPreviewDraft = Readonly<{
+  teacherPersonId: string;
+  newRelatedPersonId: string;
+  effectiveTeachingWeekId: string;
+  reason: string;
+}>;
+
+/**
+ * Reuse this immutable object after an uncertain publish result. It keeps the
+ * server-issued preview ID and one idempotency key bound to its creation scope.
+ */
+export type GroupLeaderRelationshipChangeSubmission = Readonly<{
+  draft: Readonly<{ previewId: string }>;
   idempotencyKey: string;
 }>;
 
@@ -1156,6 +1176,7 @@ type Authentication = Readonly<{
 
 type Submission =
   | WeeklyFeeSubmission
+  | GroupLeaderRelationshipChangeSubmission
   | ReferralCreationSubmission
   | ReferralCopySubmission
   | ReferralAcceptanceSubmission
@@ -1240,6 +1261,15 @@ export const formatCentsAsBeans = (value: string): string => {
   const whole = absolute / 100n;
   const fractional = (absolute % 100n).toString().padStart(2, "0");
   return `${negative ? "-" : ""}${whole.toString()}.${fractional}`;
+};
+
+const validateGroupLeaderRelationshipPreviewDraft = (
+  draft: GroupLeaderRelationshipPreviewDraft,
+): void => {
+  requireNonBlank(draft.teacherPersonId, "teacherPersonId");
+  requireNonBlank(draft.newRelatedPersonId, "newRelatedPersonId");
+  requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
+  validateFinancialText(draft.reason, "reason", 1_000);
 };
 
 const validateWeeklyFeeDraft = (draft: WeeklyFeeDraftInput): void => {
@@ -2152,6 +2182,33 @@ export class TeacherApiClient {
     );
   }
 
+  /** Reads the current server-authorized group-leader and regular-week choices without local caching. */
+  public async listGroupLeaderRelationshipCandidates(): Promise<GroupLeaderRelationshipCandidatesDto> {
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<GroupLeaderRelationshipCandidatesDto>(
+      "GET",
+      "/v1/admin/person-relationships/group-leader-candidates",
+    );
+  }
+
+  /** Requests a fresh server preview; a later publish must reference this exact preview ID. */
+  public async previewGroupLeaderRelationshipChange(
+    draft: GroupLeaderRelationshipPreviewDraft,
+  ): Promise<GroupLeaderRelationshipPreviewDto> {
+    validateGroupLeaderRelationshipPreviewDraft(draft);
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<GroupLeaderRelationshipPreviewDto>(
+      "POST",
+      "/v1/admin/person-relationships/preview",
+      {
+        teacherPersonId: draft.teacherPersonId,
+        newRelatedPersonId: draft.newRelatedPersonId,
+        effectiveTeachingWeekId: draft.effectiveTeachingWeekId,
+        reason: draft.reason,
+      },
+    );
+  }
+
   /** Current immutable-name versions used by finance when creating a project bonus. */
   public async listBonusProjects(): Promise<BonusProjectCatalog> {
     this.requireSalaryBenefitsManager();
@@ -2261,6 +2318,25 @@ export class TeacherApiClient {
    * A submission is immutable. Retry the same object after an uncertain network failure;
    * create a new object after editing any field so the old idempotency key is never reused.
    */
+  public createGroupLeaderRelationshipChangeSubmission(
+    previewId: string,
+  ): GroupLeaderRelationshipChangeSubmission {
+    requireNonBlank(previewId, "previewId");
+    this.requireGroupLeaderRelationshipManager();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ previewId }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   public createWeeklyFeeSubmission(
     draft: WeeklyFeeDraftInput,
   ): WeeklyFeeSubmission {
@@ -2899,6 +2975,32 @@ export class TeacherApiClient {
 
   public submissionStatus(submission: Submission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
+  }
+
+  public async publishGroupLeaderRelationshipChange(
+    submission: GroupLeaderRelationshipChangeSubmission,
+  ): Promise<GroupLeaderRelationshipPublishDto> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireGroupLeaderRelationshipManager();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<GroupLeaderRelationshipPublishDto>(
+        "POST",
+        "/v1/admin/person-relationships",
+        {
+          previewId: submission.draft.previewId,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
   }
 
   public async recordWeeklyFee<T = unknown>(
@@ -3695,6 +3797,21 @@ export class TeacherApiClient {
 
   /** This is an early UX guard; the server remains authoritative for active assignments. */
   private requireCompanyFundAdministrator(): void {
+    const context = this.session?.currentRoleContext;
+    if (
+      (context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** Group-leader changes are restricted to owners and administrators in an unscoped GLOBAL context. */
+  private requireGroupLeaderRelationshipManager(): void {
     const context = this.session?.currentRoleContext;
     if (
       (context?.subject !== "SYSTEM_ADMIN" &&

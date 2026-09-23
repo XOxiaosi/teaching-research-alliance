@@ -4,6 +4,7 @@ import { allocationDelta, postLedgerEvent, type LedgerDelta } from "@teaching-re
 import { LocalAttachmentStore, type AttachmentMediaType } from "./local-attachment-store.js";
 import { createPostgresLedgerTransaction, type PostgresClient, type PostgresPool } from "./postgres-ledger-repository.js";
 import { prepareLedgerPosting } from "./postgres-ledger-locks.js";
+import { lockSettlementAllocationShared } from "./postgres-settlement-allocation-gate.js";
 
 export type RefundReviewDraft = Readonly<{ expectedVersion: number; reason: string }>;
 export type RefundReviewResult = Readonly<{ id: string; status: "REFUNDED" | "REJECTED"; version: number; replay: boolean }>;
@@ -58,6 +59,7 @@ export class PostgresRefundReviewService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await lockSettlementAllocationShared(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`refund:${actor}:${operation}:${key}`]);
       const replay = (await client.query<{ request_hash: string; finance_document_id: string; result_status: string; result_document_version: string }>(
         "SELECT request_hash,finance_document_id::text,result_status,result_document_version::text FROM finance_refund_command_idempotency WHERE actor_person_id=$1 AND operation=$2 AND idempotency_key=$3", [actor, operation, key])).rows[0];

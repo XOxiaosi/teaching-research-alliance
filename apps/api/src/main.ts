@@ -54,6 +54,8 @@ export { PostgresVenueBoardReadService } from "./postgres-venue-board-read-servi
 export { PostgresSalaryBenefitsService } from "./postgres-salary-benefits-service.js";
 export { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.js";
 export { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
+export { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
+export { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
 
 export { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";
 

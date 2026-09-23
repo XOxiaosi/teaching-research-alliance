@@ -26,7 +26,7 @@ test('actual PostgreSQL snapshot produces fixed raw workbooks without private in
     assert.equal(result.snapshotId, spool.snapshotId);
     assert.equal(result.asOf, spool.asOf);
     assert.equal(result.workbooks.length, 12);
-    assert.equal(result.workbooks.reduce((sum, book) => sum + Number(book.datasetCount), 0), 78);
+    assert.equal(result.workbooks.reduce((sum, book) => sum + Number(book.datasetCount), 0), 81);
     assert.equal(result.coverageGaps.length, 4);
     assert.deepEqual((await readdir(join(directory, result.outputId))).sort(), result.workbooks.map(book => book.file).sort());
     for (const book of result.workbooks) {

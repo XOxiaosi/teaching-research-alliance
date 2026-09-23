@@ -15,7 +15,7 @@ const cloneSheets = () => JSON.parse(JSON.stringify(BUSINESS_BACKUP_SHEETS));
 
 test("business schema is an explicit, incomplete eight-table audit baseline", () => {
   const schema = createFullBackupBusinessSchema();
-  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v4");
+  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v5");
   assert.equal(schema.schemaVersion, FULL_BACKUP_BUSINESS_SCHEMA_VERSION);
   assert.equal(schema.mode, "BUSINESS_SCHEMA_ONLY");
   assert.equal(schema.complete, false);
@@ -143,7 +143,7 @@ test("business gaps remain explicit and separate from the existing raw-source ga
     "PROJECT_DEDUCTION_1_TO_10_NOT_IMPLEMENTED",
     "EXTERNAL_PAYMENT_WORKFLOW_NOT_IMPLEMENTED",
     "SETTLEMENT_PUBLISHED_SNAPSHOTS_NOT_IMPLEMENTED",
-    "RELATIONSHIP_CHANGE_PREVIEW_BATCH_NOT_IMPLEMENTED",
+    "OTHER_RELATIONSHIP_CHANGE_WORKFLOWS_NOT_IMPLEMENTED",
   ];
   assert.deepEqual(BUSINESS_BACKUP_COVERAGE_GAPS.map((gap) => gap.code), expected);
   assert.equal(BUSINESS_BACKUP_COVERAGE_GAPS.some((gap) => FULL_BACKUP_KNOWN_COVERAGE_GAPS.includes(gap.code)), false);

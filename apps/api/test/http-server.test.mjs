@@ -4,6 +4,27 @@ import { createApiServer, SessionService, WeeklyFeeService } from "../dist/main.
 
 const now = new Date("2026-09-20T10:00:00.000Z");
 
+test("管理员人员关系入口在认证或解析失败时也禁止缓存", async () => {
+  const server = createApiServer(createServices());
+  const baseUrl = await listen(server);
+  try {
+    for (const [path, options] of [
+      ["/v1/admin/person-relationships/group-leader-candidates", {}],
+      ["/v1/admin/person-relationships/preview", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }],
+      ["/v1/admin/person-relationships", { method: "DELETE" }],
+    ]) {
+      const response = await fetch(baseUrl + path, options);
+      assert.ok(response.status >= 400);
+      assert.equal(response.headers.get("cache-control"), "private, no-store");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      await response.arrayBuffer();
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 const createServices = () => {
   const sessions = new SessionService({
     accounts: [{

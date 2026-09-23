@@ -104,6 +104,7 @@ export class PostgresReferralCreationService {
           AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) FOR SHARE`,[context.personId,at.toISOString()])).rows,"REFERRER_CAMPUS_REQUIRED");
       const relationship = sourceSubject === "ACADEMIC_PLANNER" ? await client.query<{id:string}>(
         `SELECT id::text FROM person_relationship WHERE teacher_id=$1 AND relationship_type='PLANNING_MENTOR'
+          AND superseded_at IS NULL
           AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) FOR SHARE`,[context.personId,at.toISOString()]) : {rows:[]};
       const student = single((await client.query<{id:string}>(
         `INSERT INTO teacher_student_record(owner_teacher_id,course_context_id,display_name,created_at,updated_at)
@@ -197,6 +198,7 @@ export class PostgresReferralCreationService {
           AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) FOR SHARE`,[context.personId,at.toISOString()])).rows,"REFERRER_CAMPUS_REQUIRED");
       const relationship = sourceSubject === "ACADEMIC_PLANNER" ? await client.query<{id:string}>(
         `SELECT id::text FROM person_relationship WHERE teacher_id=$1 AND relationship_type='PLANNING_MENTOR'
+          AND superseded_at IS NULL
           AND valid_from <= $2 AND (valid_to IS NULL OR valid_to > $2) FOR SHARE`,[context.personId,at.toISOString()]) : {rows:[]};
       const student = single((await client.query<{id:string}>(
         `INSERT INTO teacher_student_record(owner_teacher_id,course_context_id,display_name,created_at,updated_at)

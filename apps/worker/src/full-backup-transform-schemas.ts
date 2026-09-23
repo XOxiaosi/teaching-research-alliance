@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v3";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v4";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -173,9 +173,60 @@ const validateSnapshotNested = (input: JsonTransformInput, root: Record<string, 
   return anomalies;
 };
 
+type RelationshipJsonShape = "text" | "nullableText" | "count" | Readonly<{
+  fields: Readonly<Record<string, RelationshipJsonShape>>;
+  nullable?: boolean;
+}> | Readonly<{ items: RelationshipJsonShape }>;
+const relationshipShape: RelationshipJsonShape = { fields: {
+  id: "text", teacherPersonId: "text", relationshipType: "text", relatedPersonId: "text",
+  validFrom: "text", validTo: "nullableText", effectiveScope: "nullableText", createdByPersonId: "text",
+  createdAt: "text", supersededAt: "nullableText", supersededByChangeId: "nullableText",
+} };
+const relationshipImpactShape: RelationshipJsonShape = { fields: {
+  schemaVersion: "text", teacherPersonId: "text",
+  effectiveWeek: { fields: { id: "text", startsOn: "text", endsOn: "text", settlementMonth: "text", kind: "text" } },
+  effectiveAt: "text", nextBoundaryAt: "nullableText", sourceRelationship: relationshipShape,
+  nextRelationship: { ...relationshipShape, nullable: true },
+  candidate: { fields: { personId: "text", nickname: "text", userAccountId: "text", roleAssignmentId: "text", roleValidFrom: "text", roleValidTo: "nullableText" } },
+  destinationAccount: { fields: { id: "text", code: "text", ownerType: "text", ownerId: "text", status: "text" } },
+  reason: "text",
+  fees: { items: { fields: {
+    feeEntryId: "text", feeVersion: "text", grossAmountCents: "text", teachingWeekId: "text", weekStartsOn: "text",
+    settlementMonth: "text", disposition: "text", refundEffectId: "nullableText", previousSnapshotId: "nullableText",
+    previousSnapshotSequence: "nullableText", previousSnapshotHash: "nullableText", policyVersionId: "nullableText",
+    netMonthlyCents: "nullableText", groupLeaderAmountCents: "text", sourceAccountId: "nullableText", sourceAccountCode: "nullableText",
+  } } },
+  totals: { fields: { consideredFeeCount: "count", movedFeeCount: "count", zeroShareFeeCount: "count", excludedRefundCount: "count", movedAmountCents: "text" } },
+} };
+
+/** Unknown structure fails closed; malformed known business scalars remain exportable with an anomaly. */
+const validateRelationshipJson = (input: JsonTransformInput, value: unknown, shape: RelationshipJsonShape, field?: string): TransformAnomaly[] => {
+  if (typeof shape === "string") {
+    if (Array.isArray(value) || object(value) !== undefined) gap();
+    const valid = shape === "count"
+      ? typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      : typeof value === "string" || (shape === "nullableText" && value === null);
+    return valid ? [] : [anomaly(input, field)];
+  }
+  if ("items" in shape) {
+    if (object(value) !== undefined) gap();
+    if (!Array.isArray(value)) return [anomaly(input, field)];
+    return value.flatMap(item => validateRelationshipJson(input, item, shape.items, field));
+  }
+  if (value === null && shape.nullable) return [];
+  if (Array.isArray(value)) gap();
+  const candidate = object(value);
+  if (candidate === undefined) return [anomaly(input, field)];
+  if (Object.keys(candidate).some(key => !Object.hasOwn(shape.fields, key))) gap();
+  return Object.entries(shape.fields).flatMap(([key, child]) => validateRelationshipJson(input, candidate[key], child, key));
+};
+
 const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
   const root = parseObject(input);
   switch (`${input.tableName}.${input.columnName}`) {
+    case "person_relationship_change_preview.impact_json": return validateRelationshipJson(input, root, relationshipImpactShape);
+    case "person_relationship_change.before_json": return validateRelationshipJson(input, root, { fields: { sourceRelationship: relationshipShape } });
+    case "person_relationship_change.after_json": return validateRelationshipJson(input, root, { fields: { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
     case "weekly_fee_allocation_snapshot.snapshot_json": case "weekly_fee_refund_effect.snapshot_json": return validateSnapshot(input, root);
     case "weekly_fee_allocation_snapshot.context_json": return validateWeeklyContext(input, root);
     case "rate_policy_version.policy_json": return [...exactKeys(input, root, policyKeys, undefined, { strings: policyKeys.filter((field) => field !== "dynamicTiers") }), ...validateDynamicTiers(input, root)];
@@ -268,6 +319,12 @@ const auditExact = (input: JsonTransformInput, value: Record<string, unknown>, a
 };
 
 const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.row.subject_type === "PERSON_RELATIONSHIP" && input.row.action_code === "GROUP_LEADER_RELATIONSHIP_CHANGED") {
+    if (input.raw === null) return [];
+    return validateRelationshipJson(input, parseObject(input), { fields: input.columnName === "before_json"
+      ? { sourceRelationship: relationshipShape }
+      : { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
+  }
   const subject = input.row.subject_type; const action = input.row.action_code; const venueActions = ["VENUE_CREATED", "VENUE_RENAMED", "VENUE_STATUS_CHANGED", "VENUE_DEFAULT_CHANGED", "VENUE_PERMISSION_CHANGED"];
   if (subject === "VENUE" && venueActions.includes(action ?? "")) { if (input.raw === null) return []; if (input.raw === "null") return [anomaly(input)]; if (action === "VENUE_PERMISSION_CHANGED" && input.columnName === "before_json") return auditExact(input, parseObject(input), ["id", "venue_id", "grantee_person_id", "can_view", "can_withdraw", "valid_from", "valid_to", "version"], [], []); return auditExact(input, parseObject(input), ["id", "venueId", "ownerPersonId", "name", "status", "defaultForOwner", "version", "accountId", "accountCode", "previousDefaultVenueId", "granteePersonId", "canView", "canWithdraw", "validFrom", "validTo", "replay"]); }
   const companyActions = ["COMPANY_FUND_CREATED", "COMPANY_FUND_ASSIGNMENT_CONFIRMED", "COMPANY_FUND_ASSIGNED", "COMPANY_FUND_STATUS_SET"];

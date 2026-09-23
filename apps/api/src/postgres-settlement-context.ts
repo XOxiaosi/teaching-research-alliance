@@ -127,6 +127,7 @@ const resolveRelationship = async (
        FROM person_relationship
       WHERE teacher_id = $1::uuid
         AND relationship_type = $2
+        AND superseded_at IS NULL
         AND valid_from <= $3::timestamptz
         AND (valid_to IS NULL OR valid_to > $3::timestamptz)
       ORDER BY valid_from DESC, id

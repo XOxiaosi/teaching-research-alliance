@@ -10,7 +10,7 @@ export type ExportTable = Readonly<{
 
 const columns = (value: string): readonly string[] => value.split(",");
 
-// This is intentionally a fixed allow-list generated from migrations 0001–0026.
+// This is intentionally a fixed allow-list generated from migrations 0001–0028.
 // It is not a schema discovery mechanism: pg_catalog is checked against it at runtime.
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   academic_period: columns("id,academic_year_plan_id,label,starts_on,ends_on,created_at"),
@@ -62,7 +62,10 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   organization_unit: columns("id,unit_type,name,parent_id,created_at"),
   person: columns("id,nickname,legal_name,status,created_at,updated_at"),
   person_campus_assignment: columns("id,person_id,campus_id,region_id,valid_from,valid_to,created_by,created_at"),
-  person_relationship: columns("id,teacher_id,relationship_type,related_person_id,valid_from,valid_to,effective_scope,created_by,created_at"),
+  person_relationship: columns("id,teacher_id,relationship_type,related_person_id,valid_from,valid_to,effective_scope,created_by,created_at,superseded_at,superseded_by_change_id"),
+  person_relationship_change: columns("id,preview_id,relationship_type,teacher_person_id,relationship_version,source_relationship_id,result_relationship_id,source_related_person_id,new_related_person_id,candidate_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,idempotency_key,request_hash,base_hash,posting_status,settlement_calculation_run_id,ledger_event_id,considered_fee_count,moved_fee_count,excluded_refund_count,moved_amount_cents,before_json,after_json,published_by_person_id,actor_subject_code,actor_scope_type,published_at,created_at"),
+  person_relationship_change_effect: columns("change_id,weekly_fee_entry_id,source_weekly_fee_version,teaching_week_id,settlement_month,previous_snapshot_id,result_snapshot_id,settlement_calculation_run_id,group_leader_amount_cents,source_account_id,destination_account_id,created_at"),
+  person_relationship_change_preview: columns("id,relationship_type,teacher_person_id,source_relationship_id,source_related_person_id,new_related_person_id,candidate_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,base_hash,impact_json,created_by_person_id,actor_subject_code,actor_scope_type,created_at"),
   project_bonus_transfer: columns("finance_document_id,project_no,project_name,recipient_person_id,destination_account_id,source_fund_id,source_account_id,amount_cents,reason,ledger_event_id,granted_by_person_id,created_at,project_name_version_id"),
   rate_policy_version: columns("id,version,effective_from,policy_json,reason,published_by,published_at"),
   referral_acceptance_idempotency: columns("actor_person_id,idempotency_key,request_hash,referral_case_id,created_at,accepted_referral_version"),
@@ -94,7 +97,7 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   weekly_fee_refund_effect: columns("weekly_fee_entry_id,finance_document_id,allocation_snapshot_id,source_weekly_fee_version,gross_amount_cents,snapshot_json,created_at")
 };
 
-// These are primary keys from migrations 0001–0026. Keeping them alongside the
+// These are primary keys from migrations 0001–0028. Keeping them alongside the
 // fixed column allow-list makes the stream order deterministic without trusting
 // a possibly changed live index definition.
 const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -109,7 +112,7 @@ const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
   finance_reimbursement_submission: ["finance_document_id"], finance_reimbursement_transfer: ["finance_document_id"], finance_reimbursement_reversal: ["finance_document_id"], finance_self_purchase_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_self_purchase_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_self_purchase_reversal: ["finance_document_id"],
   finance_self_purchase_transfer: ["finance_document_id"], finance_withdrawal_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_withdrawal_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_withdrawal_reversal: ["finance_document_id"],
   finance_withdrawal_submission: ["finance_document_id"], finance_withdrawal_transfer: ["finance_document_id"], ledger_entry: ["id"], ledger_event: ["id"], organization_unit: ["id"], person: ["id"],
-  person_campus_assignment: ["id"], person_relationship: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
+  person_campus_assignment: ["id"], person_relationship: ["id"], person_relationship_change: ["id"], person_relationship_change_effect: ["change_id", "weekly_fee_entry_id"], person_relationship_change_preview: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
   referral_acceptance_snapshot: ["referral_case_id", "accepted_referral_version"], referral_case: ["id"], referral_case_event: ["id"], referral_creation_idempotency: ["actor_person_id", "idempotency_key"], referral_creation_snapshot: ["referral_case_id"],
   referral_lifecycle_idempotency: ["actor_person_id", "idempotency_key"], role_assignment: ["id"], salary_benefit_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], salary_benefit_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], salary_benefit_reversal: ["reversal_finance_document_id"],
   settlement_account: ["id"], settlement_calculation_run: ["id"], teacher_profile: ["person_id"], teacher_student_record: ["id"], teaching_week: ["id"], user_account: ["id"],
@@ -123,6 +126,8 @@ const SECRET_COLUMNS = new Set([
   "finance_withdrawal_command_idempotency.request_hmac", "finance_withdrawal_command_idempotency.hmac_key_id"
 ]);
 const TRANSFORM_COLUMNS = new Set([
+  "person_relationship_change_preview.impact_json", "person_relationship_change.before_json", "person_relationship_change.after_json",
+  "person_relationship_change.idempotency_key",
   "audit_event.before_json", "audit_event.after_json", "finance_document_event.details_json",
   "finance_refund_decision.authorization_snapshot", "finance_refund_submission.applicant_context_snapshot",
   "finance_reimbursement_decision.authorization_snapshot", "finance_reimbursement_submission.applicant_context_snapshot",
