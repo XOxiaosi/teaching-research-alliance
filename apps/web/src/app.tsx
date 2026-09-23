@@ -24,6 +24,7 @@ import { CashWagePanel } from "./cash-wage-panel.js";
 import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel.js";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel.js";
 import { BonusProjectPanel } from "./bonus-project-panel.js";
+import { BenefitPlanPanel } from "./benefit-plan-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
@@ -165,7 +166,9 @@ function App(): ReactNode {
   const [bonusUnconfirmed, setBonusUnconfirmed] = useState(false);
   const [wagePlanUnconfirmed, setWagePlanUnconfirmed] = useState(false);
   const [wageRevision, setWageRevision] = useState(0);
-  const financeUnconfirmed = wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [benefitPlanUnconfirmed, setBenefitPlanUnconfirmed] = useState(false);
+  const [benefitRevision, setBenefitRevision] = useState(0);
+  const financeUnconfirmed = benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -397,7 +400,7 @@ function App(): ReactNode {
           <>
             <section className="rolebar">
               <span title={overview?.nickname}>{overview?.nickname ?? "我的账户"}</span>
-              <label>当前身份<select aria-label="当前身份" disabled={busy} value={currentRole} onChange={(event) => {
+              <label>当前身份<select aria-label="当前身份" disabled={busy || financeUnconfirmed} value={currentRole} onChange={(event) => {
                 if (!confirmDiscardPendingReferral()) return;
                 clear();
                 void run(async () => { await client.switchRole(event.target.value as Parameters<typeof client.switchRole>[0]); await load(); });
@@ -419,7 +422,7 @@ function App(): ReactNode {
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary-confirmation"}><CashWageConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "bonus-projects"}><BonusProjectPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
-            {canReadSalary && <div hidden={page !== "benefits"}><BenefitPanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}
