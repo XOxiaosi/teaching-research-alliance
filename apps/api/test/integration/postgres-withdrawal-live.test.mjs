@@ -157,7 +157,7 @@ test("场地授权提交、撤权后财务撤回、回执完成及互斥状态�
     assert.equal(pending.status, "PENDING_TRANSFER");
     const snapshot = (await db.pool.query("SELECT authorization_snapshot FROM finance_withdrawal_submission WHERE finance_document_id=$1::uuid", [documentId])).rows[0].authorization_snapshot;
     assert.deepEqual(snapshot, { authorizationKind: "VENUE_GRANT", venueId, venueOwnerPersonId: venueOwnerId, grantId, granteePersonId: applicantId, validFrom: new Date(at.getTime() - 1_000).toISOString(), validTo: null });
-    await db.pool.query("UPDATE venue_permission_grant SET valid_to=$3::timestamptz WHERE id=$1::uuid AND venue_id=$2::uuid", [grantId, venueId, at.toISOString()]);
+    await db.pool.query("UPDATE venue_permission_grant SET valid_to=$3::timestamptz,version=version+1 WHERE id=$1::uuid AND venue_id=$2::uuid", [grantId, venueId, at.toISOString()]);
     const revoked = await service.revoke(headquarters(financeId), documentId, { expectedVersion: 2, reason: "财务撤回" }, "venue-revoke", at);
     assert.deepEqual(revoked, { id: documentId, status: "FINANCE_REVOKED", version: 3, replay: false });
     assert.equal((await db.pool.query("SELECT balance_cents::text AS amount FROM account_balance_projection WHERE account_id=$1::uuid", [venueAccount])).rows[0].amount, "1000");

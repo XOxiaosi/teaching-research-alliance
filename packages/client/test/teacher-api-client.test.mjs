@@ -92,6 +92,20 @@ test("本地退出作废在途响应并清除会话", async () => {
   assert.equal(client.currentSession, null);
 });
 
+test("可见场地目录使用独立路径，不复用授课可选场地目录", async () => {
+  const paths = [];
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("ACADEMIC_PLANNER"));
+      paths.push(request.path);
+      return success([{ id: "shared-venue" }]);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.deepEqual(await client.listVisibleVenues(), [{ id: "shared-venue" }]);
+  assert.deepEqual(paths, ["/v1/venues/visible"]);
+});
+
 test("读取每次向服务端刷新，成功写入作废更早读取", async () => {
   const oldOverview = deferred();
   let overviewRequests = 0;

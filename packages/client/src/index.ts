@@ -1,4 +1,4 @@
-import type { PermissionScope, PermissionSubject, RoleContext } from "@teaching-research-alliance/contracts";
+import type { PermissionScope, PermissionSubject, RoleContext, SalaryBenefitDocumentKind } from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
   version?: string;
@@ -592,6 +592,91 @@ export type RefundCommandResult = Readonly<{
   replay: boolean;
 }>;
 
+/** F09/F10 commands are financial-management writes only; this client deliberately exposes no salary reads. */
+export type SalaryBenefitDocumentDraft = Readonly<{ kind: SalaryBenefitDocumentKind }>;
+export type SalaryBenefitDocumentSubmission = Readonly<{ draft: SalaryBenefitDocumentDraft; idempotencyKey: string }>;
+export type SalaryBenefitDocument = Readonly<{ id: string; kind: SalaryBenefitDocumentKind; version: number; replay: boolean }>;
+
+export type CashWagePlanDraft = Readonly<{
+  teacherPersonId: string;
+  salaryMonth: string;
+  plannedCashCents: string;
+  plannedDeductionCents: string;
+  active: boolean;
+  reason: string;
+  /** When selected, this version remains the default for later months until a newer rule or one-month override applies. */
+  applyToFutureMonths?: boolean;
+}>;
+export type CashWagePlanSubmission = Readonly<{ draft: CashWagePlanDraft; idempotencyKey: string }>;
+
+export type SalaryBenefitTodo = Readonly<{
+  id: string;
+  planVersionId: string;
+  subjectPersonId: string;
+  month: string;
+  kind: string;
+  replay?: boolean;
+}>;
+export type SalaryBenefitTodoGenerationSubmission = Readonly<{ idempotencyKey: string }>;
+
+export type CashWageConfirmationDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  todoId: string;
+  cashPaidCents: string;
+  deductionCents: string;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+  /** Required only when this re-records a wage confirmation that has been reversed. */
+  correctionOfDocumentId?: string;
+}>;
+export type CashWageConfirmationSubmission = Readonly<{ draft: CashWageConfirmationDraft; idempotencyKey: string }>;
+
+export type BonusGrantDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  projectNo: number;
+  projectName: string;
+  recipientPersonId: string;
+  sourceFundId: string;
+  amountCents: string;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+}>;
+export type BonusGrantSubmission = Readonly<{ draft: BonusGrantDraft; idempotencyKey: string }>;
+
+export type BenefitPlanDraft = Readonly<{
+  benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
+  beneficiaryPersonId: string;
+  benefitMonth: string;
+  executionDay: number;
+  amountCents: string;
+  sourceFundId: string;
+  active: boolean;
+  reason: string;
+}>;
+export type BenefitPlanSubmission = Readonly<{ draft: BenefitPlanDraft; idempotencyKey: string }>;
+
+export type BenefitConfirmationDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  todoId: string;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+}>;
+export type BenefitConfirmationSubmission = Readonly<{ draft: BenefitConfirmationDraft; idempotencyKey: string }>;
+
+export type SalaryBenefitReversalDraft = Readonly<{
+  originalDocumentId: string;
+  reversalDocumentId: string;
+  expectedOriginalVersion: number;
+  expectedReversalVersion: number;
+  reason: string;
+  attachmentVersionIds: readonly string[];
+}>;
+export type SalaryBenefitReversalSubmission = Readonly<{ draft: SalaryBenefitReversalDraft; idempotencyKey: string }>;
+export type SalaryBenefitPosting = Readonly<{ id: string; status: "COMPLETED"; version: number; replay: boolean }>;
+
 export type CompanyFundStatus = "ACTIVE" | "INACTIVE";
 
 /** Stable COMPANY business account metadata. Balance and person ownership are deliberately absent. */
@@ -726,7 +811,7 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | RefundSubmission | RefundReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission;
+type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | RefundSubmission | RefundReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission | SalaryBenefitDocumentSubmission | CashWagePlanSubmission | SalaryBenefitTodoGenerationSubmission | CashWageConfirmationSubmission | BonusGrantSubmission | BenefitPlanSubmission | BenefitConfirmationSubmission | SalaryBenefitReversalSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -906,6 +991,23 @@ const validateWithdrawalAmount = (value: string): void => {
   }
 };
 
+const validateNonnegativeCents = (value: string, field: string): void => {
+  if (!/^\d+$/.test(value) || value.length > 19 || BigInt(value) > MAX_POSTGRES_BIGINT) {
+    throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
+  }
+};
+
+const validateMonth = (value: string, field: string): void => {
+  if (!/^\d{4}-\d{2}-01$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) {
+    throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
+  }
+};
+
+const daysInMonth = (value: string): number => {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+};
+
 /** Validate whitespace and control characters without rewriting bank text that must be submitted verbatim. */
 const validateFinancialText = (value: string | undefined, field: string, maximum: number, optional = false): void => {
   if (value === undefined && optional) return;
@@ -994,6 +1096,82 @@ const validateReimbursementReviewDraft = (draft: ReimbursementReviewDraft): void
   if (draft.decision !== "APPROVE" && draft.decision !== "REJECT") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:decision");
   }
+};
+
+const validateSalaryBenefitDocumentDraft = (draft: SalaryBenefitDocumentDraft): void => {
+  if (!(["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"] as const).includes(draft.kind)) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:kind");
+  }
+};
+
+const validateCashWagePlanDraft = (draft: CashWagePlanDraft): void => {
+  requireNonBlank(draft.teacherPersonId, "teacherPersonId");
+  validateMonth(draft.salaryMonth, "salaryMonth");
+  validateNonnegativeCents(draft.plannedCashCents, "plannedCashCents");
+  validateNonnegativeCents(draft.plannedDeductionCents, "plannedDeductionCents");
+  if (BigInt(draft.plannedCashCents) !== BigInt(draft.plannedDeductionCents)) {
+    throw new ApiClientError(400, "CASH_WAGE_AMOUNT_MISMATCH", "CASH_WAGE_AMOUNT_MISMATCH");
+  }
+  if (typeof draft.active !== "boolean" || (draft.applyToFutureMonths !== undefined && typeof draft.applyToFutureMonths !== "boolean")) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:active");
+  }
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validateCashWageConfirmationDraft = (draft: CashWageConfirmationDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  requireNonBlank(draft.todoId, "todoId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateWithdrawalAmount(draft.cashPaidCents);
+  validateWithdrawalAmount(draft.deductionCents);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  if (draft.correctionOfDocumentId !== undefined) requireNonBlank(draft.correctionOfDocumentId, "correctionOfDocumentId");
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateBonusGrantDraft = (draft: BonusGrantDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  requireNonBlank(draft.projectName, "projectName");
+  requireNonBlank(draft.recipientPersonId, "recipientPersonId");
+  requireNonBlank(draft.sourceFundId, "sourceFundId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  if (!Number.isSafeInteger(draft.projectNo) || draft.projectNo < 1 || draft.projectNo > 10) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:projectNo");
+  }
+  validateWithdrawalAmount(draft.amountCents);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateBenefitPlanDraft = (draft: BenefitPlanDraft): void => {
+  if (draft.benefitKind !== "SOCIAL_INSURANCE" && draft.benefitKind !== "HOUSING_FUND") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:benefitKind");
+  }
+  requireNonBlank(draft.beneficiaryPersonId, "beneficiaryPersonId");
+  validateMonth(draft.benefitMonth, "benefitMonth");
+  if (!Number.isSafeInteger(draft.executionDay) || draft.executionDay < 1 || draft.executionDay > daysInMonth(draft.benefitMonth) || typeof draft.active !== "boolean") {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:executionDay");
+  }
+  validateWithdrawalAmount(draft.amountCents);
+  requireNonBlank(draft.sourceFundId, "sourceFundId");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validateBenefitConfirmationDraft = (draft: BenefitConfirmationDraft): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  requireNonBlank(draft.todoId, "todoId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+};
+
+const validateSalaryBenefitReversalDraft = (draft: SalaryBenefitReversalDraft): void => {
+  requireNonBlank(draft.originalDocumentId, "originalDocumentId");
+  requireNonBlank(draft.reversalDocumentId, "reversalDocumentId");
+  validateExpectedWithdrawalVersion(draft.expectedOriginalVersion);
+  validateExpectedWithdrawalVersion(draft.expectedReversalVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
 const validateRefundSubmissionDraft = (draft: RefundSubmissionDraft): void => {
@@ -1141,6 +1319,11 @@ export class TeacherApiClient {
 
   public async listOwnVenues<T = unknown>(): Promise<T> {
     return this.authenticatedRequest<T>("GET", "/v1/venues/mine");
+  }
+
+  /** Own venues plus venues shared to the active person through VIEW. WITHDRAW alone does not grant board visibility. */
+  public async listVisibleVenues<T = unknown>(): Promise<T> {
+    return this.authenticatedRequest<T>("GET", "/v1/venues/visible");
   }
 
   public async getVenueBoard<T = unknown>(venueId: string, filter: Readonly<{ teachingWeekId?: string; startsOn?: string; endsOn?: string }> = {}): Promise<T> {
@@ -1646,6 +1829,52 @@ export class TeacherApiClient {
     return submission;
   }
 
+  public createSalaryBenefitDocumentSubmission(draft: SalaryBenefitDocumentDraft): SalaryBenefitDocumentSubmission {
+    validateSalaryBenefitDocumentDraft(draft); this.requireSalaryBenefitsManager();
+    const submission = this.createSalaryBenefitSubmission({ kind: draft.kind }) as SalaryBenefitDocumentSubmission;
+    return submission;
+  }
+
+  public createCashWagePlanSubmission(draft: CashWagePlanDraft): CashWagePlanSubmission {
+    validateCashWagePlanDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft }) as CashWagePlanSubmission;
+  }
+
+  public createCashWageTodoGenerationSubmission(): SalaryBenefitTodoGenerationSubmission {
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({}) as SalaryBenefitTodoGenerationSubmission;
+  }
+
+  public createCashWageConfirmationSubmission(draft: CashWageConfirmationDraft): CashWageConfirmationSubmission {
+    validateCashWageConfirmationDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as CashWageConfirmationSubmission;
+  }
+
+  public createBonusGrantSubmission(draft: BonusGrantDraft): BonusGrantSubmission {
+    validateBonusGrantDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as BonusGrantSubmission;
+  }
+
+  public createBenefitPlanSubmission(draft: BenefitPlanDraft): BenefitPlanSubmission {
+    validateBenefitPlanDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft }) as BenefitPlanSubmission;
+  }
+
+  public createBenefitTodoGenerationSubmission(): SalaryBenefitTodoGenerationSubmission {
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({}) as SalaryBenefitTodoGenerationSubmission;
+  }
+
+  public createBenefitConfirmationSubmission(draft: BenefitConfirmationDraft): BenefitConfirmationSubmission {
+    validateBenefitConfirmationDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as BenefitConfirmationSubmission;
+  }
+
+  public createSalaryBenefitReversalSubmission(draft: SalaryBenefitReversalDraft): SalaryBenefitReversalSubmission {
+    validateSalaryBenefitReversalDraft(draft); this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as SalaryBenefitReversalSubmission;
+  }
+
   public submissionStatus(submission: Submission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
   }
@@ -2080,6 +2309,52 @@ export class TeacherApiClient {
     }
   }
 
+  public async createSalaryBenefitDocument(submission: SalaryBenefitDocumentSubmission): Promise<SalaryBenefitDocument> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/salary-benefits/documents", () => ({ kind: submission.draft.kind, idempotencyKey: submission.idempotencyKey }));
+  }
+
+  public async setCashWagePlan(submission: CashWagePlanSubmission): Promise<SalaryBenefitTodo> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wage-plans", () => ({
+      ...submission.draft, idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async generateCashWageTodos(submission: SalaryBenefitTodoGenerationSubmission): Promise<readonly SalaryBenefitTodo[]> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wage-todos/generate", () => ({ idempotencyKey: submission.idempotencyKey }));
+  }
+
+  public async confirmCashWage(submission: CashWageConfirmationSubmission): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wages/confirm", () => ({
+      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async grantProjectBonus(submission: BonusGrantSubmission): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/project-bonuses/grant", () => ({
+      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async setBenefitPlan(submission: BenefitPlanSubmission): Promise<SalaryBenefitTodo> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefit-plans", () => ({ ...submission.draft, idempotencyKey: submission.idempotencyKey }));
+  }
+
+  public async generateBenefitTodos(submission: SalaryBenefitTodoGenerationSubmission): Promise<readonly SalaryBenefitTodo[]> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefit-todos/generate", () => ({ idempotencyKey: submission.idempotencyKey }));
+  }
+
+  public async confirmBenefit(submission: BenefitConfirmationSubmission): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefits/confirm", () => ({
+      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
+  public async reverseSalaryBenefitPosting(submission: SalaryBenefitReversalSubmission): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(submission, "/v1/finance/salary-benefits/reverse", () => ({
+      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
+    }));
+  }
+
   public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
     return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
       fundCode: submission.draft.fundCode,
@@ -2129,6 +2404,37 @@ export class TeacherApiClient {
     }
   }
 
+  private createSalaryBenefitSubmission<T extends Record<string, unknown>>(draft: T): Readonly<{ draft: Readonly<T>; idempotencyKey: string }> {
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({ draft: Object.freeze(draft), idempotencyKey });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  private async runSalaryBenefitCommand<T>(
+    submission: SalaryBenefitDocumentSubmission | CashWagePlanSubmission | SalaryBenefitTodoGenerationSubmission | CashWageConfirmationSubmission | BonusGrantSubmission | BenefitPlanSubmission | BenefitConfirmationSubmission | SalaryBenefitReversalSubmission,
+    path: string,
+    body: () => Record<string, unknown>
+  ): Promise<T> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireSalaryBenefitsManager();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<T>("POST", path, body());
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   /** This is an early UX guard; the server remains authoritative for active assignments. */
   private requireCompanyFundAdministrator(): void {
     const context = this.session?.currentRoleContext;
@@ -2143,6 +2449,18 @@ export class TeacherApiClient {
 
   /** The API remains authoritative for the active HQ assignment; this only prevents impossible UI commands. */
   private requireSelfPurchaseReversalManager(): void {
+    const context = this.session?.currentRoleContext;
+    if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
+      || context.scope !== "GLOBAL"
+      || context.regionId !== undefined
+      || context.campusId !== undefined
+      || context.venueId !== undefined) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** Salary, bonus, and benefit writes require an explicit strict GLOBAL financial-management context. */
+  private requireSalaryBenefitsManager(): void {
     const context = this.session?.currentRoleContext;
     if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
       || context.scope !== "GLOBAL"

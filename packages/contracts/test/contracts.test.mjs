@@ -89,6 +89,7 @@ test("端点契约包含分区汇总、关系预览和全正常场地目录", ()
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/regions/:regionId/person-summaries"), true);
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/admin/person-relationships/preview"), true);
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/venues/available"), true);
+  assert.equal(ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/venues/visible")?.action, "READ_OWN_VENUES");
 });
 
  test("teaching directory reads have independent actions from fee writes", () => {
@@ -112,4 +113,23 @@ test('student refunds separate teaching applicants, headquarters approval, and g
  for(const subject of ['TEACHING_TEACHER','REGION_FINANCE','CAMPUS_PRINCIPAL'])assert.equal(hasPermission(subject,'READ_MANAGED_REFUND'),false);
  for(const action of ['approve','reject'])assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===`/v1/finance/refunds/:documentId/${action}`).action,'REVIEW_REFUND');
  assert.deepEqual(ENDPOINT_CONTRACTS.find(item=>item.path==='/v1/finance/refunds/:documentId').alternativeActions,['READ_MANAGED_REFUND']);
+});
+
+test("工资、奖金和社保写接口统一要求严格全局财务管理动作", () => {
+  const paths = [
+    "/v1/finance/salary-benefits/documents", "/v1/finance/cash-wage-plans", "/v1/finance/cash-wage-todos/generate",
+    "/v1/finance/cash-wages/confirm", "/v1/finance/project-bonuses/grant", "/v1/finance/benefit-plans",
+    "/v1/finance/benefit-todos/generate", "/v1/finance/benefits/confirm", "/v1/finance/salary-benefits/reverse"
+  ];
+  for (const path of paths) {
+    const endpoint = ENDPOINT_CONTRACTS.find((item) => item.path === path);
+    assert.equal(endpoint?.action, "MANAGE_CASH_WAGES");
+    assert.equal(endpoint?.requiresRoleContext, true);
+  }
+  for (const subject of ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"]) {
+    assert.equal(permissionScope(subject, "MANAGE_CASH_WAGES"), "GLOBAL");
+  }
+  for (const subject of ["REGION_FINANCE", "CAMPUS_PRINCIPAL", "TEACHING_TEACHER"]) {
+    assert.equal(hasPermission(subject, "MANAGE_CASH_WAGES"), false);
+  }
 });

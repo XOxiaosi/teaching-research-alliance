@@ -30,6 +30,7 @@ import { PostgresTeachingReadService } from "./postgres-teaching-read-service.js
 import { PostgresVenueService } from "./postgres-venue-service.js";
 import { PostgresVenueReadService } from "./postgres-venue-read-service.js";
 import { PostgresVenueBoardReadService } from "./postgres-venue-board-read-service.js";
+import { PostgresSalaryBenefitsService } from "./postgres-salary-benefits-service.js";
 
 const port = Number(process.env.PORT ?? "3100");
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error("INVALID_PORT");
@@ -64,6 +65,7 @@ const server = createApiServer({
   selfPurchaseReads: new PostgresSelfPurchaseReadService(pool),
   selfPurchaseReversals: new PostgresSelfPurchaseReversalService(pool),
   ...(attachmentStore ? {selfPurchases: new PostgresSelfPurchaseService(pool,attachmentStore)} : {}),
+  ...(attachmentStore ? {salaryBenefits: new PostgresSalaryBenefitsService(pool, attachmentStore)} : {}),
   financeAttachments: new PostgresFinanceAttachmentService(pool),
   ...(attachmentStore ? { financeAttachmentUploads: new PostgresFinanceAttachmentUploadService(pool, attachmentStore), financeAttachmentReads: new PostgresFinanceAttachmentReadService(pool, attachmentStore) } : {}),
   ...(financeCrypto&&attachmentStore?{withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto)}:{}),

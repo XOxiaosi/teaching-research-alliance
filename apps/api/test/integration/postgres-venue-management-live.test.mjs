@@ -47,7 +47,7 @@ test("场地创建建立独立账户，默认切换、权限历史和幂等均�
     assert.equal(revoked.canView, false); assert.equal((await reads.list(context(guest), new Date(at.getTime() + 8000))).some(row => row.id === first.id), false);
     await service.setStatus(context(owner), first.id, { status: "INACTIVE", expectedVersion: renamed.version }, "off-1", new Date(at.getTime() + 9000));
     assert.equal((await reads.listOwned(context(owner), new Date(at.getTime() + 10000))).find(row => row.id === first.id).status, "INACTIVE");
-    await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: true, canWithdraw: true }, "grant-3", new Date(at.getTime() + 11000));
+    const shared = await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: true, canWithdraw: true }, "grant-3", new Date(at.getTime() + 11000));
     assert.deepEqual(await reads.list(context(guest), new Date(at.getTime() + 10000)), []);
     const sharedWithdrawal = await reads.list(context(guest), new Date(at.getTime() + 12000));
     assert.equal(sharedWithdrawal[0].id, first.id);
@@ -56,5 +56,8 @@ test("场地创建建立独立账户，默认切换、权限历史和幂等均�
     assert.equal(sharedWithdrawal[0].canWithdraw, true);
     assert.equal(sharedWithdrawal[0].accountId, first.accountId);
     assert.equal(sharedWithdrawal[0].balanceCents, "0");
+    await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: false, canWithdraw: true, expectedGrantId: shared.id }, "withdraw-only", new Date(at.getTime() + 13000));
+    assert.deepEqual(await reads.list(context(guest), new Date(at.getTime() + 14000)), []);
+    await assert.rejects(reads.get(context(guest), first.id, new Date(at.getTime() + 14000)), /VENUE_NOT_FOUND/);
   } finally { await db.close(); }
 });

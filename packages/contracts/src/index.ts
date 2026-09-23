@@ -222,6 +222,10 @@ export const assertKnownAction = (value: string): Action => {
 
 export const API_CONTRACT_VERSION = "2026-09-20.dev-001" as const;
 
+/** Finance-only F09/F10 evidence documents. They are intentionally distinct from member-submitted finance drafts. */
+export const SALARY_BENEFIT_DOCUMENT_KINDS = ["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"] as const;
+export type SalaryBenefitDocumentKind = (typeof SALARY_BENEFIT_DOCUMENT_KINDS)[number];
+
 export const API_ERROR_CODES = [
   "UNAUTHENTICATED",
   "PERSON_NOT_FOUND",
@@ -262,6 +266,19 @@ export const API_ERROR_CODES = [
   "FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE",
   "FINANCE_REFUND_DATA_UNAVAILABLE",
   "REFUND_STATE_CONFLICT",
+  "SALARY_BENEFIT_DATA_UNAVAILABLE",
+  "SALARY_BENEFIT_STATE_CONFLICT",
+  "CASH_WAGE_TODO_NOT_FOUND",
+  "CASH_WAGE_PLAN_NOT_FOUND",
+  "CASH_WAGE_AMOUNT_MISMATCH",
+  "CASH_WAGE_PLAN_EXCEEDED",
+  "CASH_WAGE_PLAN_INACTIVE",
+  "CASH_WAGE_CORRECTION_REQUIRED",
+  "CASH_WAGE_CORRECTION_INVALID",
+  "FINANCE_BENEFIT_TODO_NOT_FOUND",
+  "FINANCE_BENEFIT_PLAN_NOT_FOUND",
+  "FINANCE_BENEFIT_ALREADY_EXECUTED",
+  "FINANCE_BENEFIT_PLAN_INACTIVE",
   "WEEKLY_FEE_REFUNDED",
   "ATTACHMENT_PUBLICATION_REQUIRES_RECONCILIATION",
   "ATTACHMENT_STORAGE_UNAVAILABLE",
@@ -305,6 +322,15 @@ export type EndpointContract = Readonly<{
 }>;
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
+  { method: "POST", path: "/v1/finance/salary-benefits/documents", action: "MANAGE_CASH_WAGES", responseVersion: "salary-benefit-document.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/cash-wage-plans", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-plan.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/cash-wage-todos/generate", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-todos.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/cash-wages/confirm", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-confirmation.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/project-bonuses/grant", action: "MANAGE_CASH_WAGES", responseVersion: "project-bonus.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/benefit-plans", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-plan.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/benefit-todos/generate", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-todos.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/benefits/confirm", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-confirmation.v1", requiresRoleContext: true },
+  { method: "POST", path: "/v1/finance/salary-benefits/reverse", action: "MANAGE_CASH_WAGES", responseVersion: "salary-benefit-reversal.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/finance/drafts/:documentId/reimbursement-submit", action: "SUBMIT_OWN_REIMBURSEMENT", responseVersion: "reimbursement.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/finance/drafts/:documentId/refund-submit", action: "SUBMIT_OWN_REFUND", responseVersion: "refund.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/finance/reimbursements/:documentId/approve", action: "REVIEW_REIMBURSEMENT", responseVersion: "reimbursement.v1", requiresRoleContext: true },
@@ -366,6 +392,7 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   { method: "POST", path: "/v1/admin/person-relationships", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-change.v1", requiresRoleContext: true },
   { method: "POST", path: "/v1/venues", action: "CREATE_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/venues/mine", action: "READ_OWN_VENUES", responseVersion: "venues.v1", requiresRoleContext: true },
+  { method: "GET", path: "/v1/venues/visible", action: "READ_OWN_VENUES", responseVersion: "venues.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/venues/:venueId/board", action: "VIEW_SHARED_VENUE_BOARD", responseVersion: "venue-board.v1", requiresRoleContext: true },
   { method: "GET", path: "/v1/venues/:venueId", action: "READ_OWN_VENUES", responseVersion: "venue-detail.v1", requiresRoleContext: true },
   { method: "PATCH", path: "/v1/venues/:venueId", action: "MANAGE_OWN_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },

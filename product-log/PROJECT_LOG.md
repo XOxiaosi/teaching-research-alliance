@@ -945,3 +945,12 @@
 - 实测停用场地PG2/2：版本1→2、原场地保留、新选择拒绝；完整结算路径增加20000分仅入20000分差额，重试余额不变。中断遗留测试最初因uuid误写text失败，修正夹具后通过；不以中断前未运行测试作为证据。
 - 原周费用、停用改错、场地授权合并PG4/4通过（/tmp/alliance-review-venue-regression.log）；内存和visible HTTP3/3通过。统一npm run check146/146（/tmp/alliance-review-resume-check.log）、24项迁移静态检查和git diff --check通过。
 - visible HTTP/client/contract已由工资任务接通，前端正移除临时fallback并进行真实交互验证；P10/P11/P13/P14仍待完整整合，不把统一单元测试代替页面验收。工资/0024仍在核验，不代表全量数据库门禁通过。P16独立复核无P1/P2，按REVIEW-001选择性提交；随后继续财务页面和看板任务。
+
+## 2026-09-23 · DEV-009 / REVIEW-001｜工资写接口与可见场地目录整合
+
+- 工资写接口、共享客户端、可信处理时间、严格GLOBAL操作范围与错误码已接入；0024修复工资计划金额约束、补发/冲回重记关联、福利业务键唯一和计划复合一致性、未来月工资计划与最新版福利待办。现金工资仅扣老师个人，奖金双侧划拨、医社保公积金仅扣业务账户。
+- GET /v1/venues/visible及client.listVisibleVenues已接通，三类个人身份按自有或有效VIEW读取；WITHDRAW-only不授予看板访问，VIEW-only不泄露余额，授课available仍仅授课老师可用。新增WITHDRAW-only真实PG负向断言通过。
+- 主任务实际验证：全量隔离PG86/86（213.93秒，/tmp/alliance-review-resume-pg-all.log）；0024最后补强后工资PG3/3再次通过（26.76秒，/tmp/alliance-review-salary-final.log），包括重复旧待办升级失败后数据、列与不可变触发器恢复，错配业务键被FK拒绝。最终统一check146/146（/tmp/alliance-review-final-check.log）、24迁移静态检查和diff检查通过。独立审查复核0024无剩余P1/P2。
+- 升级限制：0023若已存在相同对象/项目/月的多个福利待办，0024以FINANCE_BENEFIT_TODO_LEGACY_DUPLICATE拒绝升级并保留旧库，需审计后处理；不自动删除、合并或声称所有旧库都可直接升级。
+- 本包仅工资/福利写服务及目录整合，工资完整读取/管理页面/自动调度尚未完成；奖金统一名称配置缺口登记P18，不能以当前写服务测试通过代替完整奖金验收。两端P13独审发现父加载回填和遗留教学周筛选，已交前端补修及真实交互验证。
+- 按DEV-009选择性提交API/client/contracts/0024及相关测试；不包含前端、demo或用户副本变更。下一包工资只读名单/计划/确认详情与P18按已确认需求继续。

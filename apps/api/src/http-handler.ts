@@ -1,6 +1,7 @@
 import {
   API_CONTRACT_VERSION,
   API_ERROR_CODES,
+  SALARY_BENEFIT_DOCUMENT_KINDS,
   type HttpMethod,
   type PermissionSubject,
   type RoleContext
@@ -126,6 +127,17 @@ export type ApiServices = Readonly<{
     listManaged: (context:RoleContext) => unknown | Promise<unknown>;
     getDetail: (context:RoleContext, id:string, at:Date) => unknown | Promise<unknown>;
   }>;
+  salaryBenefits?: Readonly<{
+    createEvidenceDocument: (context: RoleContext, kind: (typeof SALARY_BENEFIT_DOCUMENT_KINDS)[number], key: string, at: Date) => unknown | Promise<unknown>;
+    setCashWagePlan: (context: RoleContext, draft: {teacherPersonId:string;salaryMonth:string;plannedCashCents:string;plannedDeductionCents:string;active:boolean;reason:string;applyToFutureMonths?:boolean}, key: string, at: Date) => unknown | Promise<unknown>;
+    generateCashWageTodos: (context: RoleContext, key: string, at: Date) => unknown | Promise<unknown>;
+    confirmCashWage: (context: RoleContext, draft: {documentId:string;expectedVersion:number;todoId:string;cashPaidCents:string;deductionCents:string;paidAt:string;reason:string;attachmentVersionIds:readonly string[];correctionOfDocumentId?:string}, key: string, at: Date) => unknown | Promise<unknown>;
+    grantBonus: (context: RoleContext, draft: {documentId:string;expectedVersion:number;projectNo:number;projectName:string;recipientPersonId:string;sourceFundId:string;amountCents:string;reason:string;attachmentVersionIds:readonly string[]}, key: string, at: Date) => unknown | Promise<unknown>;
+    setBenefitPlan: (context: RoleContext, draft: {benefitKind:"SOCIAL_INSURANCE"|"HOUSING_FUND";beneficiaryPersonId:string;benefitMonth:string;executionDay:number;amountCents:string;sourceFundId:string;active:boolean;reason:string}, key: string, at: Date) => unknown | Promise<unknown>;
+    generateBenefitTodos: (context: RoleContext, key: string, at: Date) => unknown | Promise<unknown>;
+    confirmBenefit: (context: RoleContext, draft: {documentId:string;expectedVersion:number;todoId:string;reason:string;attachmentVersionIds:readonly string[]}, key: string, at: Date) => unknown | Promise<unknown>;
+    reversePosting: (context: RoleContext, draft: {originalDocumentId:string;reversalDocumentId:string;expectedOriginalVersion:number;expectedReversalVersion:number;reason:string;attachmentVersionIds:readonly string[]}, key: string, at: Date) => unknown | Promise<unknown>;
+  }>;
   financeAttachments?: Readonly<{
     reserve: (context: RoleContext, documentId: string, draft: FinanceAttachmentReservationDraft, key: string, at: Date) => unknown | Promise<unknown>;
     getOwnVersion: (context: RoleContext, versionId: string, at: Date) => unknown | Promise<unknown>;
@@ -174,7 +186,8 @@ const errorStatus = (code: string): number => {
   if (code === "VENUE_SERVICE_UNAVAILABLE") return 503;
   if (code === "VENUE_DATA_UNAVAILABLE") return 500;
   if(code==="FINANCE_SELF_PURCHASE_DATA_UNAVAILABLE"||code==="FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE"||code==="FINANCE_REFUND_DATA_UNAVAILABLE")return 500;
-  if(["REIMBURSEMENT_STATE_CONFLICT","REFUND_STATE_CONFLICT","WEEKLY_FEE_REFUNDED"].includes(code))return 409;
+  if(code==="SALARY_BENEFIT_DATA_UNAVAILABLE")return 500;
+  if(["REIMBURSEMENT_STATE_CONFLICT","REFUND_STATE_CONFLICT","WEEKLY_FEE_REFUNDED","SALARY_BENEFIT_STATE_CONFLICT","CASH_WAGE_AMOUNT_MISMATCH","CASH_WAGE_PLAN_EXCEEDED","CASH_WAGE_PLAN_INACTIVE","CASH_WAGE_CORRECTION_REQUIRED","CASH_WAGE_CORRECTION_INVALID","FINANCE_BENEFIT_ALREADY_EXECUTED","FINANCE_BENEFIT_PLAN_INACTIVE"].includes(code))return 409;
   if(code==="HEADQUARTERS_FINANCE_ASSIGNMENT_REQUIRED")return 403;
   if(["SELF_PURCHASE_STATE_CONFLICT","HEADQUARTERS_FINANCE_ASSIGNMENT_AMBIGUOUS","COMPANY_FUND_ASSIGNMENT_NOT_FOUND"].includes(code))return 409;
   if (code === "INTERNAL_ERROR" || code === "FINANCE_RECIPIENT_UNAVAILABLE" || code === "FINANCE_WITHDRAWAL_DATA_UNAVAILABLE") return 500;
@@ -353,6 +366,11 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
       if (!services.venueReads) throw new Error("VENUE_SERVICE_UNAVAILABLE");
       return success(await services.venueReads.listOwned(context, at));
     }
+    if (request.method === "GET" && request.path === "/v1/venues/visible") {
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.venueReads) throw new Error("VENUE_SERVICE_UNAVAILABLE");
+      return success(await services.venueReads.list(context, at));
+    }
     const venueBoardPath = request.path.match(/^\/v1\/venues\/([^/]+)\/board$/);
     if (request.method === "GET" && venueBoardPath) {
       const query = request.query ?? {};
@@ -447,6 +465,109 @@ export const handleRequest = async (request: ApiRequest, services: ApiServices):
         studentDisplayName: requiredString(body,"studentDisplayName"),
         courseContextId: requiredString(body,"courseContextId"), classType
       }, requiredString(body,"idempotencyKey"), at));
+    }
+    const salaryBenefitAction = request.method === "POST" ? request.path : undefined;
+    if (salaryBenefitAction !== undefined && [
+      "/v1/finance/salary-benefits/documents",
+      "/v1/finance/cash-wage-plans",
+      "/v1/finance/cash-wage-todos/generate",
+      "/v1/finance/cash-wages/confirm",
+      "/v1/finance/project-bonuses/grant",
+      "/v1/finance/benefit-plans",
+      "/v1/finance/benefit-todos/generate",
+      "/v1/finance/benefits/confirm",
+      "/v1/finance/salary-benefits/reverse"
+    ].includes(salaryBenefitAction)) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (!services.salaryBenefits) throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if ((context.subject !== "HEADQUARTERS_FINANCE" && context.subject !== "SYSTEM_ADMIN" && context.subject !== "SYSTEM_OWNER")
+        || context.scope !== "GLOBAL" || context.regionId !== undefined || context.campusId !== undefined || context.venueId !== undefined) {
+        throw new Error("FORBIDDEN_SCOPE");
+      }
+      const idempotencyKey = requiredString(body, "idempotencyKey");
+      const only = (keys: readonly string[]): void => {
+        if (Object.keys(body).some((key) => !keys.includes(key))) throw new Error("INVALID_INPUT");
+      };
+      const expectedVersion = (key = "expectedVersion"): number => {
+        const value = body[key];
+        if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new Error("INVALID_INPUT");
+        return value;
+      };
+      const attachmentVersionIds = (): readonly string[] => {
+        const value = body.attachmentVersionIds;
+        if (!Array.isArray(value) || value.length < 2 || value.length > 20 || value.some((id) => typeof id !== "string" || !id.trim())) {
+          throw new Error("INVALID_INPUT");
+        }
+        return value as readonly string[];
+      };
+      if (salaryBenefitAction === "/v1/finance/salary-benefits/documents") {
+        only(["sessionId", "kind", "idempotencyKey"]);
+        const kind = requiredString(body, "kind");
+        if (!(SALARY_BENEFIT_DOCUMENT_KINDS as readonly string[]).includes(kind)) throw new Error("INVALID_INPUT");
+        return success(await services.salaryBenefits.createEvidenceDocument(context, kind as (typeof SALARY_BENEFIT_DOCUMENT_KINDS)[number], idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/cash-wage-plans") {
+        only(["sessionId", "teacherPersonId", "salaryMonth", "plannedCashCents", "plannedDeductionCents", "active", "reason", "applyToFutureMonths", "idempotencyKey"]);
+        if (typeof body.active !== "boolean" || (body.applyToFutureMonths !== undefined && typeof body.applyToFutureMonths !== "boolean")) throw new Error("INVALID_INPUT");
+        return success(await services.salaryBenefits.setCashWagePlan(context, {
+          teacherPersonId: requiredString(body, "teacherPersonId"), salaryMonth: requiredString(body, "salaryMonth"),
+          plannedCashCents: requiredString(body, "plannedCashCents"), plannedDeductionCents: requiredString(body, "plannedDeductionCents"),
+          active: body.active, reason: requiredString(body, "reason"),
+          ...(body.applyToFutureMonths === undefined ? {} : { applyToFutureMonths: body.applyToFutureMonths })
+        }, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/cash-wage-todos/generate") {
+        only(["sessionId", "idempotencyKey"]);
+        return success(await services.salaryBenefits.generateCashWageTodos(context, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/cash-wages/confirm") {
+        only(["sessionId", "documentId", "expectedVersion", "todoId", "cashPaidCents", "deductionCents", "reason", "attachmentVersionIds", "correctionOfDocumentId", "idempotencyKey"]);
+        if (body.correctionOfDocumentId !== undefined && (typeof body.correctionOfDocumentId !== "string" || !body.correctionOfDocumentId.trim())) throw new Error("INVALID_INPUT");
+        return success(await services.salaryBenefits.confirmCashWage(context, {
+          documentId: requiredString(body, "documentId"), expectedVersion: expectedVersion(), todoId: requiredString(body, "todoId"),
+          cashPaidCents: requiredString(body, "cashPaidCents"), deductionCents: requiredString(body, "deductionCents"),
+          paidAt: at.toISOString(), reason: requiredString(body, "reason"), attachmentVersionIds: attachmentVersionIds(),
+          ...(body.correctionOfDocumentId === undefined ? {} : { correctionOfDocumentId: body.correctionOfDocumentId })
+        }, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/project-bonuses/grant") {
+        only(["sessionId", "documentId", "expectedVersion", "projectNo", "projectName", "recipientPersonId", "sourceFundId", "amountCents", "reason", "attachmentVersionIds", "idempotencyKey"]);
+        if (typeof body.projectNo !== "number" || !Number.isSafeInteger(body.projectNo)) throw new Error("INVALID_INPUT");
+        return success(await services.salaryBenefits.grantBonus(context, {
+          documentId: requiredString(body, "documentId"), expectedVersion: expectedVersion(), projectNo: body.projectNo,
+          projectName: requiredString(body, "projectName"), recipientPersonId: requiredString(body, "recipientPersonId"),
+          sourceFundId: requiredString(body, "sourceFundId"), amountCents: requiredString(body, "amountCents"),
+          reason: requiredString(body, "reason"), attachmentVersionIds: attachmentVersionIds()
+        }, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/benefit-plans") {
+        only(["sessionId", "benefitKind", "beneficiaryPersonId", "benefitMonth", "executionDay", "amountCents", "sourceFundId", "active", "reason", "idempotencyKey"]);
+        const benefitKind = requiredString(body, "benefitKind");
+        if ((benefitKind !== "SOCIAL_INSURANCE" && benefitKind !== "HOUSING_FUND") || typeof body.executionDay !== "number" || !Number.isSafeInteger(body.executionDay) || typeof body.active !== "boolean") throw new Error("INVALID_INPUT");
+        return success(await services.salaryBenefits.setBenefitPlan(context, {
+          benefitKind, beneficiaryPersonId: requiredString(body, "beneficiaryPersonId"), benefitMonth: requiredString(body, "benefitMonth"),
+          executionDay: body.executionDay, amountCents: requiredString(body, "amountCents"), sourceFundId: requiredString(body, "sourceFundId"),
+          active: body.active, reason: requiredString(body, "reason")
+        }, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/benefit-todos/generate") {
+        only(["sessionId", "idempotencyKey"]);
+        return success(await services.salaryBenefits.generateBenefitTodos(context, idempotencyKey, at));
+      }
+      if (salaryBenefitAction === "/v1/finance/benefits/confirm") {
+        only(["sessionId", "documentId", "expectedVersion", "todoId", "reason", "attachmentVersionIds", "idempotencyKey"]);
+        return success(await services.salaryBenefits.confirmBenefit(context, {
+          documentId: requiredString(body, "documentId"), expectedVersion: expectedVersion(), todoId: requiredString(body, "todoId"),
+          reason: requiredString(body, "reason"), attachmentVersionIds: attachmentVersionIds()
+        }, idempotencyKey, at));
+      }
+      only(["sessionId", "originalDocumentId", "reversalDocumentId", "expectedOriginalVersion", "expectedReversalVersion", "reason", "attachmentVersionIds", "idempotencyKey"]);
+      return success(await services.salaryBenefits.reversePosting(context, {
+        originalDocumentId: requiredString(body, "originalDocumentId"), reversalDocumentId: requiredString(body, "reversalDocumentId"),
+        expectedOriginalVersion: expectedVersion("expectedOriginalVersion"), expectedReversalVersion: expectedVersion("expectedReversalVersion"),
+        reason: requiredString(body, "reason"), attachmentVersionIds: attachmentVersionIds()
+      }, idempotencyKey, at));
     }
     if (request.path === "/v1/finance/drafts" && request.method === "POST") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");

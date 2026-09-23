@@ -34,7 +34,7 @@ test('提现真实HTTP闭环：上传证据、足额扣豆、受限详情、财�
     const personalContext={personId:owner,subject:'TEACHING_TEACHER',scope:'SELF'};
     const sources=await reads.listSources(personalContext,at);
     assert.deepEqual(sources.filter(row=>row.sourceType==='VENUE').map(row=>row.venueId).sort(),[stoppedVenue,sharedVenue].sort());
-    await pool.query('UPDATE venue_permission_grant SET valid_to=$2 WHERE venue_id=$1',[sharedVenue,at]);
+    await pool.query('UPDATE venue_permission_grant SET valid_to=$2,version=version+1 WHERE venue_id=$1',[sharedVenue,at]);
     assert.deepEqual((await reads.listSources(personalContext,at)).filter(row=>row.sourceType==='VENUE').map(row=>row.venueId),[stoppedVenue]);
     await assert.rejects(reads.listSources(personalContext,new Date('invalid')),/INVALID_INPUT/);
     let counter=0;
