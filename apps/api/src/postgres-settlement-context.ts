@@ -146,8 +146,9 @@ const resolveCampus = async (
   client: PostgresClient,
   personId: string,
   businessAt: string,
-  purpose: string
-): Promise<CampusRow> => {
+  purpose: string,
+  required = true
+): Promise<CampusRow | undefined> => {
   const result = await client.query<CampusRow>(
     `SELECT id::text AS id, campus_id::text AS campus_id, region_id::text AS region_id
        FROM person_campus_assignment
@@ -158,6 +159,7 @@ const resolveCampus = async (
       LIMIT 2`,
     [personId, businessAt]
   );
+  if (!required && result.rows.length === 0) return undefined;
   return exactlyOne(
     result.rows,
     `SETTLEMENT_CAMPUS_MISSING:${purpose}`,
@@ -337,9 +339,12 @@ export const resolveSettlementContext = async (
   const referrerCampus = campusConsultationRateBasisPoints > 0n
     ? await resolveCampus(client, entry.referrer_person_id, businessAt, "REFERRER")
     : undefined;
-  const receiverCampus = policy.regionFinanceRateBasisPoints > 0n
-    ? await resolveCampus(client, entry.receiver_person_id, businessAt, "RECEIVER")
-    : undefined;
+  // Revenue attribution is independent of whether this period pays a regional share.
+  // Keep legacy zero-rate entries without an assignment valid; reporting must flag
+  // their missing history rather than invent an organization or block settlement.
+  const receiverCampus = await resolveCampus(
+    client, entry.receiver_person_id, businessAt, "RECEIVER", policy.regionFinanceRateBasisPoints > 0n
+  );
   const headquartersFinance = policy.platformFinanceRateBasisPoints > 0n
     ? await resolveRole(client, "HEADQUARTERS_FINANCE", "GLOBAL", undefined, businessAt)
     : undefined;
