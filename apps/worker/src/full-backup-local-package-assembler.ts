@@ -21,6 +21,13 @@ import type { FullBackupSpoolResult } from "./full-backup-spool.js";
 import { fullBackupOutputColumns } from "./full-backup-transformer.js";
 import type { FullBackupWorkbookExportResult } from "./full-backup-workbook-exporter.js";
 
+import {
+  verifyDerivedComponents,
+  type FullBackupDerivedBundle,
+  type FullBackupDerivedVerificationViews,
+  type DerivedPackageMetadata,
+} from "./full-backup-derived-package-validation.js";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -33,6 +40,12 @@ const INCOMPLETE_REASONS = [
 ] as const;
 const BUSINESS_FACTS_INCOMPLETE_REASONS = [
   "BUSINESS_TABLES_3_AND_7_DERIVED_PENDING",
+  "BUSINESS_FACTS_DECLARED_FIELDS_ONLY",
+  "00_MANIFEST_NOT_IMPLEMENTED",
+  "FINAL_PACKAGE_MANIFEST_NOT_IMPLEMENTED",
+] as const;
+const BUSINESS_DERIVED_INCOMPLETE_REASONS = [
+  "BUSINESS_DERIVED_VIEWS_UNPUBLISHED",
   "BUSINESS_FACTS_DECLARED_FIELDS_ONLY",
   "00_MANIFEST_NOT_IMPLEMENTED",
   "FINAL_PACKAGE_MANIFEST_NOT_IMPLEMENTED",
@@ -84,6 +97,7 @@ export type RawSourcePackageBusinessFact = Readonly<{
     logicalDigest: string;
   }>[];
 }>;
+export type RawSourcePackageDerived = DerivedPackageMetadata & Readonly<{ file: RawSourcePackageFile }>;
 export type FullBackupLocalPackage = Readonly<{
   mode: "RAW_SOURCE_PACKAGE";
   complete: false;
@@ -103,6 +117,7 @@ export type FullBackupLocalPackage = Readonly<{
   incompleteReasons: readonly string[];
   /** Present only when all six fixed stored-fact business workbooks were verified and copied. */
   businessFacts?: readonly RawSourcePackageBusinessFact[];
+  businessDerived?: readonly RawSourcePackageDerived[];
 }>;
 export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   spoolDirectory: string;
@@ -114,6 +129,10 @@ export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   outputRoot: string;
   /** All-or-nothing fixed stored-fact bundle. Omission preserves the legacy RAW-only package. */
   businessFacts?: FullBackupBusinessFactsBundle;
+  /** Optional all-or-nothing derived pair, only alongside all six stored-fact workbooks. */
+  businessDerived?: FullBackupDerivedBundle;
+  /** Same-spool trusted readers remain caller-owned and open until assembly finishes. */
+  derivedVerificationViews?: FullBackupDerivedVerificationViews;
 }>;
 
 function fail(code: string): never { throw new Error(code); }
@@ -297,10 +316,13 @@ export class FullBackupLocalPackageAssembler {
   public async assemble(): Promise<FullBackupLocalPackage> {
     assertSnapshots(this.options);
     const businessFactComponents = verifyBusinessFacts(this.options);
+    const derivedComponents = await verifyDerivedComponents(this.options.spool, this.options.businessDerived,
+      this.options.derivedVerificationViews, businessFactComponents.length === FIXED_BUSINESS_FACTS.length);
     const workbookRoot = await assertPrivateBackupDirectory(this.options.workbookDirectory);
     const attachmentRoot = await assertPrivateBackupDirectory(this.options.attachmentDirectory);
     const spoolRoot = await assertPrivateBackupDirectory(this.options.spoolDirectory);
     const businessFactRoots = await Promise.all(businessFactComponents.map((component) => assertPrivateBackupDirectory(component.directory)));
+    const derivedRoots = await Promise.all(derivedComponents.map((component) => assertPrivateBackupDirectory(component.directory)));
     await mkdir(this.options.outputRoot, { recursive: true, mode: 0o700 });
     const outputRoot = await assertPrivateBackupDirectory(this.options.outputRoot);
     const stageName = `.raw-source-package-stage-${crypto.randomUUID()}`;
@@ -366,6 +388,34 @@ export class FullBackupLocalPackageAssembler {
         }
         await syncBackupDirectory(destinationBusinessFacts);
       }
+
+      const businessDerived: RawSourcePackageDerived[] = [];
+      if (derivedComponents.length > 0) {
+        const destinationDerived = await createPrivateDirectory(join(stage, "business-derived"));
+        for (const [index, component] of derivedComponents.entries()) {
+          const sourceRoot = derivedRoots[index]!;
+          if (await countDirectory(sourceRoot, (name, entry) => entry.isFile() && name === component.file) !== 1)
+            fail("EXPORT_PACKAGE_DERIVED_FILE_INVALID");
+          const copied = await copyVerifiedBackupFile({
+            sourceRoot, sourcePath: component.file, destinationRoot: stage,
+            destinationPath: `business-derived/${component.file}`,
+            expectedBytes: component.expectedBytes, expectedSha256: component.expectedSha256,
+          });
+          const verified = await hashBackupFile(stage, copied.path);
+          if (verified.sha256 !== copied.sha256 || verified.sizeBytes !== copied.sizeBytes)
+            fail("EXPORT_PACKAGE_DERIVED_COPY_MISMATCH");
+          await addPayload(copied);
+          businessDerived.push(Object.freeze({ ...component.metadata, file: copied }));
+        }
+        await syncBackupDirectory(destinationDerived);
+      }
+      const incompleteReasons = businessDerived.length > 0 ? BUSINESS_DERIVED_INCOMPLETE_REASONS :
+        businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS;
+      const packageCoverageGaps = [...new Set([
+        ...this.options.spool.coverageGaps,
+        ...businessDerived.flatMap((component) => component.gaps),
+        ...(businessDerived.some((component) => component.status === "PARTIAL") ? ["DERIVED_SOURCE_ANOMALIES_OR_UNRESOLVED_PERIODS"] : []),
+      ])];
 
       if (await countDirectory(attachmentRoot, (name, entry) => (name === this.options.attachments.indexFile && entry.isFile()) || (name === "attachments" && entry.isDirectory())) !== 2)
         fail("EXPORT_PACKAGE_EXTRA_FILE");
@@ -449,9 +499,9 @@ export class FullBackupLocalPackageAssembler {
       const finalIndex = await openOutput(stage, "raw-source-package-index.json");
       try {
         const datasetSummary = this.options.spool.datasets.map((item) => ({ tableName: item.tableName, rowCount: item.rowCount, logicalDigest: item.logicalDigest, excluded: item.excluded }));
-        const incompleteReasons = businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS;
         const businessFactsSection = businessFacts.length === 0 ? "" : `,"businessFacts":${JSON.stringify(businessFacts)}`;
-        const prefix = `{"mode":"RAW_SOURCE_PACKAGE","complete":false,"snapshotId":${JSON.stringify(this.options.spool.snapshotId)},"asOf":${JSON.stringify(this.options.spool.asOf)},"sourceIds":${JSON.stringify({ spoolId: this.options.spool.spoolId, workbookOutputId: this.options.workbooks.outputId, attachmentOutputId: this.options.attachments.outputId })},"layoutVersion":${JSON.stringify(FULL_BACKUP_LAYOUT_VERSION)},"datasets":${JSON.stringify(datasetSummary)},"attachmentIndex":${JSON.stringify(attachmentIndex)},"readyAttachmentCount":${JSON.stringify(ready.toString())},"unreadyAttachmentCount":${JSON.stringify(unready.toString())},"anomalyCount":${JSON.stringify(anomalyCount.toString())},"coverageGaps":${JSON.stringify(this.options.spool.coverageGaps)},"incompleteReasons":${JSON.stringify(incompleteReasons)}${businessFactsSection},"files":[`;
+        const derivedSection = businessDerived.length === 0 ? "" : `,"businessDerived":${JSON.stringify(businessDerived)}`;
+        const prefix = `{"mode":"RAW_SOURCE_PACKAGE","complete":false,"snapshotId":${JSON.stringify(this.options.spool.snapshotId)},"asOf":${JSON.stringify(this.options.spool.asOf)},"sourceIds":${JSON.stringify({ spoolId: this.options.spool.spoolId, workbookOutputId: this.options.workbooks.outputId, attachmentOutputId: this.options.attachments.outputId })},"layoutVersion":${JSON.stringify(FULL_BACKUP_LAYOUT_VERSION)},"datasets":${JSON.stringify(datasetSummary)},"attachmentIndex":${JSON.stringify(attachmentIndex)},"readyAttachmentCount":${JSON.stringify(ready.toString())},"unreadyAttachmentCount":${JSON.stringify(unready.toString())},"anomalyCount":${JSON.stringify(anomalyCount.toString())},"coverageGaps":${JSON.stringify(packageCoverageGaps)},"incompleteReasons":${JSON.stringify(incompleteReasons)}${businessFactsSection}${derivedSection},"files":[`;
         await writeBackupBytes(finalIndex, Buffer.from(prefix));
         let first = true;
         for await (const line of lines(stage, payloadIndexPath)) {
@@ -475,8 +525,9 @@ export class FullBackupLocalPackageAssembler {
       return { mode: "RAW_SOURCE_PACKAGE", complete: false, outputId: finalName, snapshotId: this.options.spool.snapshotId, asOf: this.options.spool.asOf,
         workbooks: workbookResults, attachmentIndex, anomalies, indexFile: "raw-source-package-index.json", indexSha256: packageIndexHash.sha256,
         payloadFileCount: payloadFileCount.toString(), totalBytes: totalBytes.toString(), readyAttachmentCount: ready.toString(), unreadyAttachmentCount: unready.toString(),
-        coverageGaps: [...this.options.spool.coverageGaps], incompleteReasons: [...(businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS)],
-        ...(businessFacts.length === 0 ? {} : { businessFacts: Object.freeze(businessFacts) }) };
+        coverageGaps: packageCoverageGaps, incompleteReasons: [...incompleteReasons],
+        ...(businessFacts.length === 0 ? {} : { businessFacts: Object.freeze(businessFacts) }),
+        ...(businessDerived.length === 0 ? {} : { businessDerived: Object.freeze(businessDerived) }) };
     } catch (error) {
       primaryError = error;
       throw error;
