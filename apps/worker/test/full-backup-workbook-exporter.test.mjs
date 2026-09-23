@@ -10,6 +10,7 @@ import { createFullBackupLayout } from "../dist/full-backup-layout.js";
 import { FullBackupSpool } from "../dist/full-backup-spool.js";
 import { FullBackupTransformer, fullBackupOutputColumns } from "../dist/full-backup-transformer.js";
 import { FullBackupWorkbookExporter } from "../dist/full-backup-workbook-exporter.js";
+import { writeXlsx } from "../dist/openxml-xlsx-writer.js";
 import { restoreBackupLongText, splitBackupLongText } from "../dist/full-backup-long-text.js";
 
 const run = promisify(execFile);
@@ -160,7 +161,9 @@ test("writer 中断后关闭尚未耗尽的 dataset reader 并清理本次目录
         [Symbol.asyncIterator]() { return this; },
       };
     };
-    const writeWorkbook = async ({ sheets }) => {
+    const writeWorkbook = async (options) => {
+      const { sheets } = options;
+      if (!sheets.some(sheet => sheet.columns?.includes("nickname"))) return writeXlsx(options);
       for (const sheet of sheets) {
         if (sheet.rows === undefined) continue;
         const iterator = sheet.rows[Symbol.asyncIterator]();
@@ -294,7 +297,9 @@ test("完整性主错误优先于 reader 释放错误", async () => {
         [Symbol.asyncIterator]() { return this; },
       };
     };
-    const writeWorkbook = async ({ sheets }) => {
+    const writeWorkbook = async (options) => {
+      const { sheets } = options;
+      if (!sheets.some(sheet => sheet.columns?.includes("nickname"))) return writeXlsx(options);
       for (const sheet of sheets) {
         if (sheet.rows === undefined) continue;
         for await (const _row of sheet.rows) {

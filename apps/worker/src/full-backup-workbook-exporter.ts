@@ -15,6 +15,7 @@ import { writeXlsx, type XlsxOptions, type XlsxSheet } from "./openxml-xlsx-writ
 import type { FullBackupSpoolDataset, FullBackupSpoolResult } from "./full-backup-spool.js";
 import { readBackupSpoolDataset } from "./full-backup-spool-reader.js";
 import { fullBackupOutputColumns } from "./full-backup-transformer.js";
+import { hashBackupFile } from "./backup-file-io.js";
 
 type TextRow = readonly (string | null)[];
 type SpoolDatasetReader = (directory: string, dataset: FullBackupSpoolDataset) => AsyncIterable<TextRow>;
@@ -26,6 +27,8 @@ export type FullBackupWorkbook = Readonly<{
   workbookId: string;
   file: string;
   datasetCount: string;
+  sizeBytes: string;
+  sha256: string;
 }>;
 
 export type FullBackupWorkbookExportResult = Readonly<{
@@ -437,7 +440,8 @@ export class FullBackupWorkbookExporter {
           }
           const file = `workbook-${workbookId}.xlsx`;
           await writeWorkbook({ outputPath: join(directory, file), sheets });
-          workbooks.push({ workbookId, file, datasetCount: String(items.length) });
+          const integrity = await hashBackupFile(directory, file);
+          workbooks.push({ workbookId, file, datasetCount: String(items.length), ...integrity });
         } catch (error) {
           primaryError = error;
           throw error;
