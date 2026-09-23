@@ -27,10 +27,10 @@ type Purpose = (typeof purposes)[number]["purpose"];
 const uncertain = (error: unknown): boolean => !(error instanceof ApiClientError) || error.status >= 500;
 const timeLabel = (value: string): string => new Date(value).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
 const statusLabel = (status: ReimbursementSummary["status"]): string => ({
-  PENDING_APPROVAL: "待审核", APPROVED: "审核通过·待划拨", REJECTED: "已驳回"
+  PENDING_APPROVAL: "待审核", APPROVED: "审核通过·待划拨", COMPLETED: "已完成", REJECTED: "已驳回"
 })[status];
 
-/** A normal reimbursement is a request and review record; it never represents an automatic self-purchase transfer. */
+/** The panel submits and reviews requests only; completed transfers remain read-only records. */
 export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedChange, mode }: Props): ReactNode {
   const personal = mode === "personal";
   const started = useRef(false);
@@ -316,14 +316,15 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
       <Button type="submit" disabled={locked || uploadCount > 0 || !fresh || !chosen.SUPPORTING_DOCUMENT || !chosen.APPLICATION_SCREENSHOT}>{pendingCommand?.kind === "submit" ? "申请结果待确认" : "确认提交报销申请"}</Button>
     </form></Card>}
     <Card className="finance-card"><h3>{personal ? "我的报销记录" : "报销记录"}</h3>{loaded && records.length === 0 && <p className="finance-empty">暂无报销记录。</p>}
-      <div className="finance-list">{records.map((item) => <div className="finance-list-row" key={item.id}><div><strong>{formatCentsAsBeans(item.amountCents)} 欢乐豆 · {statusLabel(item.status)}</strong><p>{item.reason}</p>{!personal && <p>申请人：{item.applicantDisplayName}</p>}<p>申请时间：{timeLabel(item.submittedAt)}</p></div>
+      <div className="finance-list">{records.map((item) => <div className="finance-list-row" key={item.id}><div><strong>{formatCentsAsBeans(item.amountCents)} 欢乐豆 · {statusLabel(item.status)}</strong><p>{item.reason}</p>{!personal && <p>申请人：{item.applicantDisplayName}</p>}<p>申请时间：{timeLabel(item.submittedAt)}</p>{item.status === "COMPLETED" && item.completedAt && <p>内部划拨完成时间：{timeLabel(item.completedAt)}</p>}</div>
         <Button variant="outline" disabled={locked || uploadCount > 0} onClick={() => void run(() => readDetail(item.id))}>查看报销详情</Button></div>)}</div>
     </Card>
     {detail !== null && <Card className="finance-card"><div className="section-heading"><h3>报销详情</h3><Button variant="outline" disabled={locked || uploadCount > 0} onClick={() => { setDetail(null); resetReview(); }}>收起报销详情</Button></div>
-      <dl className="finance-detail"><dt>状态</dt><dd>{statusLabel(detail.status)}</dd><dt>金额</dt><dd>{formatCentsAsBeans(detail.amountCents)} 欢乐豆</dd><dt>报销原因</dt><dd>{detail.reason}</dd><dt>申请人</dt><dd>{detail.applicantDisplayName}</dd><dt>申请时间</dt><dd>{timeLabel(detail.submittedAt)}</dd><dt>申请编号</dt><dd>{detail.id}</dd>
-        {detail.decision && <><dt>审核决定</dt><dd>{detail.decision.decision === "APPROVED" ? "审核通过·待划拨" : "已驳回"}</dd><dt>审核原因</dt><dd>{detail.decision.reason}</dd><dt>审核时间</dt><dd>{timeLabel(detail.decision.decidedAt)}</dd></>}
+      <dl className="finance-detail"><dt>状态</dt><dd>{statusLabel(detail.status)}</dd><dt>金额</dt><dd>{formatCentsAsBeans(detail.amountCents)} 欢乐豆</dd><dt>报销原因</dt><dd>{detail.reason}</dd><dt>申请人</dt><dd>{detail.applicantDisplayName}</dd><dt>申请时间</dt><dd>{timeLabel(detail.submittedAt)}</dd>{detail.status === "COMPLETED" && detail.completedAt && <><dt>内部划拨完成时间</dt><dd>{timeLabel(detail.completedAt)}</dd></>}<dt>申请编号</dt><dd>{detail.id}</dd>
+        {detail.decision && <><dt>审核决定</dt><dd>{detail.decision.decision === "APPROVED" ? "审核通过" : "已驳回"}</dd><dt>审核原因</dt><dd>{detail.decision.reason}</dd><dt>审核时间</dt><dd>{timeLabel(detail.decision.decidedAt)}</dd></>}
+        {!personal && detail.management?.completion && <><dt>内部划拨来源账户</dt><dd>{detail.management.completion.sourceAccountId}</dd><dt>内部划拨目标账户</dt><dd>{detail.management.completion.destinationAccountId}</dd><dt>执行人编号</dt><dd>{detail.management.completion.executedByPersonId}</dd><dt>执行账本事件编号</dt><dd>{detail.management.completion.ledgerEventId}</dd><dt>角色任命编号</dt><dd>{detail.management.completion.roleAssignmentId}</dd><dt>公司资金任命编号</dt><dd>{detail.management.completion.companyFundAssignmentId}</dd></>}
       </dl>
-      <p className="finance-muted">{detail.status === "PENDING_APPROVAL" ? "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。"}</p>
+      <p className="finance-muted">{detail.status === "PENDING_APPROVAL" ? "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : detail.status === "COMPLETED" ? "内部欢乐豆划拨已完成；此记录不表示银行卡到账，原申请和原件保留。" : "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。"}</p>
       {canReview && detail.status === "PENDING_APPROVAL" && <div className="finance-action-section" data-reimbursement-action="review"><h4>人工审核</h4><p>批准或驳回都会保留审核原因。批准只改变审核状态为待划拨，不会自动增加任何账户余额。</p><label>审核原因<textarea value={reviewReason} maxLength={1000} disabled={locked || uploadCount > 0 || !fresh} onChange={(event) => { setReviewReason(event.target.value); setValidation((current) => current?.field === "review" ? null : current); }} placeholder="填写审核依据或驳回原因" /></label>
         <div className="finance-action-buttons"><Button disabled={locked || uploadCount > 0 || !fresh || reviewReason.trim() === ""} onClick={() => void run(() => review("APPROVE"))}>批准报销申请</Button><Button variant="destructive" disabled={locked || uploadCount > 0 || !fresh || reviewReason.trim() === ""} onClick={() => void run(() => review("REJECT"))}>驳回报销申请</Button></div>
       </div>}

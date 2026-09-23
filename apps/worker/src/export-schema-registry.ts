@@ -10,7 +10,7 @@ export type ExportTable = Readonly<{
 
 const columns = (value: string): readonly string[] => value.split(",");
 
-// This is intentionally a fixed allow-list generated from migrations 0001–0025.
+// This is intentionally a fixed allow-list generated from migrations 0001–0026.
 // It is not a schema discovery mechanism: pg_catalog is checked against it at runtime.
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   academic_period: columns("id,academic_year_plan_id,label,starts_on,ends_on,created_at"),
@@ -46,6 +46,7 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   finance_reimbursement_command_idempotency: columns("actor_person_id,operation,idempotency_key,request_hash,finance_document_id,result_status,result_document_version,created_at"),
   finance_reimbursement_decision: columns("finance_document_id,source_document_version,result_document_version,decision,reason,decided_by_person_id,actor_subject_code,actor_scope_type,authorization_snapshot,decided_at,created_at"),
   finance_reimbursement_submission: columns("finance_document_id,source_document_version,result_document_version,destination_account_id,amount_cents,reason,applicant_context_snapshot,submitted_by_person_id,submitted_at,created_at"),
+  finance_reimbursement_transfer: columns("finance_document_id,source_document_version,result_document_version,role_assignment_id,company_fund_assignment_id,source_fund_id,source_account_id,destination_account_id,amount_cents,reason,authorization_snapshot,ledger_event_id,executed_by_person_id,executed_at,created_at,source_before_cents,source_after_cents,destination_before_cents,destination_after_cents"),
   finance_self_purchase_attachment_binding: columns("finance_document_id,finance_attachment_version_id,purpose,document_version,bound_by_person_id,bound_at,created_at"),
   finance_self_purchase_command_idempotency: columns("actor_person_id,operation,idempotency_key,request_hash,finance_document_id,result_status,result_document_version,created_at"),
   finance_self_purchase_reversal: columns("finance_document_id,source_document_version,result_document_version,source_account_id,destination_account_id,amount_cents,reason,reversal_ledger_event_id,reversed_by_person_id,actor_subject_code,actor_scope_type,authorization_snapshot,reversed_at,created_at,source_before_cents,source_after_cents,destination_before_cents,destination_after_cents"),
@@ -92,7 +93,7 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   weekly_fee_refund_effect: columns("weekly_fee_entry_id,finance_document_id,allocation_snapshot_id,source_weekly_fee_version,gross_amount_cents,snapshot_json,created_at")
 };
 
-// These are primary keys from migrations 0001–0025. Keeping them alongside the
+// These are primary keys from migrations 0001–0026. Keeping them alongside the
 // fixed column allow-list makes the stream order deterministic without trusting
 // a possibly changed live index definition.
 const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -104,7 +105,7 @@ const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
   finance_benefit_todo: ["id"], finance_document: ["id"], finance_document_event: ["id"], finance_draft_idempotency: ["actor_person_id", "idempotency_key"],
   finance_refund_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_refund_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_refund_decision: ["finance_document_id"], finance_refund_submission: ["finance_document_id"],
   finance_refund_submission_item: ["finance_document_id", "weekly_fee_entry_id"], finance_reimbursement_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_reimbursement_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_reimbursement_decision: ["finance_document_id"],
-  finance_reimbursement_submission: ["finance_document_id"], finance_self_purchase_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_self_purchase_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_self_purchase_reversal: ["finance_document_id"],
+  finance_reimbursement_submission: ["finance_document_id"], finance_reimbursement_transfer: ["finance_document_id"], finance_self_purchase_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_self_purchase_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_self_purchase_reversal: ["finance_document_id"],
   finance_self_purchase_transfer: ["finance_document_id"], finance_withdrawal_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_withdrawal_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_withdrawal_reversal: ["finance_document_id"],
   finance_withdrawal_submission: ["finance_document_id"], finance_withdrawal_transfer: ["finance_document_id"], ledger_entry: ["id"], ledger_event: ["id"], organization_unit: ["id"], person: ["id"],
   person_campus_assignment: ["id"], person_relationship: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
@@ -124,6 +125,7 @@ const TRANSFORM_COLUMNS = new Set([
   "audit_event.before_json", "audit_event.after_json", "finance_document_event.details_json",
   "finance_refund_decision.authorization_snapshot", "finance_refund_submission.applicant_context_snapshot",
   "finance_reimbursement_decision.authorization_snapshot", "finance_reimbursement_submission.applicant_context_snapshot",
+  "finance_reimbursement_transfer.authorization_snapshot",
   "finance_self_purchase_reversal.authorization_snapshot", "finance_self_purchase_transfer.authorization_snapshot",
   "finance_withdrawal_submission.authorization_snapshot", "weekly_fee_allocation_snapshot.snapshot_json", "weekly_fee_allocation_snapshot.context_json",
   "weekly_fee_refund_effect.snapshot_json", "rate_policy_version.policy_json",

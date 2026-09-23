@@ -16,6 +16,33 @@ const row = (tableName, transformValues, exportValues = {}, options = {}) => tra
   tableName, exportValues: exported(tableName, exportValues), transformValues: new Map(Object.entries(transformValues)), context: options.context,
 });
 
+test("普通报销执行授权快照按已知字段保真，秘密或未知嵌套不能进入备份", async () => {
+  const snapshot = {
+    executorPersonId: "finance", executorSubjectCode: "HEADQUARTERS_FINANCE", executorScopeType: "GLOBAL",
+    roleAssignmentId: "role", roleValidFrom: "2026-09-01T00:00:00Z", roleValidTo: null,
+    companyFundAssignmentId: "assignment", fundAssignmentValidFrom: "2026-09-01T00:00:00Z", fundAssignmentValidTo: null,
+    sourceFundId: "fund", sourceFundCode: "00001", sourceAccountId: "company", destinationAccountId: "personal",
+    applicantPersonId: "teacher", submittedAt: "2026-09-02T00:00:00Z", approvedAt: "2026-09-03T00:00:00Z",
+    submissionDocumentVersion: 2, decisionDocumentVersion: 3,
+  };
+  const raw = JSON.stringify(snapshot);
+  const result = await row("finance_reimbursement_transfer", { authorization_snapshot: raw }, { amount_cents: "5300", source_after_cents: "-100" });
+  assert.equal(result.values.authorization_snapshot, raw);
+  assert.equal(result.values.source_after_cents, "-100");
+  assert.deepEqual(result.anomalies, []);
+  for (const bad of [{ ...snapshot, accessToken: "secret" }, { ...snapshot, sourceFundCode: { password: "secret" } }])
+    await assert.rejects(row("finance_reimbursement_transfer", { authorization_snapshot: JSON.stringify(bad) }), /EXPORT_TRANSFORM_SCHEMA_GAP/);
+  const oldMalformed = JSON.stringify({ ...snapshot, submissionDocumentVersion: "old-value" });
+  const preserved = await row("finance_reimbursement_transfer", { authorization_snapshot: oldMalformed });
+  assert.equal(preserved.values.authorization_snapshot, oldMalformed);
+  assert.ok(preserved.anomalies.some(item => item.field === "submissionDocumentVersion"));
+  const details = JSON.stringify({ processingMode: "MANUAL", amountCents: "5300", sourceAccountId: "company", destinationAccountId: "personal" });
+  const event = await row("finance_document_event", { details_json: details }, { event_type: "REIMBURSEMENT_COMPLETED" });
+  assert.equal(event.values.details_json, details);
+  assert.deepEqual(event.anomalies, []);
+  await assert.rejects(row("finance_document_event", { details_json: JSON.stringify({ processingMode: "MANUAL", apiToken: "secret" }) }, { event_type: "REIMBURSEMENT_COMPLETED" }), /EXPORT_TRANSFORM_SCHEMA_GAP/);
+});
+
 const realWeeklyContext = JSON.stringify({
   businessAt: "2026-09-01T00:00:00+08:00", weekStartsOn: "2026-09-01", settlementMonth: "2026-09-01", feeEntryId: "fee", feeVersion: "1",
   referrerPersonId: "referrer", receiverPersonId: "receiver", referrerIdentity: "ACADEMIC_PLANNER", sourceSubject: null, sourceProvenance: "LEGACY_IDENTITY_ONLY",
@@ -168,7 +195,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v1");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v2");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");

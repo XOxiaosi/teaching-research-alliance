@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v1";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v2";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -100,6 +100,14 @@ const validateReviewerDecision = (input: JsonTransformInput, value: unknown, kin
 const validateSelfPurchaseAuthorization = (input: JsonTransformInput, value: unknown): TransformAnomaly[] =>
   validateRequiredObject(input, value, ["roleAssignmentId", "rolePersonId", "roleSubjectCode", "roleScopeType", "roleScopeId", "roleValidFrom", "roleValidTo", "companyFundAssignmentId", "fundAssignmentValidFrom", "fundAssignmentValidTo", "sourceFundId", "sourceFundCode", "sourceAccountId", "destinationPersonId", "destinationAccountId", "applicantContextSubject", "applicantContextScope", "applicantContextRegionId", "applicantContextCampusId", "applicantContextVenueId"], undefined, { strings: ["roleAssignmentId", "rolePersonId", "roleSubjectCode", "roleScopeType", "roleScopeId", "roleValidFrom", "roleValidTo", "companyFundAssignmentId", "fundAssignmentValidFrom", "fundAssignmentValidTo", "sourceFundId", "sourceFundCode", "sourceAccountId", "destinationPersonId", "destinationAccountId", "applicantContextSubject", "applicantContextScope", "applicantContextRegionId", "applicantContextCampusId", "applicantContextVenueId"] });
 
+const reimbursementTransferAuthorizationKeys = ["executorPersonId", "executorSubjectCode", "executorScopeType", "roleAssignmentId", "roleValidFrom", "roleValidTo", "companyFundAssignmentId", "fundAssignmentValidFrom", "fundAssignmentValidTo", "sourceFundId", "sourceFundCode", "sourceAccountId", "destinationAccountId", "applicantPersonId", "submittedAt", "approvedAt", "submissionDocumentVersion", "decisionDocumentVersion"];
+const reimbursementTransferVersionKeys = ["submissionDocumentVersion", "decisionDocumentVersion"];
+const validateReimbursementTransferAuthorization = (input: JsonTransformInput, value: unknown): TransformAnomaly[] =>
+  validateRequiredObject(input, value, reimbursementTransferAuthorizationKeys, undefined, {
+    strings: reimbursementTransferAuthorizationKeys.filter(field => !reimbursementTransferVersionKeys.includes(field)),
+    numbers: reimbursementTransferVersionKeys,
+  });
+
 const validateWeeklyNested = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
   const anomalies: TransformAnomaly[] = [];
   const policyFields = ["id", "version", "effectiveFrom"];
@@ -175,6 +183,7 @@ const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
     case "finance_reimbursement_submission.applicant_context_snapshot": return validateApplicantSnapshot(input, root, "REIMBURSEMENT");
     case "finance_refund_decision.authorization_snapshot": return validateReviewerDecision(input, root, "REFUND");
     case "finance_reimbursement_decision.authorization_snapshot": return validateReviewerDecision(input, root, "REIMBURSEMENT");
+    case "finance_reimbursement_transfer.authorization_snapshot": return validateReimbursementTransferAuthorization(input, root);
     case "finance_self_purchase_transfer.authorization_snapshot": return validateSelfPurchaseAuthorization(input, root);
     case "finance_self_purchase_reversal.authorization_snapshot": return [...exactKeys(input, root, ["actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode", "originalLedgerEventId", "originalTransferAuthorization"], undefined, { strings: ["actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode", "originalLedgerEventId"] }), ...validateSelfPurchaseAuthorization(input, root.originalTransferAuthorization)];
     case "finance_withdrawal_submission.authorization_snapshot": {
@@ -191,6 +200,7 @@ export const KNOWN_FINANCE_EVENT_SCHEMAS: Readonly<Record<string, readonly strin
   CREATED: null, SALARY_BENEFIT_COMPLETED: null, SALARY_BENEFIT_REVERSED: null,
   SUBMITTED: ["approvalMode", "sourceAccountId", "sourceOwnerType", "amountCents", "authorizationKind"], TRANSFERRED: ["completionAttachmentCount"], REVOKED: ["reason", "amountCents"],
   REIMBURSEMENT_SUBMITTED: ["amountCents", "reason", "destinationAccountId", "applicantContext"], REIMBURSEMENT_APPROVED: ["processingMode", "decision", "reason", "reviewerContext"], REIMBURSEMENT_REJECTED: ["processingMode", "decision", "reason", "reviewerContext"],
+  REIMBURSEMENT_COMPLETED: ["processingMode", "amountCents", "sourceAccountId", "destinationAccountId"],
   REFUND_SUBMITTED: ["reason", "referralCaseId", "studentRecordId", "weeklyFeeEntryIds", "applicantContext"], REFUND_APPROVED: ["reason", "processingMode", "approvedGrossAmountCents"], REFUND_REJECTED: ["reason", "processingMode", "approvedGrossAmountCents"],
   AUTO_COMPLETED: ["processingMode", "amountCents", "sourceAccountId", "destinationAccountId", "applicantContextSubject", "applicantContextScope", "applicantContextRegionId", "applicantContextCampusId", "applicantContextVenueId"], TRANSFER_REVERSED: ["processingMode", "reason", "originalLedgerEventId", "actorSubjectCode", "actorScopeType"],
 };

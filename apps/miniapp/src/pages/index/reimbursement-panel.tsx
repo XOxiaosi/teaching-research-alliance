@@ -36,11 +36,12 @@ const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENT
 const managedSubjects = ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"] as const;
 
 const statusLabel: Record<ReimbursementSummary["status"], string> = {
-  PENDING_APPROVAL: "待审核", APPROVED: "审核通过·待划拨", REJECTED: "已驳回"
+  PENDING_APPROVAL: "待审核", APPROVED: "审核通过·待划拨", COMPLETED: "已完成", REJECTED: "已驳回"
 };
 const isAccessLoss = (error: unknown): boolean => error instanceof RoleSelectionRequiredError
   || (error instanceof ApiClientError && (error.status === 401 || error.status === 403));
 const uncertain = (error: unknown): boolean => !(error instanceof ApiClientError) || error.status >= 500;
+const timeLabel = (value: string): string => new Date(value).toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
 const sameSessionScope = (left: SessionSnapshot, right: SessionSnapshot | null): boolean =>
   right !== null && left.sessionId === right.sessionId && left.accountId === right.accountId && left.personId === right.personId
   && left.currentRoleContext?.subject === right.currentRoleContext?.subject && left.currentRoleContext?.personId === right.currentRoleContext?.personId
@@ -55,7 +56,7 @@ const defaultVersions = (attachments: readonly FinanceDocumentAttachment[]): Rea
   return version === undefined ? [] : [[purpose.value, version]];
 })) as Partial<Record<Purpose, string>>;
 
-/** Reimbursement is request/review only. This component never changes an account balance. */
+/** This component creates and reviews requests only; completed internal transfers are read-only. */
 export function ReimbursementPanel({ client, session, mode, onInvalidated, onBusyChange, onUnconfirmedChange }: {
   client: TeacherApiClient;
   session: SessionSnapshot;
@@ -271,8 +272,8 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
       </View>}
     </View>}
     {loaded && records.length === 0 && <Text className="panel-description">暂无报销申请记录。</Text>}
-    {records.map((item) => <View className="student-row" key={item.id}><View className="student-detail"><Text className="student-name">{formatCentsAsBeans(item.amountCents)} 豆</Text><Text className="student-meta">{statusLabel[item.status]} · {item.applicantDisplayName}</Text></View><Button className="quiet-button student-button" disabled={locked} onClick={() => void run(() => readDetail(item.id))}>查看报销详情</Button></View>)}
-    {detail !== null && <View className="finance-detail"><Text className="field-label">报销详情</Text><Text className="panel-description">{statusLabel[detail.status]} · {formatCentsAsBeans(detail.amountCents)} 豆</Text><Text className="panel-description">报销原因：{detail.reason}</Text>{detail.decision && <Text className="panel-description">审核原因：{detail.decision.reason}</Text>}{detail.attachments.map((item) => <Button className="quiet-button" key={item.versionId} disabled={busy} onClick={() => void run(() => openAttachment(item.versionId, item.originalFilename, item.mediaType))}>打开{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"}</Button>)}
+    {records.map((item) => <View className="student-row" key={item.id}><View className="student-detail"><Text className="student-name">{formatCentsAsBeans(item.amountCents)} 豆</Text><Text className="student-meta">{statusLabel[item.status]} · {item.applicantDisplayName}</Text>{item.status === "COMPLETED" && item.completedAt && <Text className="student-meta">内部划拨完成时间：{timeLabel(item.completedAt)}</Text>}</View><Button className="quiet-button student-button" disabled={locked} onClick={() => void run(() => readDetail(item.id))}>查看报销详情</Button></View>)}
+    {detail !== null && <View className="finance-detail"><Text className="field-label">报销详情</Text><Text className="panel-description">{statusLabel[detail.status]} · {formatCentsAsBeans(detail.amountCents)} 豆</Text>{detail.status === "COMPLETED" && detail.completedAt && <Text className="panel-description">内部划拨完成时间：{timeLabel(detail.completedAt)}</Text>}<Text className="panel-description">报销原因：{detail.reason}</Text>{detail.decision && <><Text className="panel-description">审核决定：{detail.decision.decision === "APPROVED" ? "审核通过" : "已驳回"}</Text><Text className="panel-description">审核原因：{detail.decision.reason}</Text></>}{!personal && detail.management?.completion && <View className="panel-description"><Text>内部划拨来源账户：{detail.management.completion.sourceAccountId}</Text><Text>内部划拨目标账户：{detail.management.completion.destinationAccountId}</Text><Text>执行人编号：{detail.management.completion.executedByPersonId}</Text><Text>执行账本事件编号：{detail.management.completion.ledgerEventId}</Text><Text>角色任命编号：{detail.management.completion.roleAssignmentId}</Text><Text>公司资金任命编号：{detail.management.completion.companyFundAssignmentId}</Text></View>}<Text className="panel-description">{detail.status === "COMPLETED" ? "内部欢乐豆划拨已完成；此记录不表示银行卡到账，原申请和原件保留。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : detail.status === "REJECTED" ? "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。" : "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。"}</Text>{detail.attachments.map((item) => <View className="finance-upload" key={item.versionId}><Text className="panel-description">{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"} · {item.originalFilename}</Text><Button className="quiet-button" disabled={busy} onClick={() => void run(() => openAttachment(item.versionId, item.originalFilename, item.mediaType))}>打开{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"}</Button></View>)}
       {canReview && detail.status === "PENDING_APPROVAL" && <View data-reimbursement-action="review"><Text className="field-label">人工审核</Text><Text className="panel-description">批准仅改变审核状态为待划拨，不会自动增加任何账户余额。</Text><Textarea className="text-input" value={reviewReason} maxlength={1000} disabled={locked} placeholder="填写审核依据或驳回原因" onInput={(event) => setReviewReason(event.detail.value)} /><Button className="primary-button" disabled={locked || reviewReason.trim() === ""} onClick={() => void run(() => review("APPROVE"))}>批准报销申请</Button><Button className="quiet-button" disabled={locked || reviewReason.trim() === ""} onClick={() => void run(() => review("REJECT"))}>驳回报销申请</Button></View>}
     </View>}
   </View>;

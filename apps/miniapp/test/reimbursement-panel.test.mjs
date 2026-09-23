@@ -79,7 +79,7 @@ const getBundled = async () => {
 };
 test.after(async () => { if (bundled !== undefined) await rm(bundled.directory, { recursive: true, force: true }); });
 
-const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, submitStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
+const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, submitStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
   const { ReimbursementPanel } = (await getBundled()).module;
   const currentSession = snapshot(subject, scope);
   const requests = [];
@@ -130,7 +130,7 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
         return success({ id: draft.id, status: "PENDING_APPROVAL", version: 2, replay: submits > 1 });
       }
       if (request.path === "/v1/finance/reimbursements/reimbursement-1") {
-        return success({ ...summary, attachments: [
+        return success(detailRecord ?? { ...summary, attachments: [
           { versionId: "support-v2", purpose: "SUPPORTING_DOCUMENT", originalFilename: "new-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
           { versionId: "screenshot-v2", purpose: "APPLICATION_SCREENSHOT", originalFilename: "screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
         ] });
@@ -328,6 +328,45 @@ test("提交结果已确认但后续读取失败时，不会再次提交或清�
     assert.match(container.textContent, /结果已确认，但刷新失败/);
     assert.equal(fixture.requests.filter((request) => request.path.endsWith("/reimbursement-submit")).length, 1);
     assert.equal(fixture.requests.some((request) => request.path === "/v1/me"), false);
+    await act(async () => root.unmount());
+  });
+});
+
+
+test("已完成报销保留两份原件和内部划拨时间；个人不会看到来源账户或审核操作", async () => {
+  const completed = {
+    ...summary, status: "COMPLETED", version: 4, completedAt: "2026-09-21T00:00:00.000Z",
+    attachments: [
+      { versionId: "support-completed", purpose: "SUPPORTING_DOCUMENT", originalFilename: "completed-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
+      { versionId: "screen-completed", purpose: "APPLICATION_SCREENSHOT", originalFilename: "completed-screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
+    ],
+    decision: { decision: "APPROVED", reason: "审核通过", decidedAt: "2026-09-20T00:00:00.000Z" },
+    management: { destinationAccountId: "destination-account", submittedByPersonId: "person-1", applicantContextSubject: "TEACHING_TEACHER", applicantContextScope: "SELF", completion: {
+      roleAssignmentId: "role-assignment", companyFundAssignmentId: "fund-assignment", sourceAccountId: "source-account", destinationAccountId: "destination-account", ledgerEventId: "ledger-event", executedByPersonId: "executor-person", executedAt: "2026-09-21T00:00:00.000Z"
+    } }
+  };
+  const managed = await mountPanel({ subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", mode: "managed", records: [completed], detailRecord: completed });
+  await withDom(async (container) => {
+    const root = await managed.mount(container);
+    await click(button(container, "查看报销详情"));
+    assert.match(container.textContent, /已完成/);
+    assert.match(container.textContent, /审核决定：审核通过/);
+    assert.equal(container.textContent.includes("审核通过·待划拨"), false);
+    assert.match(container.textContent, /内部划拨完成时间：.*08:00:00/);
+    assert.match(container.textContent, /completed-support\.png/); assert.match(container.textContent, /completed-screen\.png/);
+    assert.match(container.textContent, /source-account/); assert.match(container.textContent, /destination-account/);
+    assert.equal(container.querySelector('[data-reimbursement-action="review"]'), null);
+    assert.equal([...container.querySelectorAll("button")].some((element) => /批准报销申请|驳回报销申请|划拨|转账|执行/.test(element.textContent)), false);
+    await act(async () => root.unmount());
+  });
+  const personal = await mountPanel({ records: [completed], detailRecord: completed });
+  await withDom(async (container) => {
+    const root = await personal.mount(container);
+    await click(button(container, "查看报销详情"));
+    assert.match(container.textContent, /已完成/); assert.match(container.textContent, /completed-support\.png/); assert.match(container.textContent, /completed-screen\.png/);
+    assert.equal(container.textContent.includes("source-account"), false, "个人视图不得渲染总部来源账户");
+    assert.equal(container.textContent.includes("destination-account"), false, "个人视图不得渲染执行关系账户");
+    assert.equal(container.querySelector('[data-reimbursement-action="review"]'), null);
     await act(async () => root.unmount());
   });
 });

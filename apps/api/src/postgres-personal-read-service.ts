@@ -1,5 +1,6 @@
 import type { RoleContext } from "@teaching-research-alliance/contracts";
 import { financeYearBounds } from "./finance-year.js";
+import { readCompletedReimbursementIncome } from "./postgres-reimbursement-read-service.js";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 
 const PERSONAL_SUBJECTS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
@@ -205,6 +206,7 @@ export class PostgresPersonalReadService {
         }
         reimbursementIncome += BigInt(row.net_amount_cents);
       }
+      reimbursementIncome += await readCompletedReimbursementIncome(client, context.personId, account.id, bounds);
       if (reimbursementIncome !== 0n) currentYearIncomeByCategory.reimbursementIncome = reimbursementIncome;
       return {
         personId: person.id,

@@ -280,7 +280,7 @@ export const BUSINESS_BACKUP_COVERAGE_GAPS: readonly BusinessCoverageGap[] = Obj
   Object.freeze({ code: "PER_TEACHER_RATE_OVERRIDE_NOT_IMPLEMENTED", tableNumbers: Object.freeze([8]), description: "尚无按接收方教师保存的费率覆盖模型，不能将全局策略冒充个别配置。" }),
   Object.freeze({ code: "CLASS_TYPE_RATE_CONFIG_NOT_IMPLEMENTED", tableNumbers: Object.freeze([8]), description: "尚无班型费率配置模型，不能从全局策略或逐笔快照反推完整配置。" }),
   Object.freeze({ code: "PROJECT_DEDUCTION_1_TO_10_NOT_IMPLEMENTED", tableNumbers: Object.freeze([6]), description: "项目1至10个人扣费尚无存储模型，不能复用奖金名称或奖金划拨数据。" }),
-  Object.freeze({ code: "REIMBURSEMENT_TRANSFER_NOT_IMPLEMENTED", tableNumbers: Object.freeze([4]), description: "报销申请与审批已存，但实际划转事实尚未建模。" }),
+  Object.freeze({ code: "REIMBURSEMENT_TRANSFER_BUSINESS_MAPPING_PENDING", tableNumbers: Object.freeze([4]), description: "同财年报销划拨已有原始事实模型，尚未纳入表4业务来源映射及工作簿；跨财年归属仍待定。" }),
   Object.freeze({ code: "EXTERNAL_PAYMENT_WORKFLOW_NOT_IMPLEMENTED", tableNumbers: Object.freeze([4]), description: "对外付款工作流尚未建模，不能提现记录替代。" }),
   Object.freeze({ code: "SETTLEMENT_PUBLISHED_SNAPSHOTS_NOT_IMPLEMENTED", tableNumbers: Object.freeze([3, 7]), description: "月度收入和费用结算尚无已发布汇总快照模型，不能由分录即时聚合冒充。" }),
   Object.freeze({ code: "RELATIONSHIP_CHANGE_PREVIEW_BATCH_NOT_IMPLEMENTED", tableNumbers: Object.freeze([1, 4]), description: "关系变更的预览范围与发布批次尚无独立模型，不能由当前关系或分配快照倒推。" }),

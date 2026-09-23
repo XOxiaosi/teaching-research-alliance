@@ -1,6 +1,6 @@
 import { EXPORT_SCHEMA_REGISTRY } from "./export-schema-registry.js";
 
-export const FULL_BACKUP_LAYOUT_VERSION = "raw-source-layout.v1";
+export const FULL_BACKUP_LAYOUT_VERSION = "raw-source-layout.v2";
 export const BACKUP_MAX_DATA_ROWS = 1_000_000;
 
 // An explicit inventory prevents a new table from silently entering an arbitrary workbook.
@@ -9,7 +9,7 @@ const groups = [
   ["02", "教师信息", "person teacher_profile"],
   ["03", "业务流水", "teacher_student_record referral_case referral_case_event referral_creation_snapshot referral_acceptance_snapshot referral_creation_idempotency referral_acceptance_idempotency referral_lifecycle_idempotency weekly_fee_entry weekly_fee_entry_version weekly_fee_event weekly_fee_idempotency"],
   ["04", "分配明细", "weekly_fee_allocation_snapshot weekly_fee_refund_effect settlement_calculation_run"],
-  ["06", "财务单据", "finance_document finance_document_event finance_draft_idempotency finance_refund_command_idempotency finance_refund_decision finance_refund_submission finance_refund_submission_item finance_reimbursement_command_idempotency finance_reimbursement_decision finance_reimbursement_submission finance_self_purchase_command_idempotency finance_self_purchase_reversal finance_self_purchase_transfer finance_withdrawal_command_idempotency finance_withdrawal_reversal finance_withdrawal_submission finance_withdrawal_transfer"],
+  ["06", "财务单据", "finance_document finance_document_event finance_draft_idempotency finance_refund_command_idempotency finance_refund_decision finance_refund_submission finance_refund_submission_item finance_reimbursement_command_idempotency finance_reimbursement_decision finance_reimbursement_submission finance_reimbursement_transfer finance_self_purchase_command_idempotency finance_self_purchase_reversal finance_self_purchase_transfer finance_withdrawal_command_idempotency finance_withdrawal_reversal finance_withdrawal_submission finance_withdrawal_transfer"],
   ["07", "工资奖金", "cash_wage_confirmation cash_wage_plan_version cash_wage_todo bonus_project_catalog_command_idempotency bonus_project_name_version bonus_project_slot project_bonus_transfer salary_benefit_command_idempotency salary_benefit_reversal"],
   ["08", "财务扣费", "finance_benefit_execution finance_benefit_plan_version finance_benefit_todo"],
   ["09", "结算账本", "account_balance_projection ledger_entry ledger_event"],

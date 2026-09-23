@@ -493,7 +493,7 @@ export type ReimbursementReviewSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
-export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
+export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED";
 
 export type ReimbursementCommandResult = Readonly<{
   id: string;
@@ -511,6 +511,8 @@ export type ReimbursementSummary = Readonly<{
   applicantPersonId: string;
   applicantDisplayName: string;
   submittedAt: string;
+  /** Present only after the internal reimbursement transfer has completed. */
+  completedAt?: string;
 }>;
 
 export type ReimbursementAttachment = SelfPurchaseAttachment;
@@ -535,6 +537,16 @@ export type ReimbursementDetail = ReimbursementSummary &
       decidedByPersonId?: string;
       decisionActorSubject?: "HEADQUARTERS_FINANCE";
       decisionActorScope?: "GLOBAL";
+      /** Immutable execution relationship, available only to authorized management reads. */
+      completion?: Readonly<{
+        roleAssignmentId: string;
+        companyFundAssignmentId: string;
+        sourceAccountId: string;
+        destinationAccountId: string;
+        ledgerEventId: string;
+        executedByPersonId: string;
+        executedAt: string;
+      }>;
     }>;
   }>;
 

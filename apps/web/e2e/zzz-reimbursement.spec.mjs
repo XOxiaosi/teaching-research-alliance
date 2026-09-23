@@ -177,3 +177,31 @@ test('另一总部会话先驳回时真实409重读，旧审核不自动再次�
  expect(afterReject.balanceCents).toBe(beforeReject.balanceCents);
  expect(afterReject.currentYearIncomeByCategory.reimbursementIncome??'0').toBe(beforeReject.currentYearIncomeByCategory.reimbursementIncome??'0');
 });
+
+test('已完成报销在真实网页组件保留原件和内部划拨时间，个人不见来源且无执行或再审核入口',async({page})=>{
+ const id='11111111-1111-4111-8111-111111111111';
+ const completed={id,status:'COMPLETED',version:4,amountCents:'7000',reason:'WEB_COMPLETED_RENDER',applicantPersonId:'22222222-2222-4222-8222-222222222222',applicantDisplayName:'完成态老师',submittedAt:'2026-09-21T00:00:00.000Z',completedAt:'2026-09-22T00:00:00.000Z'};
+ const detail={...completed,decision:{decision:'APPROVED',reason:'资料核验完成',decidedAt:'2026-09-21T01:00:00.000Z'},attachments:[
+  {versionId:'33333333-3333-4333-8333-333333333333',purpose:'SUPPORTING_DOCUMENT',originalFilename:'completed-support.png',mediaType:'image/png',sizeBytes:8,sha256:'a'.repeat(64)},
+  {versionId:'44444444-4444-4444-8444-444444444444',purpose:'APPLICATION_SCREENSHOT',originalFilename:'completed-screen.png',mediaType:'image/png',sizeBytes:8,sha256:'b'.repeat(64)}
+ ],management:{destinationAccountId:'destination-account',submittedByPersonId:'22222222-2222-4222-8222-222222222222',applicantContextSubject:'TEACHING_TEACHER',applicantContextScope:'SELF',completion:{roleAssignmentId:'role-assignment',companyFundAssignmentId:'fund-assignment',sourceAccountId:'source-account',destinationAccountId:'destination-account',ledgerEventId:'ledger-event',executedByPersonId:'executor-person',executedAt:'2026-09-22T00:00:00.000Z'}}};
+ const envelope=data=>({version:'test',data});
+ await page.route('**/v1/finance/reimbursements/managed',route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({documents:[completed]}))}));
+ await page.route(`**/v1/finance/reimbursements/${id}`,route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope(detail))}));
+ await login(page,'13800000003','HEADQUARTERS_FINANCE');await openManaged(page,'WEB_COMPLETED_RENDER');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('已完成');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('审核通过');
+ await expect(managed(page).locator('dl.finance-detail')).not.toContainText('审核通过·待划拨');
+ await expect(managed(page)).toContainText('内部划拨完成时间');
+ await expect(managed(page)).toContainText('completed-support.png');await expect(managed(page)).toContainText('completed-screen.png');
+ await expect(managed(page)).toContainText('source-account');await expect(managed(page)).toContainText('destination-account');
+ await expect(managed(page).getByRole('button',{name:'下载原件',exact:true})).toHaveCount(2);
+ await expect(managed(page).getByRole('button',{name:/批准报销申请|驳回报销申请|划拨|转账|执行/})).toHaveCount(0);
+ await page.getByRole('button',{name:'退出登录',exact:true}).click();
+ await page.route('**/v1/finance/reimbursements/mine',route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({documents:[completed]}))}));
+ await login(page,'13800000001','TEACHING_TEACHER');await nav(page,'我的报销').click();
+ await mine(page).locator('.finance-list-row').filter({hasText:'WEB_COMPLETED_RENDER'}).getByRole('button',{name:'查看报销详情',exact:true}).click();
+ await expect(mine(page)).toContainText('已完成');await expect(mine(page)).toContainText('completed-support.png');await expect(mine(page)).toContainText('不表示银行卡到账');
+ await expect(mine(page)).not.toContainText('source-account');await expect(mine(page)).not.toContainText('destination-account');
+ await expect(mine(page).getByRole('button',{name:/批准报销申请|驳回报销申请|划拨|转账|执行/})).toHaveCount(0);
+});

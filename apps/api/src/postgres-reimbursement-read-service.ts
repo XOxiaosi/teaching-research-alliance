@@ -4,13 +4,14 @@ import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.
 
 export type ReimbursementSummary = Readonly<{
   id: string;
-  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED";
   version: number;
   amountCents: string;
   reason: string;
   applicantPersonId: string;
   applicantDisplayName: string;
   submittedAt: string;
+  completedAt?: string;
 }>;
 
 export type ReimbursementDetail = ReimbursementSummary & Readonly<{
@@ -38,6 +39,15 @@ export type ReimbursementDetail = ReimbursementSummary & Readonly<{
     decidedByPersonId?: string;
     decisionActorSubject?: "HEADQUARTERS_FINANCE";
     decisionActorScope?: "GLOBAL";
+    completion?: Readonly<{
+      roleAssignmentId: string;
+      companyFundAssignmentId: string;
+      sourceAccountId: string;
+      destinationAccountId: string;
+      ledgerEventId: string;
+      executedByPersonId: string;
+      executedAt: string;
+    }>;
   }>;
 }>;
 
@@ -72,10 +82,58 @@ type SummaryRow = Readonly<{
   decision_authorization_snapshot: unknown;
   decided_at: string | null;
   decision_created_at: string | null;
+  transfer_document_id: string | null;
+  transfer_source_document_version: string | null;
+  transfer_result_document_version: string | null;
+  role_assignment_id: string | null;
+  company_fund_assignment_id: string | null;
+  source_fund_id: string | null;
+  source_account_id: string | null;
+  transfer_destination_account_id: string | null;
+  transfer_amount_cents: string | null;
+  transfer_reason: string | null;
+  transfer_authorization_snapshot: unknown;
+  transfer_ledger_event_id: string | null;
+  transfer_ledger_event_type: string | null;
+  transfer_ledger_event_key: string | null;
+  executed_by_person_id: string | null;
+  executed_at: string | null;
+  transfer_created_at: string | null;
+  source_before_cents: string | null;
+  source_after_cents: string | null;
+  destination_before_cents: string | null;
+  destination_after_cents: string | null;
+  source_owner_type: string | null;
+  source_owner_id: string | null;
+  transfer_destination_owner_type: string | null;
+  transfer_destination_owner_id: string | null;
+  source_fund_code: string | null;
+  role_person_id: string | null;
+  role_subject_code: string | null;
+  role_scope_type: string | null;
+  role_scope_id: string | null;
+  role_valid_from: string | null;
+  role_valid_to: string | null;
+  fund_assignment_fund_id: string | null;
+  fund_assignment_subject: string | null;
+  fund_assignment_scope: string | null;
+  fund_assignment_scope_id: string | null;
+  fund_assignment_responsibility: string | null;
+  fund_assignment_valid_from: string | null;
+  fund_assignment_valid_to: string | null;
+  ledger_entry_count: string | null;
+  source_ledger_entries: string | null;
+  destination_ledger_entries: string | null;
+  other_ledger_entries: string | null;
+  command_count: string;
+  submit_command_count: string;
+  decision_command_count: string;
+  execute_command_count: string;
   event_count: string;
   created_event_count: string;
   submitted_event_count: string;
   decision_event_count: string;
+  completed_event_count: string;
   binding_count: string;
   binding_slot_count: string;
   supporting_count: string;
@@ -114,13 +172,22 @@ type ParsedSummary = Readonly<{
   applicantContextCampusId: string | null;
   applicantContextVenueId: string | null;
   decidedByPersonId: string | null;
+  completion: Readonly<{
+    roleAssignmentId: string;
+    companyFundAssignmentId: string;
+    sourceAccountId: string;
+    destinationAccountId: string;
+    ledgerEventId: string;
+    executedByPersonId: string;
+    executedAt: string;
+  }> | null;
 }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const knownPersonalScopes = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"] as const;
-const statuses = ["PENDING_APPROVAL", "APPROVED", "REJECTED"] as const;
+const statuses = ["PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED"] as const;
 const attachmentPurposes = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT", "INVOICE"] as const;
 const mediaTypes = ["application/pdf", "image/png", "image/jpeg"] as const;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
@@ -184,6 +251,17 @@ const snapshotVersion = (record: Record<string, unknown>, field: string): number
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
   return value;
 };
+const snapshotTime = (record: Record<string, unknown>, field: string): string => {
+  const value = snapshotString(record, field);
+  if (!Number.isFinite(new Date(value).getTime())) invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+  return new Date(value).toISOString();
+};
+const snapshotNullableTime = (record: Record<string, unknown>, field: string): string | null => {
+  const value = record[field];
+  if (value === null) return null;
+  if (typeof value !== "string" || !Number.isFinite(new Date(value).getTime())) invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+  return new Date(value).toISOString();
+};
 
 const validateApplicantSnapshot = (
   value: unknown,
@@ -230,8 +308,37 @@ const summarySelect = `
          decision.actor_subject_code,decision.actor_scope_type,decision.authorization_snapshot AS decision_authorization_snapshot,
          to_char(decision.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS decided_at,
          to_char(decision.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS decision_created_at,
+         transfer.finance_document_id::text AS transfer_document_id,
+         transfer.source_document_version::text AS transfer_source_document_version,
+         transfer.result_document_version::text AS transfer_result_document_version,
+         transfer.role_assignment_id::text AS role_assignment_id,transfer.company_fund_assignment_id::text AS company_fund_assignment_id,
+         transfer.source_fund_id::text AS source_fund_id,transfer.source_account_id::text AS source_account_id,
+         transfer.destination_account_id::text AS transfer_destination_account_id,transfer.amount_cents::text AS transfer_amount_cents,
+         transfer.reason AS transfer_reason,transfer.authorization_snapshot AS transfer_authorization_snapshot,
+         transfer.ledger_event_id::text AS transfer_ledger_event_id,ledger_event.event_type AS transfer_ledger_event_type,
+         ledger_event.event_key AS transfer_ledger_event_key,transfer.executed_by_person_id::text AS executed_by_person_id,
+         to_char(transfer.executed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS executed_at,
+         to_char(transfer.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS transfer_created_at,
+         transfer.source_before_cents::text AS source_before_cents,transfer.source_after_cents::text AS source_after_cents,
+         transfer.destination_before_cents::text AS destination_before_cents,transfer.destination_after_cents::text AS destination_after_cents,
+         source.owner_type AS source_owner_type,source.owner_id::text AS source_owner_id,
+         transfer_destination.owner_type AS transfer_destination_owner_type,transfer_destination.owner_id::text AS transfer_destination_owner_id,
+         fund.fund_code AS source_fund_code,role.person_id::text AS role_person_id,role.subject_code AS role_subject_code,
+         role.scope_type AS role_scope_type,role.scope_id::text AS role_scope_id,
+         to_char(role.valid_from AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS role_valid_from,
+         to_char(role.valid_to AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS role_valid_to,
+         assignment.fund_id::text AS fund_assignment_fund_id,assignment.duty_subject AS fund_assignment_subject,
+         assignment.scope_type AS fund_assignment_scope,assignment.scope_id::text AS fund_assignment_scope_id,
+         assignment.responsibility_code AS fund_assignment_responsibility,
+         to_char(assignment.valid_from AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_from,
+         to_char(assignment.valid_to AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS fund_assignment_valid_to,
+         ledger_counts.entry_count::text AS ledger_entry_count,ledger_counts.source_entries::text AS source_ledger_entries,
+         ledger_counts.destination_entries::text AS destination_ledger_entries,ledger_counts.other_entries::text AS other_ledger_entries,
+         commands.command_count::text AS command_count,commands.submit_command_count::text AS submit_command_count,
+         commands.decision_command_count::text AS decision_command_count,commands.execute_command_count::text AS execute_command_count,
          events.event_count::text AS event_count,events.created_event_count::text AS created_event_count,
          events.submitted_event_count::text AS submitted_event_count,events.decision_event_count::text AS decision_event_count,
+         events.completed_event_count::text AS completed_event_count,
          bindings.binding_count::text AS binding_count,bindings.binding_slot_count::text AS binding_slot_count,
          bindings.supporting_count::text AS supporting_count,bindings.screenshot_count::text AS screenshot_count,
          bindings.invalid_binding_count::text AS invalid_binding_count
@@ -240,6 +347,35 @@ const summarySelect = `
     LEFT JOIN finance_reimbursement_submission submission ON submission.finance_document_id=document.id
     LEFT JOIN settlement_account destination ON destination.id=submission.destination_account_id
     LEFT JOIN finance_reimbursement_decision decision ON decision.finance_document_id=document.id
+    LEFT JOIN finance_reimbursement_transfer transfer ON transfer.finance_document_id=document.id
+    LEFT JOIN settlement_account source ON source.id=transfer.source_account_id
+    LEFT JOIN settlement_account transfer_destination ON transfer_destination.id=transfer.destination_account_id
+    LEFT JOIN company_finance_fund fund ON fund.id=transfer.source_fund_id
+    LEFT JOIN role_assignment role ON role.id=transfer.role_assignment_id
+    LEFT JOIN company_finance_fund_assignment assignment ON assignment.id=transfer.company_fund_assignment_id
+    LEFT JOIN ledger_event ledger_event ON ledger_event.id=transfer.ledger_event_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS command_count,
+             count(*) FILTER (WHERE command.operation='SUBMIT' AND command.actor_person_id=submission.submitted_by_person_id
+               AND command.result_status='PENDING_APPROVAL' AND command.result_document_version=submission.result_document_version
+               AND command.created_at=submission.submitted_at) AS submit_command_count,
+             count(*) FILTER (WHERE command.operation=CASE decision.decision WHEN 'APPROVED' THEN 'APPROVE' WHEN 'REJECTED' THEN 'REJECT' ELSE NULL END
+               AND command.actor_person_id=decision.decided_by_person_id AND command.result_status=decision.decision
+               AND command.result_document_version=decision.result_document_version AND command.created_at=decision.decided_at) AS decision_command_count,
+             count(*) FILTER (WHERE command.operation='EXECUTE' AND command.actor_person_id=transfer.executed_by_person_id
+               AND command.result_status='COMPLETED' AND command.result_document_version=transfer.result_document_version
+               AND command.created_at=transfer.executed_at) AS execute_command_count
+        FROM finance_reimbursement_command_idempotency command WHERE command.finance_document_id=document.id
+    ) commands ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS entry_count,
+             count(*) FILTER (WHERE entry.account_id=transfer.source_account_id AND entry.category_key='reimbursementExpense'
+               AND entry.amount_cents=-transfer.amount_cents) AS source_entries,
+             count(*) FILTER (WHERE entry.account_id=transfer.destination_account_id AND entry.category_key='reimbursementIncome'
+               AND entry.amount_cents=transfer.amount_cents) AS destination_entries,
+             count(*) FILTER (WHERE entry.account_id NOT IN (transfer.source_account_id,transfer.destination_account_id)) AS other_entries
+        FROM ledger_entry entry WHERE entry.event_id=transfer.ledger_event_id
+    ) ledger_counts ON true
     LEFT JOIN LATERAL (
       SELECT count(*) AS event_count,
              count(*) FILTER (WHERE event.event_type='CREATED' AND event.actor_person_id=document.applicant_person_id AND event.result_document_version=1) AS created_event_count,
@@ -247,7 +383,10 @@ const summarySelect = `
                AND event.result_document_version=submission.result_document_version) AS submitted_event_count,
              count(*) FILTER (WHERE event.event_type=CASE decision.decision WHEN 'APPROVED' THEN 'REIMBURSEMENT_APPROVED'
                WHEN 'REJECTED' THEN 'REIMBURSEMENT_REJECTED' ELSE NULL END AND event.actor_person_id=decision.decided_by_person_id
-               AND event.result_document_version=decision.result_document_version) AS decision_event_count
+               AND event.result_document_version=decision.result_document_version) AS decision_event_count,
+             count(*) FILTER (WHERE event.event_type='REIMBURSEMENT_COMPLETED' AND event.actor_person_id=transfer.executed_by_person_id
+               AND event.result_document_version=transfer.result_document_version AND event.ledger_event_id=transfer.ledger_event_id
+               AND event.created_at=transfer.executed_at) AS completed_event_count
         FROM finance_document_event event WHERE event.finance_document_id=document.id
     ) events ON true
     LEFT JOIN LATERAL (
@@ -267,7 +406,7 @@ const summarySelect = `
         LEFT JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
        WHERE binding.finance_document_id=document.id
     ) bindings ON true
-   WHERE document.kind='REIMBURSEMENT' AND document.status IN ('PENDING_APPROVAL','APPROVED','REJECTED')`;
+   WHERE document.kind='REIMBURSEMENT' AND document.status IN ('PENDING_APPROVAL','APPROVED','REJECTED','COMPLETED')`;
 
 const attachmentSelect = `
   SELECT version.id::text AS version_id,binding.stage AS binding_stage,binding.purpose AS binding_purpose,
@@ -286,6 +425,24 @@ const attachmentSelect = `
     JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
    WHERE binding.finance_document_id=$1::uuid
    ORDER BY binding.purpose,attachment.id,version.id`;
+
+const validSignedCents = (value: string | null): bigint => {
+  if (value === null || !/^-?[0-9]+$/.test(value)) invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+  return BigInt(value);
+};
+
+const noTransfer = (row: SummaryRow): boolean => [
+  row.transfer_document_id,row.transfer_source_document_version,row.transfer_result_document_version,row.role_assignment_id,
+  row.company_fund_assignment_id,row.source_fund_id,row.source_account_id,row.transfer_destination_account_id,
+  row.transfer_amount_cents,row.transfer_reason,row.transfer_authorization_snapshot,row.transfer_ledger_event_id,
+  row.transfer_ledger_event_type,row.transfer_ledger_event_key,row.executed_by_person_id,row.executed_at,row.transfer_created_at,
+  row.source_before_cents,row.source_after_cents,row.destination_before_cents,row.destination_after_cents,row.source_owner_type,
+  row.source_owner_id,row.transfer_destination_owner_type,row.transfer_destination_owner_id,row.source_fund_code,row.role_person_id,
+  row.role_subject_code,row.role_scope_type,row.role_scope_id,row.role_valid_from,row.role_valid_to,row.fund_assignment_fund_id,
+  row.fund_assignment_subject,row.fund_assignment_scope,row.fund_assignment_scope_id,row.fund_assignment_responsibility,
+  row.fund_assignment_valid_from,row.fund_assignment_valid_to,
+].every((value) => value === null)
+  && row.ledger_entry_count === "0" && row.source_ledger_entries === "0" && row.destination_ledger_entries === "0" && row.other_ledger_entries === "0";
 
 const toParsedSummary = (row: SummaryRow): ParsedSummary => {
   const status = row.status as (typeof statuses)[number];
@@ -307,14 +464,17 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
     || new Date(submittedAt).getTime() < new Date(documentCreatedAt).getTime()
     || count(row.binding_count) < 2 || count(row.binding_count) !== count(row.binding_slot_count)
     || count(row.supporting_count) < 1 || count(row.screenshot_count) < 1 || count(row.invalid_binding_count) !== 0
-    || count(row.created_event_count) !== 1 || count(row.submitted_event_count) !== 1) {
+    || count(row.created_event_count) !== 1 || count(row.submitted_event_count) !== 1 || count(row.submit_command_count) !== 1) {
     invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
   }
   const applicantSnapshot = validateApplicantSnapshot(row.applicant_context_snapshot, applicantId, destinationAccountId);
 
   let decidedByPersonId: string | null = null;
+  let completion: ParsedSummary["completion"] = null;
   if (status === "PENDING_APPROVAL") {
-    if (documentVersion !== submissionVersion || count(row.event_count) !== 2 || count(row.decision_event_count) !== 0
+    if (documentVersion !== submissionVersion || count(row.event_count) !== 2 || count(row.command_count) !== 1
+      || count(row.decision_event_count) !== 0 || count(row.completed_event_count) !== 0
+      || count(row.decision_command_count) !== 0 || count(row.execute_command_count) !== 0 || !noTransfer(row)
       || row.decision_document_id !== null || row.decision_source_document_version !== null || row.decision_result_document_version !== null
       || row.decision !== null || row.decision_reason !== null || row.decided_by_person_id !== null
       || row.actor_subject_code !== null || row.actor_scope_type !== null || row.decision_authorization_snapshot !== null
@@ -327,13 +487,15 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
     decidedByPersonId = validUuid(row.decided_by_person_id);
     const decidedAt = validTimestamp(row.decided_at);
     const decisionCreatedAt = validTimestamp(row.decision_created_at);
+    const expectedDecision = status === "REJECTED" ? "REJECTED" : "APPROVED";
+    const expectedDecisionVersion = status === "COMPLETED" ? documentVersion - 1 : documentVersion;
     if (row.decision_document_id !== row.id || decisionSourceVersion !== submissionVersion
-      || decisionResultVersion !== decisionSourceVersion + 1 || decisionResultVersion !== documentVersion
-      || row.decision !== status || row.actor_subject_code !== "HEADQUARTERS_FINANCE" || row.actor_scope_type !== "GLOBAL"
+      || decisionResultVersion !== decisionSourceVersion + 1 || decisionResultVersion !== expectedDecisionVersion
+      || row.decision !== expectedDecision || row.actor_subject_code !== "HEADQUARTERS_FINANCE" || row.actor_scope_type !== "GLOBAL"
       || row.decision_reason === null || !row.decision_reason.trim() || row.decision_reason.length > 1000
-      || CONTROL_CHARACTERS.test(row.decision_reason)
-      || decisionCreatedAt !== decidedAt || new Date(decidedAt).getTime() < new Date(submittedAt).getTime()
-      || count(row.event_count) !== 3 || count(row.decision_event_count) !== 1) {
+      || CONTROL_CHARACTERS.test(row.decision_reason) || decisionCreatedAt !== decidedAt
+      || new Date(decidedAt).getTime() < new Date(submittedAt).getTime() || count(row.decision_event_count) !== 1
+      || count(row.decision_command_count) !== 1) {
       invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
     }
     const authorization = snapshot(row.decision_authorization_snapshot);
@@ -350,18 +512,108 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
     if (nestedSubmission.subject !== applicantSnapshot.subject || nestedSubmission.scope !== applicantSnapshot.scope
       || nestedSubmission.regionId !== applicantSnapshot.regionId || nestedSubmission.campusId !== applicantSnapshot.campusId
       || nestedSubmission.venueId !== applicantSnapshot.venueId) invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+
+    if (status === "COMPLETED") {
+      const transferSourceVersion = parseVersion(row.transfer_source_document_version);
+      const transferResultVersion = parseVersion(row.transfer_result_document_version);
+      const roleAssignmentId = validUuid(row.role_assignment_id);
+      const companyFundAssignmentId = validUuid(row.company_fund_assignment_id);
+      const sourceFundId = validUuid(row.source_fund_id);
+      const sourceAccountId = validUuid(row.source_account_id);
+      const transferDestinationAccountId = validUuid(row.transfer_destination_account_id);
+      const ledgerEventId = validUuid(row.transfer_ledger_event_id);
+      const executedByPersonId = validUuid(row.executed_by_person_id);
+      const executedAt = validTimestamp(row.executed_at);
+      if (row.transfer_document_id !== row.id || transferSourceVersion !== decisionResultVersion
+        || transferResultVersion !== transferSourceVersion + 1 || transferResultVersion !== documentVersion
+        || transferDestinationAccountId !== destinationAccountId || validCents(row.transfer_amount_cents) !== amount
+        || row.transfer_reason !== row.reason || row.transfer_created_at === null || validTimestamp(row.transfer_created_at) !== executedAt
+        || row.source_owner_type !== "COMPANY" || row.source_owner_id !== sourceFundId
+        || row.transfer_destination_owner_type !== "PERSON" || row.transfer_destination_owner_id !== applicantId
+        || row.role_person_id !== executedByPersonId || row.role_subject_code !== "HEADQUARTERS_FINANCE"
+        || row.role_scope_type !== "GLOBAL" || row.role_scope_id !== null || row.fund_assignment_fund_id !== sourceFundId
+        || row.fund_assignment_subject !== "HEADQUARTERS_FINANCE" || row.fund_assignment_scope !== "GLOBAL"
+        || row.fund_assignment_scope_id !== null || row.fund_assignment_responsibility !== "FINANCE_OPERATING_SOURCE"
+        || row.source_fund_code === null || !row.source_fund_code.trim()
+        || row.transfer_ledger_event_type !== "REIMBURSEMENT_COMPLETED" || row.transfer_ledger_event_key !== `reimbursement:${row.id}`
+        || count(row.event_count) !== 4 || count(row.command_count) !== 3 || count(row.completed_event_count) !== 1 || count(row.execute_command_count) !== 1
+        || row.ledger_entry_count !== "2" || row.source_ledger_entries !== "1" || row.destination_ledger_entries !== "1" || row.other_ledger_entries !== "0"
+        || validSignedCents(row.source_before_cents) - amount !== validSignedCents(row.source_after_cents)
+        || validSignedCents(row.destination_before_cents) + amount !== validSignedCents(row.destination_after_cents)
+        || new Date(executedAt).getTime() < new Date(decidedAt).getTime()
+        || financeYearBounds(new Date(executedAt)).start !== financeYearBounds(new Date(submittedAt)).start) {
+        invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+      }
+      const authorization = snapshot(row.transfer_authorization_snapshot);
+      const roleValidFrom = validTimestamp(row.role_valid_from);
+      const roleValidTo = row.role_valid_to === null ? null : validTimestamp(row.role_valid_to);
+      const assignmentValidFrom = validTimestamp(row.fund_assignment_valid_from);
+      const assignmentValidTo = row.fund_assignment_valid_to === null ? null : validTimestamp(row.fund_assignment_valid_to);
+      if (snapshotUuid(authorization, "executorPersonId") !== executedByPersonId
+        || snapshotString(authorization, "executorSubjectCode") !== "HEADQUARTERS_FINANCE"
+        || snapshotString(authorization, "executorScopeType") !== "GLOBAL"
+        || snapshotUuid(authorization, "roleAssignmentId") !== roleAssignmentId
+        || snapshotTime(authorization, "roleValidFrom") !== roleValidFrom || snapshotNullableTime(authorization, "roleValidTo") !== roleValidTo
+        || snapshotUuid(authorization, "companyFundAssignmentId") !== companyFundAssignmentId
+        || snapshotTime(authorization, "fundAssignmentValidFrom") !== assignmentValidFrom || snapshotNullableTime(authorization, "fundAssignmentValidTo") !== assignmentValidTo
+        || snapshotUuid(authorization, "sourceFundId") !== sourceFundId || snapshotString(authorization, "sourceFundCode") !== row.source_fund_code
+        || snapshotUuid(authorization, "sourceAccountId") !== sourceAccountId || snapshotUuid(authorization, "destinationAccountId") !== destinationAccountId
+        || snapshotUuid(authorization, "applicantPersonId") !== applicantId || snapshotTime(authorization, "submittedAt") !== submittedAt
+        || snapshotTime(authorization, "approvedAt") !== decidedAt || snapshotVersion(authorization, "submissionDocumentVersion") !== submissionVersion
+        || snapshotVersion(authorization, "decisionDocumentVersion") !== decisionResultVersion
+        || new Date(executedAt).getTime() < new Date(roleValidFrom).getTime()
+        || (roleValidTo !== null && new Date(executedAt).getTime() >= new Date(roleValidTo).getTime())
+        || new Date(executedAt).getTime() < new Date(assignmentValidFrom).getTime()
+        || (assignmentValidTo !== null && new Date(executedAt).getTime() >= new Date(assignmentValidTo).getTime())) {
+        invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+      }
+      completion = { roleAssignmentId, companyFundAssignmentId, sourceAccountId, destinationAccountId, ledgerEventId, executedByPersonId, executedAt };
+    } else if (documentVersion !== decisionResultVersion || count(row.event_count) !== 3 || count(row.command_count) !== 2
+      || count(row.completed_event_count) !== 0 || count(row.execute_command_count) !== 0 || !noTransfer(row)) {
+      invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+    }
   }
 
   return {
     summary: {
       id: validUuid(row.id), status, version: documentVersion, amountCents: amount.toString(), reason: row.reason.trim(),
-      applicantPersonId: applicantId, applicantDisplayName: row.applicant_display_name, submittedAt
+      applicantPersonId: applicantId, applicantDisplayName: row.applicant_display_name, submittedAt,
+      ...(completion === null ? {} : { completedAt: completion.executedAt })
     },
     destinationAccountId, submittedByPersonId,
     applicantContextSubject: applicantSnapshot.subject, applicantContextScope: applicantSnapshot.scope,
     applicantContextRegionId: applicantSnapshot.regionId, applicantContextCampusId: applicantSnapshot.campusId,
-    applicantContextVenueId: applicantSnapshot.venueId, decidedByPersonId
+    applicantContextVenueId: applicantSnapshot.venueId, decidedByPersonId, completion
   };
+};
+
+/** Internal overview read: reuse the full immutable completion chain in the caller's snapshot. */
+export const readCompletedReimbursementIncome = async (
+  client: PostgresClient, personId: string, destinationAccountId: string,
+  bounds: Readonly<{ start: string; end: string }>
+): Promise<bigint> => {
+  const rows = await client.query<SummaryRow>(
+    `${summarySelect}
+       AND (document.applicant_person_id=$1::uuid OR submission.destination_account_id=$2::uuid
+            OR transfer.destination_account_id=$2::uuid)
+       AND (document.status='COMPLETED' OR transfer.finance_document_id IS NOT NULL)
+       AND ((submission.submitted_at >= $3::timestamptz AND submission.submitted_at < $4::timestamptz)
+            OR (transfer.executed_at >= $3::timestamptz AND transfer.executed_at < $4::timestamptz))`,
+    [personId, destinationAccountId, bounds.start, bounds.end]
+  );
+  let total = 0n;
+  for (const row of rows.rows) {
+    const parsed = toParsedSummary(row);
+    if (parsed.summary.status !== "COMPLETED" || parsed.completion === null
+      || parsed.summary.applicantPersonId !== personId || parsed.destinationAccountId !== destinationAccountId
+      || parsed.completion.destinationAccountId !== destinationAccountId
+      || new Date(parsed.completion.executedAt).getTime() < new Date(bounds.start).getTime()
+      || new Date(parsed.completion.executedAt).getTime() >= new Date(bounds.end).getTime()) {
+      invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
+    }
+    total += BigInt(parsed.summary.amountCents);
+  }
+  return total;
 };
 
 const toAttachments = (rows: readonly AttachmentRow[], row: SummaryRow): ReimbursementDetail["attachments"] => {
@@ -505,7 +757,8 @@ export class PostgresReimbursementReadService {
             decidedByPersonId: parsed.decidedByPersonId,
             decisionActorSubject: "HEADQUARTERS_FINANCE" as const,
             decisionActorScope: "GLOBAL" as const
-          })
+          }),
+          ...(parsed.completion === null ? {} : { completion: parsed.completion })
         } } : {})
       };
     } catch (error) {
