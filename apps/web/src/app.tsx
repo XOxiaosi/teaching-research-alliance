@@ -30,6 +30,7 @@ import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel.js";
 import { AccountAccessPanel, AccountAuthenticationPanel, canManageAccounts } from "./account-access-panel.js";
+import { DashboardIcon } from "./components/dashboard-icon.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
 
@@ -356,27 +357,27 @@ function App(): ReactNode {
   const goPage = (next: typeof activePage): void => { if (financeUnconfirmed) { setMessage("当前有结果待确认的提交，请先完成确认或安全重试。"); return; } setActivePage(next); setMessage(""); window.scrollTo({top:0}); };
   const navigation = <>
     {currentRole === "TEACHING_TEACHER" && <>
-      <button disabled={busy || financeUnconfirmed} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><span aria-hidden="true" className="nav-icon">▤</span>周费用录入</button>
+      <button disabled={busy || financeUnconfirmed} aria-current={page === "fees" ? "page" : undefined} onClick={() => goPage("fees")}><DashboardIcon name="fees" />周费用录入</button>
     </>}
-    {(currentRole === "TEACHING_TEACHER" || currentRole === "TEACHER") && <button disabled={busy || financeUnconfirmed} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><span aria-hidden="true" className="nav-icon">▦</span>教师工作台</button>}
-    {canCreateReferral(session) && <button disabled={busy || financeUnconfirmed} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><span aria-hidden="true" className="nav-icon">↗</span>学生推荐</button>}
-    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><span aria-hidden="true" className="nav-icon">↗</span>我的提现</button>}
-    {canReadVenueBoard && <button disabled={busy || financeUnconfirmed} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
-    {canReadOrg && <button disabled={busy || financeUnconfirmed} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><span aria-hidden="true" className="nav-icon">▦</span>组织营收</button>}
-    {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "group-leader-change" ? "page" : undefined} onClick={() => goPage("group-leader-change")}><span aria-hidden="true" className="nav-icon">⇄</span>普通周组长变更</button>}
-    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><span aria-hidden="true" className="nav-icon">▣</span>工资管理</button>}
-    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary-confirmation" ? "page" : undefined} onClick={() => goPage("salary-confirmation")}>工资发放确认</button>}
-    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}>项目奖金</button>}
-    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><span aria-hidden="true" className="nav-icon">▣</span>医社保与公积金</button>}
-    {canProcessWithdrawal && <button disabled={busy || financeUnconfirmed} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
-    {canSelfPurchase && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
-    {canConfigureFunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
-    {canManageAccountAccess && <button disabled={busy || financeUnconfirmed} aria-current={page === "accounts" ? "page" : undefined} onClick={() => goPage("accounts")}><span aria-hidden="true" className="nav-icon">◉</span>账号管理</button>}
-    {canReadPurchases && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><span aria-hidden="true" className="nav-icon">▤</span>采买记录</button>}
-    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><span aria-hidden="true" className="nav-icon">▧</span>我的报销</button>}
-    {canReadReimbursements && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><span aria-hidden="true" className="nav-icon">▤</span>报销记录</button>}
-    {canReadOwnRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refunds" ? "page" : undefined} onClick={() => goPage("refunds")}><span aria-hidden="true" className="nav-icon">↩</span>学生退款</button>}
-    {canReadManagedRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refund-history" ? "page" : undefined} onClick={() => goPage("refund-history")}><span aria-hidden="true" className="nav-icon">↪</span>退款审核</button>}
+    {(currentRole === "TEACHING_TEACHER" || currentRole === "TEACHER") && <button disabled={busy || financeUnconfirmed} aria-current={page === "overview" ? "page" : undefined} onClick={() => goPage("overview")}><DashboardIcon name="overview" />教师工作台</button>}
+    {canCreateReferral(session) && <button disabled={busy || financeUnconfirmed} aria-current={page === "referrals" ? "page" : undefined} onClick={() => goPage("referrals")}><DashboardIcon name="referrals" />学生推荐</button>}
+    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "withdrawals" ? "page" : undefined} onClick={() => goPage("withdrawals")}><DashboardIcon name="withdrawals" />我的提现</button>}
+    {canReadVenueBoard && <button disabled={busy || financeUnconfirmed} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><DashboardIcon name="venue-board" />场地看板</button>}
+    {canReadOrg && <button disabled={busy || financeUnconfirmed} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><DashboardIcon name="organization-revenue" />组织营收</button>}
+    {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "group-leader-change" ? "page" : undefined} onClick={() => goPage("group-leader-change")}><DashboardIcon name="group-leader-change" />普通周组长变更</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><DashboardIcon name="salary" />工资管理</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary-confirmation" ? "page" : undefined} onClick={() => goPage("salary-confirmation")}><DashboardIcon name="salary-confirmation" />工资发放确认</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}><DashboardIcon name="bonus-projects" />项目奖金</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><DashboardIcon name="benefits" />医社保与公积金</button>}
+    {canProcessWithdrawal && <button disabled={busy || financeUnconfirmed} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><DashboardIcon name="finance" />提现办理</button>}
+    {canSelfPurchase && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><DashboardIcon name="purchase" />财务本人采买</button>}
+    {canConfigureFunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><DashboardIcon name="funds" />业务账户配置</button>}
+    {canManageAccountAccess && <button disabled={busy || financeUnconfirmed} aria-current={page === "accounts" ? "page" : undefined} onClick={() => goPage("accounts")}><DashboardIcon name="accounts" />账号管理</button>}
+    {canReadPurchases && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase-history" ? "page" : undefined} onClick={() => goPage("purchase-history")}><DashboardIcon name="purchase-history" />采买记录</button>}
+    {canWithdraw && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursements" ? "page" : undefined} onClick={() => goPage("reimbursements")}><DashboardIcon name="reimbursements" />我的报销</button>}
+    {canReadReimbursements && <button disabled={busy || financeUnconfirmed} aria-current={page === "reimbursement-history" ? "page" : undefined} onClick={() => goPage("reimbursement-history")}><DashboardIcon name="reimbursement-history" />报销记录</button>}
+    {canReadOwnRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refunds" ? "page" : undefined} onClick={() => goPage("refunds")}><DashboardIcon name="refunds" />学生退款</button>}
+    {canReadManagedRefunds && <button disabled={busy || financeUnconfirmed} aria-current={page === "refund-history" ? "page" : undefined} onClick={() => goPage("refund-history")}><DashboardIcon name="refund-history" />退款审核</button>}
   </>;
   return (
     <div className="shell">

@@ -35,7 +35,9 @@ test('首屏录费、累计更正、故障安全重试、推荐回归与手机�
   await page.goto('/');
   await login(page);
   await expect(page.getByRole('heading',{name:'周费用录入',level:1,exact:true})).toBeVisible();
-  await expect(page.getByRole('navigation',{name:'主要导航'}).getByRole('button').first()).toHaveText('▤周费用录入');
+  const firstNavigationButton=page.getByRole('navigation',{name:'主要导航'}).getByRole('button').first();
+  await expect(firstNavigationButton).toHaveText('周费用录入');
+  await expect(firstNavigationButton.locator('svg.nav-icon[aria-hidden="true"]')).toHaveCount(1);
   await expect(page.locator('.overview')).not.toBeVisible();
   await choose(page);
   let posts=0;
@@ -55,13 +57,14 @@ test('首屏录费、累计更正、故障安全重试、推荐回归与手机�
   await expect(page.locator('.fee-metrics')).toContainText('已录记录');
   await save(page,'1000');
   await page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'教师工作台'}).click();
-  await expect(page.locator('.balance strong')).toHaveText('720.00');
+  // The shared demo also contains a confirmed 49.00-bean cash-wage deduction.
+  await expect(page.locator('.balance strong')).toHaveText('671.00');
   await page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'周费用录入'}).click();
   await choose(page);
   await expect(page.getByLabel('本期间累计金额',{exact:true})).toHaveValue('1000.00');
   await save(page,'1200');
   await page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'教师工作台'}).click();
-  await expect(page.locator('.balance strong')).toHaveText('864.00');
+  await expect(page.locator('.balance strong')).toHaveText('815.00');
   await page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'周费用录入'}).click();
 
   const keys=[];
@@ -134,7 +137,7 @@ test('首屏录费、累计更正、故障安全重试、推荐回归与手机�
   await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(evidence,'desktop-referrals.png'),fullPage:true});
   await page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'教师工作台'}).click();
-  await expect(page.locator('.balance strong')).toHaveText('1080.00');
+  await expect(page.locator('.balance strong')).toHaveText('1031.00');
   await page.evaluate(()=>window.scrollTo(0,0));
   await page.screenshot({path:resolve(evidence,'desktop-workspace.png'),fullPage:true});
 

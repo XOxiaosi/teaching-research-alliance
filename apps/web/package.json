@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@radix-ui/react-slot": "1.3.3",
+    "@remixicon/react": "4.9.0",
     "@teaching-research-alliance/client": "0.1.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
