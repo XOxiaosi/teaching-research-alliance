@@ -147,3 +147,32 @@ test("derives Shanghai posting months and exact BigInt ledger reconciliation wit
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("rejects normalized invalid calendar dates while preserving ledger amounts and real leap days", async () => {
+  const timestamps = ["2026-02-30 00:00:00+00", "2026-02-29T00:00:00Z", "2026-09-01T24:00:00Z", "2024-02-29 16:00:00.123456+00"];
+  const fixture = await createCompleteSpool({
+    settlement_account: [account("calendar", "CALENDAR")],
+    ledger_event: timestamps.map((timestamp, i) => event(`calendar-${i}`, timestamp)),
+    ledger_entry: timestamps.map((_, i) => ({ id: String(i + 1), event_id: `calendar-${i}`, account_id: "calendar", category_key: "POSTED", amount_cents: "1", created_at: "2026-01-01 00:00:00+00" })),
+    account_balance_projection: [{ account_id: "calendar", balance_cents: "4", updated_at: "2026-09-01 00:00:00+00" }],
+  });
+  let index;
+  let view;
+  try {
+    index = await FullBackupDerivedSpoolIndex.create({ spoolDirectory: fixture.directory, spool: fixture.spool, attemptRoot: join(fixture.root, "index") });
+    view = await FullBackupLedgerDerivedView.create({ index, attemptRoot: join(fixture.root, "view") });
+    const entries = await collect(view.streamEntries());
+    assert.deepEqual(entries.map(row => row.eventCreatedAt), timestamps);
+    assert.deepEqual(entries.map(row => row.postMonth), [null, null, null, "2024-03-01"]);
+    assert.equal((await collect(view.streamMonthlyRows()))[0].signedNetCents, "1");
+    const [reconciliation] = await collect(view.streamReconciliations());
+    assert.equal(reconciliation.ledgerNetCents, "4");
+    assert.equal(reconciliation.status, "MATCH");
+    assert.equal(view.metadata().anomalyCount, "3");
+    assert.ok((await collect(view.streamAnomalies())).every(row => row.code === "LEDGER_EVENT_TIMESTAMP_INVALID"));
+  } finally {
+    await view?.close();
+    await index?.close();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});

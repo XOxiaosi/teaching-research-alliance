@@ -174,7 +174,18 @@ const postingPeriod = (eventCreatedAt: TextValue): Readonly<{ postMonth: string;
   if (eventCreatedAt === null) return undefined;
   // PostgreSQL timestamptz::text always has an explicit offset. Never let a
   // host-local parser choose a zone for legacy/corrupt raw text.
-  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(eventCreatedAt)) return undefined;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.exec(eventCreatedAt);
+  if (parts === null) return undefined;
+  const sourceYear = Number(parts[1]);
+  const sourceMonth = Number(parts[2]);
+  const sourceDay = Number(parts[3]);
+  if (sourceYear < 1 || sourceMonth < 1 || sourceMonth > 12
+    || Number(parts[4]) > 23 || Number(parts[5]) > 59 || Number(parts[6]) > 59) return undefined;
+  const leapYear = sourceYear % 4 === 0 && (sourceYear % 100 !== 0 || sourceYear % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][sourceMonth - 1]!;
+  // Date silently normalizes February 30 and 24:00; a derived report must not
+  // manufacture a posting date from malformed stored text.
+  if (sourceDay < 1 || sourceDay > daysInMonth) return undefined;
   const instant = new Date(eventCreatedAt);
   if (!Number.isFinite(instant.getTime())) return undefined;
   // Asia/Shanghai has no daylight-savings transition in the supported finance calendar.
