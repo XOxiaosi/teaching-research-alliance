@@ -60,6 +60,14 @@ type Venue = Readonly<{
   isOwn: boolean;
 }>;
 
+type BoardDirectoryVenue = Readonly<{ id: string; name: string; ownerPersonId?: string; isOwn?: boolean }>;
+
+const readBoardVenues = async (currentClient: TeacherApiClient, personId: string | undefined): Promise<readonly Venue[]> => {
+  const visibleReader = (currentClient as TeacherApiClient & { listVisibleVenues: <T = unknown>() => Promise<T> }).listVisibleVenues;
+  const result = await visibleReader.call(currentClient) as readonly BoardDirectoryVenue[];
+  return result.map((venue) => ({ id: venue.id, name: venue.name, isOwn: venue.isOwn ?? venue.ownerPersonId === personId }));
+};
+
 const client = new TeacherApiClient({ transport: taroTransport });
 
 const roleLabels: Readonly<Record<string, string>> = {
@@ -123,6 +131,7 @@ export default function IndexPage(): ReactNode {
   const [showArchived,setShowArchived]=useState(false);
   const [weeks, setWeeks] = useState<readonly Week[]>([]);
   const [venues, setVenues] = useState<readonly Venue[]>([]);
+  const [boardVenues, setBoardVenues] = useState<readonly Venue[]>([]);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [selectedReferralId, setSelectedReferralId] = useState("");
@@ -141,8 +150,10 @@ export default function IndexPage(): ReactNode {
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
+  const loadGeneration = useRef(0);
 
   const clearTeachingState = (): void => {
+    loadGeneration.current += 1;
     setWithdrawalBusy(false);setWithdrawalUnconfirmed(false);
     setReimbursementBusy(false);setReimbursementUnconfirmed(false);
     setRefundBusy(false);setRefundUnconfirmed(false);
@@ -151,6 +162,7 @@ export default function IndexPage(): ReactNode {
     setShowArchived(false);
     setWeeks([]);
     setVenues([]);
+    setBoardVenues([]);
     setSelectedReferralId("");
     setSelectedWeekId("");
     setSelectedVenueId("");
@@ -160,17 +172,29 @@ export default function IndexPage(): ReactNode {
   };
 
   const load = async (): Promise<void> => {
-    const role = client.currentSession?.currentRoleContext?.subject;
-    if (role !== "TEACHING_TEACHER" && role !== "ACADEMIC_PLANNER" && role !== "PLANNING_MENTOR") return;
-    const nextOverview = await client.getOwnOverview<Overview>();
-    const [nextReferrals, nextWeeks, nextVenues] = await Promise.all([
+    const currentSession = client.currentSession;
+    const generation = ++loadGeneration.current;
+    const sessionKey = `${currentSession?.accountId ?? ""}:${currentSession?.personId ?? ""}:${currentSession?.currentRoleContext?.subject ?? ""}:${currentSession?.currentRoleContext?.scope ?? ""}`;
+    const role = currentSession?.currentRoleContext?.subject;
+    const canLoadOverview = role === "TEACHING_TEACHER" || role === "ACADEMIC_PLANNER" || role === "PLANNING_MENTOR";
+    const canLoadBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(role ?? "");
+    if (!canLoadOverview && !canLoadBoard) return;
+    const nextOverview = canLoadOverview ? await client.getOwnOverview<Overview>() : null;
+    const [nextReferrals, nextWeeks, nextVenues, nextBoardVenues] = await Promise.all([
       role === "TEACHING_TEACHER" ? client.listReceivedReferrals<readonly Referral[]>() : Promise.resolve([] as readonly Referral[]),
       role === "TEACHING_TEACHER" ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([] as readonly Week[]),
-      ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(role) ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([] as readonly Venue[])
+      role === "TEACHING_TEACHER" ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([] as readonly Venue[]),
+      canLoadBoard && role !== "VENUE_OWNER"
+        ? readBoardVenues(client, client.currentSession?.personId)
+        : Promise.resolve([] as readonly Venue[])
     ]);
+    const latestSession = client.currentSession;
+    const latestKey = `${latestSession?.accountId ?? ""}:${latestSession?.personId ?? ""}:${latestSession?.currentRoleContext?.subject ?? ""}:${latestSession?.currentRoleContext?.scope ?? ""}`;
+    if (generation !== loadGeneration.current || latestKey !== sessionKey) return;
     setReferrals(nextReferrals);
     setWeeks(nextWeeks);
     setVenues(nextVenues);
+    setBoardVenues(nextBoardVenues);
     setOverview(nextOverview);
   };
 
@@ -602,10 +626,16 @@ export default function IndexPage(): ReactNode {
             <VenueBoardPanel
               key={`venue-board:${session.sessionId}:${JSON.stringify(currentContext)}`}
               client={client}
-              venues={venues}
+              venues={boardVenues}
               weeks={weeks}
               initialVenueId={currentContext?.subject === "VENUE_OWNER" ? currentContext.venueId : undefined}
+              sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`}
               busy={busy}
+              onInvalidated={() => {
+                clearTeachingState();
+                setSession(client.currentSession);
+                setNotice("登录或身份已失效，请重新登录或选择身份。");
+              }}
             />
           )}
 

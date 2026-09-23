@@ -159,3 +159,23 @@ test("小程序 WITHDRAW 看板只展示该场地余额，所有者上下文固�
     await act(async () => root.unmount());
   });
 });
+
+test("看板身份切换清空旧筛选并丢弃旧请求响应", async () => {
+  const { VenueBoardPanel } = await panelModule();
+  let resolveOld;
+  const oldResponse = new Promise((resolve) => { resolveOld = resolve; });
+  const client = { getVenueBoard: async () => oldResponse };
+  await withDom(async (container) => {
+    const root = createRoot(container);
+    const props = { client, sessionKey: "teacher", venues: [{ id: "venue-1", name: "场地一" }], weeks: [{ weekId: "week-1", periodLabel: "第一周", startsOn: "2026-09-21", endsOn: "2026-09-27" }] };
+    await act(async () => root.render(React.createElement(VenueBoardPanel, props)));
+    await select(container.querySelectorAll("select")[1], 1);
+    await click(button(container, "查看看板"));
+    await act(async () => root.render(React.createElement(VenueBoardPanel, { ...props, sessionKey: "planner", venues: [], weeks: [] })));
+    assert.equal(container.querySelectorAll('input[placeholder="YYYY-MM-DD"]').length, 2, "身份切换后日期筛选恢复");
+    resolveOld(board({ id: "venue-1", canWithdraw: false }));
+    await flush();
+    assert.equal(container.textContent.includes("学生甲"), false, "旧身份响应不得回填");
+    await act(async () => root.unmount());
+  });
+});

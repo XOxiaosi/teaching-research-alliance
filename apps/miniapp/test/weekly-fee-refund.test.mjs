@@ -102,6 +102,7 @@ const mountIndex = async ({ initiallyRefunded, refundOnSave, roleContext = sessi
       if (path === "/v1/teaching/referrals") return response(referrals());
       if (path === "/v1/teaching/weeks") return response(weeks);
       if (path === "/v1/venues/available") return response(venues);
+      if (path === "/v1/venues/visible") return response(venues);
       if (path === "/v1/finance/withdrawals/sources" || path === "/v1/finance/withdrawals/mine" || path === "/v1/finance/drafts/mine") return response([]);
       if (path === "/v1/finance/reimbursements/mine" || path === "/v1/finance/reimbursements/managed") return response({ documents: [] });
       if (path === "/v1/referrals/referral-refunded/weekly-fees" && request.method === "POST") {

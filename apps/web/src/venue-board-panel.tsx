@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiClientError, formatCentsAsBeans, type TeacherApiClient } from "@teaching-research-alliance/client";
 
 export type VenueBoardOption = Readonly<{ id: string; name: string; isOwn?: boolean }>;
@@ -17,6 +17,8 @@ type Props = Readonly<{
   weeks?: readonly VenueBoardWeek[];
   initialVenueId?: string | null | undefined;
   busy?: boolean;
+  sessionKey?: string;
+  onInvalidated?: () => void;
 }>;
 
 export const boardErrorMessage = (error: unknown): string => {
@@ -34,7 +36,7 @@ export const summarizeVenueBoard = (board: VenueBoardData): Readonly<{ teacherCo
   totalVenueFeeCents: board.totalVenueFeeCents
 });
 
-export function VenueBoardPanel({ client, venues, weeks = [], initialVenueId, busy = false }: Props): ReactNode {
+export function VenueBoardPanel({ client, venues, weeks = [], initialVenueId, busy = false, sessionKey = "", onInvalidated }: Props): ReactNode {
   const [venueId, setVenueId] = useState(initialVenueId ?? venues[0]?.id ?? "");
   const [weekId, setWeekId] = useState("");
   const [startsOn, setStartsOn] = useState("");
@@ -42,24 +44,43 @@ export function VenueBoardPanel({ client, venues, weeks = [], initialVenueId, bu
   const [board, setBoard] = useState<VenueBoardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const requestGeneration = useRef(0);
+  const previousSessionKey = useRef(sessionKey);
 
   useEffect(() => {
+    const sessionChanged = previousSessionKey.current !== sessionKey;
+    previousSessionKey.current = sessionKey;
+    requestGeneration.current += 1;
+    setBoard(null);
+    setError("");
+    setLoading(false);
+    if (sessionChanged) { setWeekId(""); setStartsOn(""); setEndsOn(""); }
     if (initialVenueId !== undefined && initialVenueId !== null) setVenueId(initialVenueId);
     else if (venues.length > 0 && !venues.some((venue) => venue.id === venueId)) setVenueId(venues[0]!.id);
-  }, [initialVenueId, venues, venueId]);
+    else if (venues.length === 0) setVenueId("");
+    return () => { requestGeneration.current += 1; };
+  }, [sessionKey, initialVenueId, venues]);
 
   const selectedWeek = useMemo(() => weeks.find((week) => week.weekId === weekId), [weekId, weeks]);
   const loadBoard = async (): Promise<void> => {
     if (venueId === "") { setError("请选择场地看板。"); return; }
     if (weekId === "" && (startsOn === "" || endsOn === "")) { setError("请选择教学周，或填写起止日期。"); return; }
     if (weekId === "" && startsOn > endsOn) { setError("起始日期不能晚于结束日期。"); return; }
+    const generation = ++requestGeneration.current;
     setLoading(true); setError("");
     try {
       const next = await client.getVenueBoard<VenueBoardData>(venueId, weekId !== "" ? { teachingWeekId: weekId } : { startsOn, endsOn });
+      if (generation !== requestGeneration.current) return;
       setBoard(next);
     } catch (nextError) {
+      if (generation !== requestGeneration.current) return;
+      if (nextError instanceof ApiClientError && (nextError.status === 401 || nextError.status === 403)) {
+        setBoard(null);
+        onInvalidated?.();
+        return;
+      }
       setBoard(null); setError(boardErrorMessage(nextError));
-    } finally { setLoading(false); }
+    } finally { if (generation === requestGeneration.current) setLoading(false); }
   };
 
   const summary = board === null ? null : summarizeVenueBoard(board);
@@ -67,14 +88,14 @@ export function VenueBoardPanel({ client, venues, weeks = [], initialVenueId, bu
     <div className="section-title"><div><span className="fee-eyebrow">VENUE BOARD</span><h2>共享场地看板</h2></div><span>{board?.venue.name ?? "按场地查看使用记录"}</span></div>
     <p className="venue-board-description">查看场地内授课老师、学生和每周实际场地费。查看权限不会显示账户余额，提现权限只显示该场地独立余额。</p>
     <div className="venue-board-filters">
-      <label>场地<select aria-label="场地看板" value={venueId} disabled={busy || loading || initialVenueId !== undefined && initialVenueId !== null} onChange={(event) => { setVenueId(event.target.value); setBoard(null); }}>
+      <label>场地<select aria-label="场地看板" value={venueId} disabled={busy || loading || initialVenueId !== undefined && initialVenueId !== null} onChange={(event) => { requestGeneration.current += 1; setVenueId(event.target.value); setBoard(null); setError(""); setLoading(false); }}>
         <option value="">请选择场地</option>{venues.map((venue) => <option value={venue.id} key={venue.id}>{venue.name}{venue.isOwn ? "（我的场地）" : ""}</option>)}
         {initialVenueId !== undefined && initialVenueId !== null && !venues.some((venue) => venue.id === initialVenueId) && <option value={initialVenueId}>当前场地</option>}
       </select></label>
-      {weeks.length > 0 && <label>教学周<select aria-label="教学周" value={weekId} disabled={busy || loading} onChange={(event) => { setWeekId(event.target.value); setStartsOn(""); setEndsOn(""); }}>
+      {weeks.length > 0 && <label>教学周<select aria-label="教学周" value={weekId} disabled={busy || loading} onChange={(event) => { requestGeneration.current += 1; setWeekId(event.target.value); setStartsOn(""); setEndsOn(""); setBoard(null); setError(""); setLoading(false); }}>
         <option value="">按日期筛选</option>{weeks.map((week) => <option value={week.weekId} key={week.weekId}>{week.periodLabel ?? `${week.startsOn} 至 ${week.endsOn}`}</option>)}
       </select></label>}
-      {weekId === "" && <><label>开始日期<input aria-label="开始日期" type="date" value={startsOn} disabled={busy || loading} onChange={(event) => setStartsOn(event.target.value)} /></label><label>结束日期<input aria-label="结束日期" type="date" value={endsOn} disabled={busy || loading} onChange={(event) => setEndsOn(event.target.value)} /></label></>}
+      {weekId === "" && <><label>开始日期<input aria-label="开始日期" type="date" value={startsOn} disabled={busy || loading} onChange={(event) => { requestGeneration.current += 1; setStartsOn(event.target.value); setBoard(null); setError(""); }} /></label><label>结束日期<input aria-label="结束日期" type="date" value={endsOn} disabled={busy || loading} onChange={(event) => { requestGeneration.current += 1; setEndsOn(event.target.value); setBoard(null); setError(""); }} /></label></>}
       <button type="button" disabled={busy || loading} onClick={() => void loadBoard()}>{loading ? "正在读取…" : "查看看板"}</button>
     </div>
     {error !== "" && <p className="message" role="alert">{error}</p>}

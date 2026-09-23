@@ -59,6 +59,7 @@ test("共享场地看板按场地和期间显示费用，VIEW 不泄露余额且
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/v1/venues/available", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response(venues)) }));
+  await page.route("**/v1/venues/visible", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response(venues.map((venue) => ({ ...venue, ownerPersonId: venue.isOwn ? "demo-teacher" : "other-owner" })) )) }));
   await page.route("**/v1/teaching/weeks", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response(weeks)) }));
   await page.route(/\/v1\/venues\/[^/]+\/board(?:\?.*)?$/, (route) => {
     const url = new URL(route.request().url());

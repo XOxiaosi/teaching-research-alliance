@@ -288,6 +288,7 @@ test("未知提现时父级刷新、退出和角色切换都锁定，原冻结�
       if (path === "/v1/teaching/referrals") return { statusCode: 200, data: { version: "test", data: [] } };
       if (path === "/v1/teaching/weeks") return { statusCode: 200, data: { version: "test", data: [] } };
       if (path === "/v1/venues/available") return { statusCode: 200, data: { version: "test", data: [] } };
+      if (path === "/v1/venues/visible") return { statusCode: 200, data: { version: "test", data: [] } };
       if (path === "/v1/finance/withdrawals/sources") return { statusCode: 200, data: { version: "test", data: [{ accountId: "source-1", sourceType: "PERSON", label: "个人账户", balanceCents: "10000" }] } };
       if (path === "/v1/finance/drafts/mine") return { statusCode: 200, data: { version: "test", data: [draft] } };
       if (path === "/v1/finance/reimbursements/mine") return { statusCode: 200, data: { version: "test", data: { documents: [] } } };
@@ -345,7 +346,7 @@ test("报销未知结果独立锁住父导航，提现刷新不会解除锁定�
       if (path === "/v1/session" && request.method === "POST") return response(session);
       if (path === "/v1/session" || path === "/v1/session/logout" || path === "/v1/role-contexts/switch") { navigationRequests++; return response(session); }
       if (path === "/v1/me") { overviewReads++; return response({ nickname: "合成老师", balanceCents: "10000", currentYearIncomeByCategory: {} }); }
-      if (["/v1/teaching/referrals", "/v1/teaching/weeks", "/v1/venues/available"].includes(path)) return response([]);
+      if (["/v1/teaching/referrals", "/v1/teaching/weeks", "/v1/venues/available", "/v1/venues/visible"].includes(path)) return response([]);
       if (path === "/v1/finance/withdrawals/sources") { withdrawalReads++; return response([]); }
       if (path === "/v1/finance/withdrawals/mine") return response([]);
       if (path === "/v1/finance/reimbursements/mine") return response({ documents: [] });
