@@ -1,5 +1,6 @@
 # 开发日志
 
+
 工作方式见 [AGENTS.md](../AGENTS.md)，产品要求见 [PRODUCT.md](../PRODUCT.md)。本文件是唯一动态执行账本，技术方案和附件仅用于解释设计、保存证据。
 
 ## 当前投影
@@ -1000,3 +1001,13 @@
 - 行为：实际schema与固定名单逐表逐列相等才接受；新增、缺失、未知列均拒绝。REPEATABLE READ READ ONLY事务持有一致快照，关闭后释放连接；只生成显式列计划，未生成xlsx、附件包、调度任务或可下载文件。
 - 主Agent验证：`DATABASE_URL=<本地合成库> node --test apps/worker/test/integration/postgres-export-preflight-live.test.mjs`，随机隔离schema，5/5、20.54秒、无跳过；覆盖秘密排除、未知表/列拒绝、并发提交不改变快照计数。证据 `/tmp/alliance-preflight-root-pg.log`。当前统一检查163/163、迁移静态检查25项通过；独立审查未发现P1/P2。
 - 依赖与边界：注册表对应0025迁移，该迁移已随6c41aff整合，本包单独提交。后续仍须实现安全字段转换、Excel工作表/manifest、附件原件完整性、异步调度及下载验权，不能将本预检查标为F14完成。
+
+
+### DEV-010 | 2026-09-23 | 两端工资读取与组织营收看板
+
+- 已实现网页和小程序工资名单、超计划提示、确认历史分页、详情与原件下载。现金使用元，扣减与余额使用欢乐豆；仅严格 GLOBAL 总部财务、管理员和开发者可读。切月份、身份及迟到请求均隔离；401/403 清除本地数据并通知父页面同步会话。
+- 组织营收两端接入：总部、分区、校区按授权范围查看分润前课时额、退款、有效营收和独立管理费，校长不展示分区分润。月份范围、校区历史归属及权限失效均有测试。
+- 主 Agent 实测：统一检查 197/197（11.44 秒），网页构建 0.334 秒，小程序构建 11.26 秒；工资聚焦 10/10、组织聚焦 6/6。真实合成 API 3116 和 Chrome 5177 浏览器 2/2（8.4 秒）；营收 1000 豆、管理费 20 豆分列，工资原件 HTTP 200、74 字节及 SHA-256 匹配。浏览器固定合成业务月。
+- 演示工资经真实计划、待办、双份 PNG 和确认服务生成；组织演示通过 DEMO_WITH_ORGANIZATION_FEES=1 可选执行真实接收与周费结算，默认保留待接收演示。初次组织联调因夹具未录费及缺校区历史失败，补完整合成资料后重跑通过，未降低金额断言。
+- 证据：/tmp/alliance-ui-delivery-check.log、/tmp/alliance-ui-delivery-web.log、/tmp/alliance-ui-delivery-mini.log、/tmp/alliance-ui-delivery-browser.log、/tmp/alliance-wage-ui-auth.log、/tmp/alliance-org-ui-auth-final.log。两端独立审查无 P1/P2。
+- 仅完成只读看板，工资写页面、真机和用户验收仍未完成。代码提交 4b4ba15，日志写入命令失败后在同一未推送工作包补齐；不将失败文档写入视作成功。
