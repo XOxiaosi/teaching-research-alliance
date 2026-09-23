@@ -79,12 +79,12 @@ const getBundled = async () => {
 };
 test.after(async () => { if (bundled !== undefined) await rm(bundled.directory, { recursive: true, force: true }); });
 
-const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, executeFirstUnknown = false, submitStatus = 200, executeStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
+const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, executeFirstUnknown = false, reverseFirstUnknown = false, submitStatus = 200, executeStatus = 200, reverseStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
   const { ReimbursementPanel } = (await getBundled()).module;
   const currentSession = snapshot(subject, scope);
   const requests = [];
   let currentAttachments = attachments; let currentRecords = records; let currentDetail = detailRecord;
-  let creates = 0; let submits = 0; let reviews = 0; let executions = 0; let uploadedAttachmentReads = 0; let invalidations = 0;
+  let creates = 0; let submits = 0; let reviews = 0; let executions = 0; let reversals = 0; let uploadedAttachmentReads = 0; let invalidations = 0;
   let busyChanges = 0; let unconfirmedChanges = 0; let dataChanges = 0;
   const fallbackDetail = () => ({ ...summary, attachments: [
     { versionId: "support-v2", purpose: "SUPPORTING_DOCUMENT", originalFilename: "new-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
@@ -148,12 +148,21 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
         currentRecords = currentRecords.map((item) => item.id === "reimbursement-1" ? { ...item, status: "COMPLETED", version: item.version + 1, completedAt: "2026-09-22T00:00:00.000Z" } : item);
         return success({ id: "reimbursement-1", status: "COMPLETED", version: previous.version + 1, replay: executions > 1 });
       }
+      if (request.path === "/v1/finance/reimbursements/reimbursement-1/reverse") {
+        reversals += 1;
+        if (reverseFirstUnknown && reversals === 1) throw new Error("network uncertain");
+        if (reverseStatus !== 200) return { status: reverseStatus, body: { error: { code: "VERSION_CONFLICT", message: "changed" } } };
+        const previous = currentDetail ?? fallbackDetail();
+        currentDetail = { ...previous, status: "REVERSED", version: previous.version + 1, reversedAt: "2026-09-23T00:00:00.000Z", reversalReason: request.body.reason };
+        currentRecords = currentRecords.map((item) => item.id === "reimbursement-1" ? { ...item, status: "REVERSED", version: item.version + 1, reversedAt: "2026-09-23T00:00:00.000Z", reversalReason: request.body.reason } : item);
+        return success({ id: "reimbursement-1", status: "REVERSED", version: previous.version + 1, replay: reversals > 1 });
+      }
       throw new Error(`unexpected ${request.method} ${request.path}`);
     }
   });
   await client.login({ phoneNormalized: "13800000000", password: "password" });
   return {
-    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges, dataChanges: () => dataChanges,
+    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges, dataChanges: () => dataChanges, reversals: () => reversals,
     mount: async (container) => {
       const root = createRoot(container);
       await act(async () => { root.render(React.createElement(ReimbursementPanel, {
@@ -364,7 +373,8 @@ test("已完成报销保留两份原件和内部划拨时间；个人不会看�
     assert.match(container.textContent, /completed-support\.png/); assert.match(container.textContent, /completed-screen\.png/);
     assert.match(container.textContent, /source-account/); assert.match(container.textContent, /destination-account/);
     assert.equal(container.querySelector('[data-reimbursement-action="review"]'), null);
-    assert.equal([...container.querySelectorAll("button")].some((element) => /批准报销申请|驳回报销申请|划拨|转账|执行/.test(element.textContent)), false);
+    assert.ok(container.querySelector('[data-reimbursement-action="reverse"]'), "完成记录仅出现撤销划拨，不会重新审核或执行");
+    assert.equal([...container.querySelectorAll("button")].some((element) => /批准报销申请|驳回报销申请|执行内部欢乐豆划拨/.test(element.textContent)), false);
     await act(async () => root.unmount());
   });
   const personal = await mountPanel({ records: [completed], detailRecord: completed });
@@ -419,4 +429,64 @@ test("严格总部财务执行已批准报销：未知重试同键、成功刷�
       await act(async () => root.unmount());
     });
   }
+});
+
+test("全局财务、管理员和所有者可撤销已完成划拨；个人只读且不泄露管理证据", async () => {
+  const completed = {
+    ...summary, status: "COMPLETED", version: 4, completedAt: "2026-09-22T00:00:00.000Z",
+    attachments: [
+      { versionId: "support-completed", purpose: "SUPPORTING_DOCUMENT", originalFilename: "completed-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
+      { versionId: "screen-completed", purpose: "APPLICATION_SCREENSHOT", originalFilename: "completed-screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
+    ],
+    decision: { decision: "APPROVED", reason: "审核通过", decidedAt: "2026-09-21T00:00:00.000Z" },
+    management: { reversal: { sourceAccountId: "source-account", destinationAccountId: "destination-account", originalLedgerEventId: "original-ledger", reversalLedgerEventId: "reversal-ledger", reversedByPersonId: "executor", actorSubjectCode: "HEADQUARTERS_FINANCE", actorScopeType: "GLOBAL", reversedAt: "2026-09-23T00:00:00.000Z" } }
+  };
+  const fixture = await mountPanel({ subject: "SYSTEM_ADMIN", scope: "GLOBAL", mode: "managed", records: [completed], detailRecord: completed, reverseFirstUnknown: true });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container);
+    await click(button(container, "查看报销详情"));
+    assert.ok(container.querySelector('[data-reimbursement-action="reverse"]'));
+    await input(container.querySelector('[data-reimbursement-action="reverse"] textarea'), "重复划拨，冲回原欢乐豆");
+    await click(button(container, "撤销划拨"));
+    assert.ok(container.querySelector('[data-reimbursement-pending="reverse"]'));
+    await click(button(container, "安全重试原撤销划拨"));
+    const reversals = fixture.requests.filter((request) => request.path.endsWith("/reverse"));
+    assert.deepEqual(reversals.map((request) => request.body), [
+      { expectedVersion: 4, reason: "重复划拨，冲回原欢乐豆", idempotencyKey: "reimbursement-key-1" },
+      { expectedVersion: 4, reason: "重复划拨，冲回原欢乐豆", idempotencyKey: "reimbursement-key-1" }
+    ]);
+    assert.match(container.textContent, /已撤销/); assert.match(container.textContent, /不是银行退款/);
+    assert.equal(fixture.dataChanges(), 1);
+    assert.equal(container.querySelector('[data-reimbursement-action="reverse"]'), null);
+    await act(async () => root.unmount());
+  });
+  for (const subject of ["HEADQUARTERS_FINANCE", "SYSTEM_OWNER"]) {
+    const allowed = await mountPanel({ subject, scope: "GLOBAL", mode: "managed", records: [completed], detailRecord: completed });
+    await withDom(async (container) => {
+      const root = await allowed.mount(container); await click(button(container, "查看报销详情"));
+      assert.ok(container.querySelector('[data-reimbursement-action="reverse"]'), `${subject} may reverse`);
+      await act(async () => root.unmount());
+    });
+  }
+  const personal = await mountPanel({ records: [completed], detailRecord: { ...completed, management: undefined } });
+  await withDom(async (container) => {
+    const root = await personal.mount(container); await click(button(container, "查看报销详情"));
+    assert.match(container.textContent, /已完成/);
+    assert.equal(container.querySelector('[data-reimbursement-action="reverse"]'), null);
+    assert.equal(container.textContent.includes("reversal-ledger"), false);
+    await act(async () => root.unmount());
+  });
+});
+
+test("撤销 409 清空旧详情并重读，不能自动重发", async () => {
+  const completed = { ...summary, status: "COMPLETED", version: 4, completedAt: "2026-09-22T00:00:00.000Z", attachments: [], decision: { decision: "APPROVED", reason: "审核通过", decidedAt: "2026-09-21T00:00:00.000Z" } };
+  const fixture = await mountPanel({ subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", mode: "managed", records: [completed], detailRecord: completed, reverseStatus: 409 });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container); await click(button(container, "查看报销详情"));
+    await input(container.querySelector('[data-reimbursement-action="reverse"] textarea'), "状态冲突"); await click(button(container, "撤销划拨"));
+    assert.equal(fixture.reversals(), 1);
+    assert.match(container.textContent, /旧输入已清空|重新读取/);
+    assert.equal(container.querySelector('[data-reimbursement-action="reverse"] textarea')?.value, "", "刷新后的有效详情允许重新撤销，但不保留冲突前原因");
+    await act(async () => root.unmount());
+  });
 });

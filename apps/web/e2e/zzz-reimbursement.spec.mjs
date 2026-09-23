@@ -186,7 +186,7 @@ test('另一总部会话先驳回时真实409重读，旧审核不自动再次�
  expect(afterReject.currentYearIncomeByCategory.reimbursementIncome??'0').toBe(beforeReject.currentYearIncomeByCategory.reimbursementIncome??'0');
 });
 
-test('已完成报销在真实网页组件保留原件和内部划拨时间，个人不见来源且无执行或再审核入口',async({page})=>{
+test('已完成报销在真实网页组件保留原件和内部划拨时间；全局办理人可撤销，个人不见管理关系',async({page})=>{
  const id='11111111-1111-4111-8111-111111111111';
  const completed={id,status:'COMPLETED',version:4,amountCents:'7000',reason:'WEB_COMPLETED_RENDER',applicantPersonId:'22222222-2222-4222-8222-222222222222',applicantDisplayName:'完成态老师',submittedAt:'2026-09-21T00:00:00.000Z',completedAt:'2026-09-22T00:00:00.000Z'};
  const detail={...completed,decision:{decision:'APPROVED',reason:'资料核验完成',decidedAt:'2026-09-21T01:00:00.000Z'},attachments:[
@@ -204,14 +204,19 @@ test('已完成报销在真实网页组件保留原件和内部划拨时间，�
  await expect(managed(page)).toContainText('completed-support.png');await expect(managed(page)).toContainText('completed-screen.png');
  await expect(managed(page)).toContainText('source-account');await expect(managed(page)).toContainText('destination-account');
  await expect(managed(page).getByRole('button',{name:'下载原件',exact:true})).toHaveCount(2);
- await expect(managed(page).getByRole('button',{name:/批准报销申请|驳回报销申请|划拨|转账|执行/})).toHaveCount(0);
+ const reverse=managed(page).getByRole('button',{name:'撤销划拨',exact:true});
+ await expect(reverse).toBeVisible();await expect(reverse).toBeDisabled();
+ await page.getByRole('textbox',{name:'撤销原因',exact:true}).fill('仅验证可撤销入口，不执行');
+ await expect(reverse).toBeEnabled();
+ await expect(managed(page).getByRole('button',{name:/批准报销申请|驳回报销申请|执行内部欢乐豆划拨/})).toHaveCount(0);
  await page.getByRole('button',{name:'退出登录',exact:true}).click();
  await page.route('**/v1/finance/reimbursements/mine',route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({documents:[completed]}))}));
  await login(page,'13800000001','TEACHING_TEACHER');await nav(page,'我的报销').click();
  await mine(page).locator('.finance-list-row').filter({hasText:'WEB_COMPLETED_RENDER'}).getByRole('button',{name:'查看报销详情',exact:true}).click();
  await expect(mine(page)).toContainText('已完成');await expect(mine(page)).toContainText('completed-support.png');await expect(mine(page)).toContainText('不表示银行卡到账');
  await expect(mine(page)).not.toContainText('source-account');await expect(mine(page)).not.toContainText('destination-account');
- await expect(mine(page).getByRole('button',{name:/批准报销申请|驳回报销申请|划拨|转账|执行/})).toHaveCount(0);
+ await expect(mine(page).getByRole('button',{name:'撤销划拨',exact:true})).toHaveCount(0);
+ await expect(mine(page).getByRole('button',{name:/批准报销申请|驳回报销申请|执行内部欢乐豆划拨/})).toHaveCount(0);
 });
 
 test('总部财务在真实网页组件以同一请求安全重试已批准报销的内部划拨',async({page})=>{
@@ -243,6 +248,24 @@ test('总部财务在真实网页组件以同一请求安全重试已批准报�
  await expect(managed(page).getByRole('button',{name:/执行内部欢乐豆划拨|批准报销申请|驳回报销申请/})).toHaveCount(0);
 });
 
+test('总部财务在真实网页组件以同一请求安全重试撤销划拨，并显示冲回而非银行退款',async({page})=>{
+ const id='88888888-8888-4888-8888-888888888888';let state='COMPLETED';const reason='WEB_REVERSE_RENDER';
+ const summary=()=>({id,status:state,version:state==='COMPLETED'?4:5,amountCents:'7000',reason,applicantPersonId:'22222222-2222-4222-8222-222222222222',applicantDisplayName:'撤销老师',submittedAt:'2026-09-21T00:00:00.000Z',completedAt:'2026-09-22T00:00:00.000Z',...(state==='REVERSED'?{reversedAt:'2026-09-23T00:00:00.000Z',reversalReason:'重复划拨，冲回原欢乐豆'}:{})});
+ const detail=()=>({...summary(),decision:{decision:'APPROVED',reason:'资料核验完成',decidedAt:'2026-09-21T01:00:00.000Z'},attachments:[],management:{destinationAccountId:'destination-account',submittedByPersonId:'22222222-2222-4222-8222-222222222222',applicantContextSubject:'TEACHING_TEACHER',applicantContextScope:'SELF',completion:{roleAssignmentId:'role-assignment',companyFundAssignmentId:'fund-assignment',sourceAccountId:'source-account',destinationAccountId:'destination-account',ledgerEventId:'ledger-event',executedByPersonId:'executor-person',executedAt:'2026-09-22T00:00:00.000Z'},...(state==='REVERSED'?{reversal:{sourceAccountId:'source-account',destinationAccountId:'destination-account',originalLedgerEventId:'original-ledger',reversalLedgerEventId:'reversal-ledger',reversedByPersonId:'executor-person',actorSubjectCode:'HEADQUARTERS_FINANCE',actorScopeType:'GLOBAL',reversedAt:'2026-09-23T00:00:00.000Z'}}:{})}});
+ const envelope=data=>({version:'test',data});const bodies=[];
+ await page.route('**/v1/finance/reimbursements/managed',route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({documents:[summary()]}))}));
+ await page.route(`**/v1/finance/reimbursements/${id}`,route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope(detail()))}));
+ await page.route(`**/v1/finance/reimbursements/${id}/reverse`,async route=>{bodies.push(route.request().postDataJSON());state='REVERSED';if(bodies.length===1)await route.abort('failed');else await route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({id,status:'REVERSED',version:5,replay:true}))});});
+ await login(page,'13800000003','HEADQUARTERS_FINANCE');await openManaged(page,reason);
+ await page.getByRole('textbox',{name:'撤销原因',exact:true}).fill('重复划拨，冲回原欢乐豆');await page.getByRole('button',{name:'撤销划拨',exact:true}).click();
+ await expect(managed(page).getByRole('button',{name:'安全重试原撤销划拨',exact:true})).toBeEnabled();
+ await expect(managed(page).getByRole('button',{name:'撤销划拨',exact:true})).toBeDisabled();
+ await managed(page).getByRole('button',{name:'安全重试原撤销划拨',exact:true}).click();
+ expect(bodies).toHaveLength(2);expect(bodies[1]).toEqual(bodies[0]);expect(bodies[0]).toEqual({expectedVersion:4,reason:'重复划拨，冲回原欢乐豆',idempotencyKey:bodies[0].idempotencyKey});
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('已撤销');await expect(managed(page)).toContainText('内部划拨完成时间');await expect(managed(page)).toContainText('撤销划拨时间');await expect(managed(page)).toContainText('不是银行退款');
+ await expect(managed(page).getByRole('button',{name:'撤销划拨',exact:true})).toHaveCount(0);
+});
+
 test('真实合成API：总部财务执行已批准报销后，申请人收入和完成记录同步更新',async({page})=>{
  const teacher=await session(page.request,'13800000001','TEACHING_TEACHER');
  const reason=`WEB_EXECUTE_LIVE_${randomUUID()}`;
@@ -262,4 +285,63 @@ test('真实合成API：总部财务执行已批准报销后，申请人收入�
  const after=await request(page.request,'/v1/me',teacher);
  expect(after.balanceCents).toBe((BigInt(before.balanceCents)+7000n).toString());
  expect(after.currentYearIncomeByCategory.reimbursementIncome??'0').toBe(((BigInt(before.currentYearIncomeByCategory.reimbursementIncome??'0'))+7000n).toString());
+});
+
+test('真实合成API：总部财务撤销已完成报销，原件保留且个人余额和收入冲回',async({page})=>{
+ await mkdir(evidence,{recursive:true});
+ const teacher=await session(page.request,'13800000001','TEACHING_TEACHER');
+ const reason=`WEB_REVERSE_LIVE_${randomUUID()}`;
+ const reversalReason=`${reason}_CORRECTION`;
+ const before=await request(page.request,'/v1/me',teacher);
+ const submitted=await createApiReimbursement(page.request,teacher,'7000',reason);
+ const hq=await session(page.request,'13800000003','HEADQUARTERS_FINANCE');
+ const approved=await request(page.request,`/v1/finance/reimbursements/${submitted.id}/approve`,hq,{expectedVersion:submitted.version,reason:'WEB_REVERSE_LIVE_APPROVED',idempotencyKey:randomUUID()});
+ const completed=await request(page.request,`/v1/finance/reimbursements/${submitted.id}/execute`,hq,{expectedVersion:approved.version,idempotencyKey:randomUUID()});
+ expect(completed).toMatchObject({id:submitted.id,status:'COMPLETED',version:4});
+ const afterExecute=await request(page.request,'/v1/me',teacher);
+ expect(afterExecute.balanceCents).toBe((BigInt(before.balanceCents)+7000n).toString());
+ await login(page,'13800000003','HEADQUARTERS_FINANCE');await openManaged(page,reason);
+ await expect(managed(page).locator('[data-reimbursement-action="reverse"]')).toBeVisible();
+ await page.getByRole('textbox',{name:'撤销原因',exact:true}).fill(reversalReason);
+ await managed(page).getByRole('button',{name:'撤销划拨',exact:true}).click();
+ await expect(managed(page).locator('.finance-success')).toContainText('撤销划拨已完成');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('已撤销');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('撤销划拨时间');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText(reversalReason);
+ await expect(managed(page).getByRole('button',{name:/撤销划拨|执行内部欢乐豆划拨|批准报销申请|驳回报销申请/})).toHaveCount(0);
+ await page.screenshot({path:resolve(evidence,'reimbursement-reversed.png'),fullPage:true});
+ const downloaded=page.waitForEvent('download');
+ await managed(page).getByRole('button',{name:'下载原件',exact:true}).first().click();
+ expect(await readFile(await (await downloaded).path())).toEqual(png);
+ const own=(await request(page.request,'/v1/finance/reimbursements/mine',teacher)).documents;
+ expect(own.find(item=>item.id===submitted.id)).toMatchObject({status:'REVERSED',version:5,reversalReason});
+ const afterReverse=await request(page.request,'/v1/me',teacher);
+ expect(afterReverse.balanceCents).toBe(before.balanceCents);
+ expect(afterReverse.currentYearIncomeByCategory.reimbursementIncome??'0').toBe(before.currentYearIncomeByCategory.reimbursementIncome??'0');
+ await page.getByRole('button',{name:'退出登录',exact:true}).click();
+ await login(page,'13800000001','TEACHING_TEACHER');await nav(page,'我的报销').click();
+ await mine(page).locator('.finance-list-row').filter({hasText:reason}).getByRole('button',{name:'查看报销详情',exact:true}).click();
+ await expect(mine(page).locator('dl.finance-detail')).toContainText('已撤销');
+ await expect(mine(page)).toContainText('撤销划拨时间');
+ await expect(mine(page)).toContainText(reversalReason);
+ await expect(mine(page).getByRole('button',{name:/撤销划拨|执行内部欢乐豆划拨|批准报销申请|驳回报销申请/})).toHaveCount(0);
+});
+
+test('撤销409重读最新记录且不自动重发旧撤销命令',async({page})=>{
+ const id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';const reason='WEB_REVERSE_CONFLICT';let state='COMPLETED';const bodies=[];
+ const summary=()=>({id,status:state,version:state==='COMPLETED'?4:5,amountCents:'7000',reason,applicantPersonId:'22222222-2222-4222-8222-222222222222',applicantDisplayName:'冲突老师',submittedAt:'2026-09-21T00:00:00.000Z',completedAt:'2026-09-22T00:00:00.000Z',...(state==='REVERSED'?{reversedAt:'2026-09-23T00:00:00.000Z',reversalReason:'其他财务已撤销'}:{})});
+ const detail=()=>({...summary(),decision:{decision:'APPROVED',reason:'资料核验完成',decidedAt:'2026-09-21T01:00:00.000Z'},attachments:[{versionId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',purpose:'SUPPORTING_DOCUMENT',originalFilename:'conflict-support.png',mediaType:'image/png',sizeBytes:8,sha256:'a'.repeat(64)},{versionId:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',purpose:'APPLICATION_SCREENSHOT',originalFilename:'conflict-screen.png',mediaType:'image/png',sizeBytes:8,sha256:'b'.repeat(64)}],management:{destinationAccountId:'destination-account',submittedByPersonId:'22222222-2222-4222-8222-222222222222',applicantContextSubject:'TEACHING_TEACHER',applicantContextScope:'SELF',completion:{roleAssignmentId:'role-assignment',companyFundAssignmentId:'fund-assignment',sourceAccountId:'source-account',destinationAccountId:'destination-account',ledgerEventId:'ledger-event',executedByPersonId:'executor-person',executedAt:'2026-09-22T00:00:00.000Z'},...(state==='REVERSED'?{reversal:{sourceAccountId:'source-account',destinationAccountId:'destination-account',originalLedgerEventId:'ledger-event',reversalLedgerEventId:'conflict-ledger-event',reversedByPersonId:'other-finance',actorSubjectCode:'SYSTEM_ADMIN',actorScopeType:'GLOBAL',reversedAt:'2026-09-23T00:00:00.000Z'}}:{})}});
+ const envelope=data=>({version:'test',data});
+ await page.route('**/v1/finance/reimbursements/managed',route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope({documents:[summary()]}))}));
+ await page.route(`**/v1/finance/reimbursements/${id}`,route=>route.fulfill({contentType:'application/json',body:JSON.stringify(envelope(detail()))}));
+ await page.route(`**/v1/finance/reimbursements/${id}/reverse`,async route=>{bodies.push(route.request().postDataJSON());state='REVERSED';await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({version:'test',error:{code:'VERSION_CONFLICT',message:'VERSION_CONFLICT'}})});});
+ await login(page,'13800000003','HEADQUARTERS_FINANCE');await openManaged(page,reason);
+ await page.getByRole('textbox',{name:'撤销原因',exact:true}).fill('旧撤销原因应在冲突后清除');
+ await managed(page).getByRole('button',{name:'撤销划拨',exact:true}).click();
+ await expect(managed(page).getByRole('alert')).toContainText('单据状态已发生变化');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('已撤销');
+ await expect(managed(page).locator('dl.finance-detail')).toContainText('其他财务已撤销');
+ await expect(page.getByRole('textbox',{name:'撤销原因',exact:true})).toHaveCount(0);
+ await expect(managed(page).getByRole('button',{name:/安全重试原撤销划拨|撤销划拨/})).toHaveCount(0);
+ expect(bodies).toHaveLength(1);
 });

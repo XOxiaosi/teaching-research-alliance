@@ -504,11 +504,29 @@ export type ReimbursementExecuteSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
-export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED";
+export type ReimbursementReversalDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+  reason: string;
+}>;
+
+export type ReimbursementReversalSubmission = Readonly<{
+  draft: ReimbursementReversalDraft;
+  idempotencyKey: string;
+}>;
+
+export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED" | "REVERSED";
 
 export type ReimbursementCommandResult = Readonly<{
   id: string;
   status: ReimbursementStatus;
+  version: number;
+  replay: boolean;
+}>;
+
+export type ReimbursementReversalResult = Readonly<{
+  id: string;
+  status: "REVERSED";
   version: number;
   replay: boolean;
 }>;
@@ -524,6 +542,9 @@ export type ReimbursementSummary = Readonly<{
   submittedAt: string;
   /** Present only after the internal reimbursement transfer has completed. */
   completedAt?: string;
+  /** Present after the original internal transfer has been reversed. */
+  reversedAt?: string;
+  reversalReason?: string;
 }>;
 
 export type ReimbursementAttachment = SelfPurchaseAttachment;
@@ -557,6 +578,17 @@ export type ReimbursementDetail = ReimbursementSummary &
         ledgerEventId: string;
         executedByPersonId: string;
         executedAt: string;
+      }>;
+      /** Internal reversal evidence is intentionally unavailable to personal reads. */
+      reversal?: Readonly<{
+        sourceAccountId: string;
+        destinationAccountId: string;
+        originalLedgerEventId: string;
+        reversalLedgerEventId: string;
+        reversedByPersonId: string;
+        actorSubjectCode: "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER";
+        actorScopeType: "GLOBAL";
+        reversedAt: string;
       }>;
     }>;
   }>;
@@ -1139,6 +1171,7 @@ type Submission =
   | ReimbursementSubmission
   | ReimbursementReviewSubmission
   | ReimbursementExecuteSubmission
+  | ReimbursementReversalSubmission
   | RefundSubmission
   | RefundReviewSubmission
   | CompanyFundCreateSubmission
@@ -1580,6 +1613,14 @@ const validateReimbursementExecuteDraft = (
 ): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
+};
+
+const validateReimbursementReversalDraft = (
+  draft: ReimbursementReversalDraft,
+): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.reason, "reason", 1_000);
 };
 
 const validateSalaryBenefitDocumentDraft = (
@@ -2585,6 +2626,26 @@ export class TeacherApiClient {
     return submission;
   }
 
+  /** A completed reimbursement transfer may only be reversed by strict GLOBAL finance management. */
+  public createReimbursementReversalSubmission(
+    draft: ReimbursementReversalDraft,
+  ): ReimbursementReversalSubmission {
+    validateReimbursementReversalDraft(draft);
+    this.requireReimbursementReversalManager();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ documentId: draft.documentId, expectedVersion: draft.expectedVersion, reason: draft.reason }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   /** Refunds can only originate from the current teaching teacher's own role context. */
   public createRefundSubmission(
     draft: RefundSubmissionDraft,
@@ -3288,6 +3349,33 @@ export class TeacherApiClient {
     }
   }
 
+  public async reverseReimbursement(
+    submission: ReimbursementReversalSubmission,
+  ): Promise<ReimbursementReversalResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireReimbursementReversalManager();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<ReimbursementReversalResult>(
+        "POST",
+        `/v1/finance/reimbursements/${encodeURIComponent(submission.draft.documentId)}/reverse`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
   public async submitRefund(
     submission: RefundSubmission,
   ): Promise<RefundCommandResult> {
@@ -3622,6 +3710,22 @@ export class TeacherApiClient {
 
   /** The API remains authoritative for the active HQ assignment; this only prevents impossible UI commands. */
   private requireSelfPurchaseReversalManager(): void {
+    const context = this.session?.currentRoleContext;
+    if (
+      (context?.subject !== "HEADQUARTERS_FINANCE" &&
+        context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** Reimbursement reversals use the same strict GLOBAL management boundary as self-purchase reversals. */
+  private requireReimbursementReversalManager(): void {
     const context = this.session?.currentRoleContext;
     if (
       (context?.subject !== "HEADQUARTERS_FINANCE" &&

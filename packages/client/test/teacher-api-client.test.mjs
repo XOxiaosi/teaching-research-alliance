@@ -1627,3 +1627,77 @@ test("普通报销执行冻结版本并以同键重试，拒绝个人、管理�
   await assert.rejects(reviewer.executeReimbursement(stale), StaleResponseError);
   assert.equal(posts, 0);
 });
+
+test("普通报销撤销冻结命令以同键重试，仅允许严格GLOBAL办理人", async () => {
+  const oldList = deferred();
+  const requests = [];
+  let attempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "reimbursement-reversal-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("SYSTEM_ADMIN"));
+      requests.push(request);
+      if (request.path === "/v1/finance/reimbursements/managed") return oldList.promise;
+      if (request.path === "/v1/finance/reimbursements/completed-1/reverse") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "completed-1", status: "REVERSED", version: 5, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const earlyRead = client.listManagedReimbursements();
+  const submission = client.createReimbursementReversalSubmission({ documentId: "completed-1", expectedVersion: 4, reason: " 录入错误，冲回原划拨 ", sourceAccountId: "forged", amountCents: "1" });
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  await assert.rejects(client.reverseReimbursement(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.reverseReimbursement(submission), { id: "completed-1", status: "REVERSED", version: 5, replay: true });
+  oldList.resolve(success({ documents: [] }));
+  await assert.rejects(earlyRead, StaleResponseError);
+  assert.deepEqual(requests.slice(1).map((request) => ({ path: request.path, body: request.body })), [
+    { path: "/v1/finance/reimbursements/completed-1/reverse", body: { expectedVersion: 4, reason: " 录入错误，冲回原划拨 ", idempotencyKey: "reimbursement-reversal-key-1" } },
+    { path: "/v1/finance/reimbursements/completed-1/reverse", body: { expectedVersion: 4, reason: " 录入错误，冲回原划拨 ", idempotencyKey: "reimbursement-reversal-key-1" } }
+  ]);
+  assert.equal(requests[1].body.sourceAccountId, undefined);
+  assert.equal(requests[1].body.amountCents, undefined);
+
+  for (const subject of ["HEADQUARTERS_FINANCE", "SYSTEM_OWNER"]) {
+    const allowed = new TeacherApiClient({ transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession(subject));
+      if (request.path === "/v1/finance/reimbursements/completed-1/reverse") return success({ id: "completed-1", status: "REVERSED", version: 5, replay: false });
+      throw new Error(`unexpected ${request.path}`);
+    } });
+    await allowed.login({ phoneNormalized: "13800000000", password: "password" });
+    const permitted = allowed.createReimbursementReversalSubmission({ documentId: "completed-1", expectedVersion: 4, reason: "撤销" });
+    await allowed.reverseReimbursement(permitted);
+  }
+});
+
+test("普通报销撤销拒绝个人、局部办理人和跨会话冻结命令", async () => {
+  const personal = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession());
+    throw new Error("personal reversal must not be sent");
+  } });
+  await personal.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => personal.createReimbursementReversalSubmission({ documentId: "completed-1", expectedVersion: 4, reason: "撤销" }), ApiClientError);
+
+  const local = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("SYSTEM_OWNER", { venueId: "venue-1" }));
+    throw new Error("local reversal must not be sent");
+  } });
+  await local.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => local.createReimbursementReversalSubmission({ documentId: "completed-1", expectedVersion: 4, reason: "撤销" }), ApiClientError);
+
+  let sessions = 0; let posts = 0;
+  const stale = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") { sessions += 1; return success({ ...administratorSession("HEADQUARTERS_FINANCE"), sessionId: `reversal-session-${sessions}` }); }
+    posts += 1; throw new Error("stale reversal must not be sent");
+  } });
+  await stale.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = stale.createReimbursementReversalSubmission({ documentId: "completed-1", expectedVersion: 4, reason: "撤销" });
+  await stale.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(stale.reverseReimbursement(submission), StaleResponseError);
+  assert.equal(posts, 0);
+});
