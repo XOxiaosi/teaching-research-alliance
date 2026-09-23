@@ -44,6 +44,45 @@ export type LoginInput = Readonly<{
   password: string;
 }>;
 
+export type AccountRegistrationInput = Readonly<{
+  nickname: string;
+  legalName: string;
+  phoneNormalized: string;
+  password: string;
+}>;
+
+export type AccountRegistrationResult = SessionSnapshot & Readonly<{ nickname: string }>;
+
+export type AccountDirectoryItem = Readonly<{
+  accountId: string;
+  personId: string;
+  nickname: string;
+  phoneNormalized: string;
+  loginStatus: "ACTIVE" | "REVOKED";
+  personStatus: "ACTIVE" | "INACTIVE";
+  activeSystemAuthorities: readonly ("SYSTEM_OWNER" | "SYSTEM_ADMIN")[];
+}>;
+
+export type AccountPasswordResetDraft = Readonly<{
+  accountId: string;
+  newPassword: string;
+  reason: string;
+}>;
+
+/** Transient in-memory command only. Never persist this password-bearing object. */
+export type AccountPasswordResetSubmission = Readonly<{
+  draft: AccountPasswordResetDraft;
+  idempotencyKey: string;
+}>;
+
+export type AccountPasswordResetResult = Readonly<{
+  accountId: string;
+  personId: string;
+  authVersion: string;
+  resetAt: string;
+  replay: boolean;
+}>;
+
 /** Monetary values stay decimal integer text in cents; callers must never provide a number. */
 export type WeeklyFeeDraftInput = Readonly<{
   referralCaseId: string;
@@ -1175,6 +1214,7 @@ type Authentication = Readonly<{
 }>;
 
 type Submission =
+  | AccountPasswordResetSubmission
   | WeeklyFeeSubmission
   | GroupLeaderRelationshipChangeSubmission
   | ReferralCreationSubmission
@@ -1460,6 +1500,12 @@ const validateFinanceAttachmentVersionDraft = (
 ): void => {
   requireNonBlank(draft.attachmentId, "attachmentId");
   validateFinanceAttachmentVersionFields(draft);
+};
+
+const validateAccountPassword = (password: string): void => {
+  requireNonBlank(password, "password");
+  if (password.length < 8 || password.length > 1024)
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:password");
 };
 
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
@@ -1915,6 +1961,82 @@ export class TeacherApiClient {
     const session = this.readResponse(response);
     this.installSession(session);
     return session;
+  }
+
+  /** Registration starts a fresh authentication generation, just like login. */
+  public async registerAccount(input: AccountRegistrationInput): Promise<AccountRegistrationResult> {
+    requireNonBlank(input.nickname, "nickname");
+    requireNonBlank(input.legalName, "legalName");
+    requireNonBlank(input.phoneNormalized, "phoneNormalized");
+    validateAccountPassword(input.password);
+    this.clearSessionState();
+    const epoch = this.epoch;
+    const response = await this.options.transport<AccountRegistrationResult>({
+      method: "POST",
+      path: "/v1/accounts/register",
+      headers: { "content-type": "application/json" },
+      body: {
+        nickname: input.nickname,
+        legalName: input.legalName,
+        phoneNormalized: input.phoneNormalized,
+        password: input.password,
+      },
+    });
+    if (epoch !== this.epoch) throw new StaleResponseError();
+    const result = this.readResponse(response);
+    const session: SessionSnapshot = {
+      sessionId: result.sessionId,
+      accountId: result.accountId,
+      personId: result.personId,
+      roleContexts: result.roleContexts,
+      currentRoleContext: result.currentRoleContext,
+    };
+    this.installSession(session);
+    return { ...session, nickname: result.nickname };
+  }
+
+  public async listAccounts(): Promise<readonly AccountDirectoryItem[]> {
+    this.requireCompanyFundAdministrator();
+    return this.authenticatedRequest("GET", "/v1/admin/accounts");
+  }
+
+  public createAccountPasswordResetSubmission(draft: AccountPasswordResetDraft): AccountPasswordResetSubmission {
+    this.requireCompanyFundAdministrator();
+    requireNonBlank(draft.accountId, "accountId");
+    requireNonBlank(draft.reason, "reason");
+    validateAccountPassword(draft.newPassword);
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ accountId: draft.accountId, newPassword: draft.newPassword, reason: draft.reason }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  /** Retry the same transient command after an uncertain result; the server enforces target authority. */
+  public async resetAccountPassword(submission: AccountPasswordResetSubmission): Promise<AccountPasswordResetResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireCompanyFundAdministrator();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<AccountPasswordResetResult>(
+        "POST",
+        `/v1/admin/accounts/${encodeURIComponent(submission.draft.accountId)}/password-reset`,
+        { newPassword: submission.draft.newPassword, reason: submission.draft.reason, idempotencyKey: submission.idempotencyKey },
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      if (submission.draft.accountId === this.session?.accountId) this.clearSessionState();
+      else this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
   }
 
   /** Restores the server's current role context. It never trusts a locally cached role. */
