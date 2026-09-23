@@ -441,6 +441,7 @@ export type ApiServices = Readonly<{
       draft: {
         documentId: string;
         expectedVersion: number;
+        expectedPlanVersionId: string;
         todoId: string;
         reason: string;
         attachmentVersionIds: readonly string[];
@@ -1759,6 +1760,7 @@ export const handleRequest = async (
           "sessionId",
           "documentId",
           "expectedVersion",
+          "expectedPlanVersionId",
           "todoId",
           "reason",
           "attachmentVersionIds",
@@ -1770,6 +1772,7 @@ export const handleRequest = async (
             {
               documentId: requiredString(body, "documentId"),
               expectedVersion: expectedVersion(),
+              expectedPlanVersionId: requiredString(body, "expectedPlanVersionId"),
               todoId: requiredString(body, "todoId"),
               reason: requiredString(body, "reason"),
               attachmentVersionIds: attachmentVersionIds(),

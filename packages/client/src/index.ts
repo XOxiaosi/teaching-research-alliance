@@ -904,6 +904,7 @@ export type BenefitConfirmationDraft = Readonly<{
   documentId: string;
   expectedVersion: number;
   todoId: string;
+  expectedPlanVersionId: string;
   reason: string;
   attachmentVersionIds: readonly string[];
 }>;
@@ -1666,6 +1667,13 @@ const validateBenefitConfirmationDraft = (
 ): void => {
   requireNonBlank(draft.documentId, "documentId");
   requireNonBlank(draft.todoId, "todoId");
+  if (typeof draft.expectedPlanVersionId !== "string")
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedPlanVersionId",
+    );
+  requireNonBlank(draft.expectedPlanVersionId, "expectedPlanVersionId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateFinancialText(draft.reason, "reason", 1_000);
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);

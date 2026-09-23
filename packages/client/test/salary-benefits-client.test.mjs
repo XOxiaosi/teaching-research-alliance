@@ -126,6 +126,88 @@ test("客户端仅在严格全局财务上下文中创建工资奖金社保写�
   );
 });
 
+test("福利确认要求并精确透传当前计划版本，重复提交复用同一命令", async () => {
+  const requests = [];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "benefit-confirm-key",
+    transport: async (request) => {
+      requests.push(request);
+      if (request.path === "/v1/session")
+        return { status: 200, body: { data: session } };
+      return {
+        status: 200,
+        body: {
+          data: {
+            id: "benefit-document",
+            status: "COMPLETED",
+            version: 2,
+            replay: requests.length > 2,
+          },
+        },
+      };
+    },
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+
+  const draft = {
+    documentId: "benefit-document",
+    expectedVersion: 1,
+    todoId: "benefit-todo",
+    expectedPlanVersionId: "plan-version-current",
+    reason: "确认本月福利",
+    attachmentVersionIds: ["proof-1", "proof-2"],
+  };
+  const submission = client.createBenefitConfirmationSubmission(draft);
+  await client.confirmBenefit(submission);
+  await client.confirmBenefit(submission);
+
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[1].body, {
+    documentId: "benefit-document",
+    expectedVersion: 1,
+    todoId: "benefit-todo",
+    expectedPlanVersionId: "plan-version-current",
+    reason: "确认本月福利",
+    attachmentVersionIds: ["proof-1", "proof-2"],
+    idempotencyKey: "benefit-confirm-key",
+  });
+  assert.deepEqual(requests[2].body, requests[1].body);
+});
+
+test("福利确认缺少或清空计划版本时本地拒绝且不触发请求", async () => {
+  const requests = [];
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      requests.push(request);
+      if (request.path === "/v1/session")
+        return { status: 200, body: { data: session } };
+      return { status: 200, body: { data: {} } };
+    },
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const base = {
+    documentId: "benefit-document",
+    expectedVersion: 1,
+    todoId: "benefit-todo",
+    reason: "确认本月福利",
+    attachmentVersionIds: ["proof-1", "proof-2"],
+  };
+  for (const expectedPlanVersionId of [undefined, "", "   "]) {
+    assert.throws(
+      () =>
+        client.createBenefitConfirmationSubmission({
+          ...base,
+          ...(expectedPlanVersionId === undefined ? {} : { expectedPlanVersionId }),
+        }),
+      (error) =>
+        error instanceof ApiClientError &&
+        error.status === 400 &&
+        error.code === "INVALID_INPUT",
+    );
+  }
+  assert.equal(requests.length, 1);
+});
+
 test("工资管理读取固定月份、分页和详情路径，并在本地拒绝非法筛选", async () => {
   const requests = [];
   const client = new TeacherApiClient({

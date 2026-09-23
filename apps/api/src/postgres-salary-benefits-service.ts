@@ -78,6 +78,7 @@ export type BenefitConfirmationDraft = Readonly<{
   documentId: string;
   expectedVersion: number;
   todoId: string;
+  expectedPlanVersionId: string;
   reason: string;
   attachmentVersionIds: readonly string[];
 }>;
@@ -1055,14 +1056,16 @@ export class PostgresSalaryBenefitsService {
       doc = uuid(draft.documentId),
       expected = version(draft.expectedVersion),
       todo = uuid(draft.todoId),
+      expectedPlan = uuid(draft.expectedPlanVersionId),
       why = reason(draft.reason),
       files = this.attachments(draft.attachmentVersionIds),
       idem = key(idempotencyKey),
       request = hash([
-        "salary-benefit.confirm-benefit.v1",
+        "salary-benefit.confirm-benefit.v2",
         doc,
         expected,
         todo,
+        expectedPlan,
         why,
         files,
       ]);
@@ -1091,15 +1094,12 @@ export class PostgresSalaryBenefitsService {
         ).rows[0],
         "FINANCE_BENEFIT_TODO_NOT_FOUND",
       );
-      if (
-        (
-          await client.query(
-            "SELECT 1 FROM finance_benefit_execution WHERE todo_id=$1::uuid FOR SHARE",
-            [todo],
-          )
-        ).rows.length > 0
-      )
-        fail("FINANCE_BENEFIT_ALREADY_EXECUTED");
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [
+          `benefit-plan:${work.benefit_kind}:${work.beneficiary_person_id}:${work.benefit_month}`,
+        ],
+      );
       const current = one(
         (
           await client.query<BenefitCurrentPlanRow>(
@@ -1109,6 +1109,16 @@ export class PostgresSalaryBenefitsService {
         ).rows[0],
         "FINANCE_BENEFIT_PLAN_NOT_FOUND",
       );
+      if (current.id !== expectedPlan) fail("SALARY_BENEFIT_STATE_CONFLICT");
+      if (
+        (
+          await client.query(
+            "SELECT 1 FROM finance_benefit_execution WHERE todo_id=$1::uuid FOR SHARE",
+            [todo],
+          )
+        ).rows.length > 0
+      )
+        fail("FINANCE_BENEFIT_ALREADY_EXECUTED");
       if (!current.active) fail("FINANCE_BENEFIT_PLAN_INACTIVE");
       const source = await this.fundAccount(client, current.source_fund_id, at),
         attachments = await this.readyAttachments(client, doc, files);

@@ -63,3 +63,57 @@ test("工资奖金社保写接口拒绝非严格全局财务上下文，并稳�
   assert.equal(unavailable.status, 503);
   assert.equal(unavailable.body.error.code, "FINANCE_SERVICE_UNAVAILABLE");
 });
+
+test("福利确认要求并精确透传 expectedPlanVersionId", async () => {
+  const validBody = {
+    documentId: "benefit-document",
+    expectedVersion: 1,
+    expectedPlanVersionId: "benefit-plan-version-7",
+    todoId: "benefit-todo",
+    reason: "确认九月福利",
+    attachmentVersionIds: ["attachment-a", "attachment-b"],
+    idempotencyKey: "benefit-confirm-1",
+  };
+
+  for (const [label, mutate] of [
+    ["missing", (body) => { delete body.expectedPlanVersionId; }],
+    ["empty", (body) => { body.expectedPlanVersionId = ""; }],
+    ["unknown field", (body) => { body.unexpected = "forged"; }],
+  ]) {
+    const { calls, services } = servicesFor();
+    const body = { ...validBody };
+    mutate(body);
+    const response = await handleRequest({
+      method: "POST",
+      path: "/v1/finance/benefits/confirm",
+      sessionId: "session",
+      body,
+    }, services);
+    assert.equal(response.status, 400, label);
+    assert.equal(response.body.error.code, "INVALID_INPUT", label);
+    assert.equal(calls.length, 0, `${label}: invalid request must not call service`);
+  }
+
+  const { calls, services } = servicesFor();
+  const response = await handleRequest({
+    method: "POST",
+    path: "/v1/finance/benefits/confirm",
+    sessionId: "session",
+    body: validBody,
+  }, services);
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls[0], [
+    "benefit-confirm",
+    hq,
+    {
+      documentId: "benefit-document",
+      expectedVersion: 1,
+      expectedPlanVersionId: "benefit-plan-version-7",
+      todoId: "benefit-todo",
+      reason: "确认九月福利",
+      attachmentVersionIds: ["attachment-a", "attachment-b"],
+    },
+    "benefit-confirm-1",
+    at,
+  ]);
+});

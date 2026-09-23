@@ -1095,3 +1095,10 @@
 - 根实际验证：工作簿/reader/长文本/writer选定组合14/14（3.33秒，`/tmp/alliance-workbook-final-root.log`），工作簿+附件最终14/14（2.45秒，`/tmp/alliance-backup-package-components-final.log`）；独审另实跑组合22/22。真实XLSX由Python ZIP/XML读取并核CRC、关系及内容，包含长文本、NULL、复合指纹和失败清理；附件7项包含真实LocalAttachmentStore、目录同步失败、正数短写和零写失败。
 - 根本地55432随机schema PG：全77表source→spool→12工作簿及无索引残留1/1（4.76秒，`/tmp/alliance-workbook-final-root-pg2.log`）；真实上传同一附件两个READY历史版本+一个UPLOADING，冻结后完成该版本并新增版本，导出仍只复制原2个并标未就绪1个，1/1（5.39秒，`/tmp/alliance-attachment-exporter-root-pg4.log`）。PG fixture最初漏created_at、再缺SELF范围均修正后重跑，未把失败计通过。
 - 最新统一`npm run check`349/349、迁移25项、diff-check通过（`/tmp/alliance-backup-bundle-final-gate.log`）。仍缺最终manifest/文件组组装、任务状态与授权下载、调度，以及已列明的数据模型/业务视图覆盖缺口；继续实现，不能宣称F14已完成。
+
+### DEV-009｜2026-09-23｜福利确认绑定已核对计划版本
+
+- 确认请求在client、HTTP和事务服务中必填expectedPlanVersionId，请求摘要升级v2。确认与设置计划使用同一业务锁；读取最新计划后比较用户核对版本，不匹配返回409且不绑定附件、不改单据、不入账。成功的原命令重试先回放，不因后来计划改版再次扣豆或变成冲突；同key更换expected版本仍拒绝。
+- 同步现有合成演示与PG调用方，未改变生成待办范围/调度。该字段为现阶段内部确认契约的必填更新，后续新页面按新契约调用；不声称旧版请求可忽略该字段，也未涉及生产部署。
+- 独立审查无P1/P2；根实际HTTP/client9/9（0.34秒，`/tmp/alliance-benefit-version-root-contract.log`），本地55432随机schema工资福利及读取PG6/6（25.62秒，`/tmp/alliance-benefit-version-root-pg.log`）：旧版本零副作用、匹配成功、后续改版原命令重放及改payload拒绝。并发版本保护有同锁源码证据，测试覆盖读取后先改版的确定性竞态，不把它描述为所有并发时序压力测试。
+- 根统一349/349、迁移25项、diff-check通过；两端确认新页面仍在开发。本包仅修确认一致性，不代表福利全流程页面或自动任务已完成。

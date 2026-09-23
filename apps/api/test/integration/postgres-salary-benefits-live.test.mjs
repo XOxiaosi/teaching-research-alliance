@@ -456,7 +456,7 @@ test("工资计划不入账；现金确认、奖金与社保待办各自一次�
       "UPDATE settlement_account SET status='ACTIVE' WHERE id IN ($1::uuid,$2::uuid)",
       [sourceAccount, personAccount],
     );
-    await salary.setBenefitPlan(
+    const benefitPlanV1 = await salary.setBenefitPlan(
       finance(financeId),
       {
         benefitKind: "SOCIAL_INSURANCE",
@@ -500,17 +500,151 @@ test("工资计划不入账；现金确认、奖金与社保待办各自一次�
       "benefit-doc",
       dueAt,
     );
-    await salary.confirmBenefit(
+    const benefitAttachmentVersionIds = await originals(benefit.id, "benefit");
+    const benefitPlanV2 = await salary.setBenefitPlan(
       finance(financeId),
       {
-        documentId: benefit.id,
-        expectedVersion: 1,
-        todoId: benefitTodos[0].id,
-        reason: "社保已办理",
-        attachmentVersionIds: await originals(benefit.id, "benefit"),
+        benefitKind: "SOCIAL_INSURANCE",
+        beneficiaryPersonId: teacherId,
+        benefitMonth: "2026-09-01",
+        executionDay: 5,
+        amountCents: "800",
+        sourceFundId: fundId,
+        active: true,
+        reason: "确认前修订计划",
       },
+      "benefit-plan-before-confirm",
+      dueAt,
+    );
+    const beforePlanConflict = {
+      source: await balance(db.pool, sourceAccount),
+      ledger: (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM ledger_event WHERE event_key=$1",
+          [`finance-benefit:${benefit.id}`],
+        )
+      ).rows[0].n,
+      execution: (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM finance_benefit_execution WHERE todo_id=$1::uuid",
+          [benefitTodos[0].id],
+        )
+      ).rows[0].n,
+      bindings: (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM salary_benefit_attachment_binding WHERE finance_document_id=$1::uuid",
+          [benefit.id],
+        )
+      ).rows[0].n,
+    };
+    await assert.rejects(
+      () =>
+        salary.confirmBenefit(
+          finance(financeId),
+          {
+            documentId: benefit.id,
+            expectedVersion: 1,
+            todoId: benefitTodos[0].id,
+            expectedPlanVersionId: benefitPlanV1.planVersionId,
+            reason: "社保已办理",
+            attachmentVersionIds: benefitAttachmentVersionIds,
+          },
+          "benefit-confirm-stale-plan",
+          dueAt,
+        ),
+      /SALARY_BENEFIT_STATE_CONFLICT/,
+    );
+    assert.deepEqual(
+      (
+        await db.pool.query(
+          "SELECT status,version::text AS version FROM finance_document WHERE id=$1::uuid",
+          [benefit.id],
+        )
+      ).rows[0],
+      { status: "DRAFT", version: "1" },
+      "计划版本冲突不得改变单据",
+    );
+    assert.equal(await balance(db.pool, sourceAccount), beforePlanConflict.source);
+    assert.equal(
+      (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM ledger_event WHERE event_key=$1",
+          [`finance-benefit:${benefit.id}`],
+        )
+      ).rows[0].n,
+      beforePlanConflict.ledger,
+    );
+    assert.equal(
+      (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM finance_benefit_execution WHERE todo_id=$1::uuid",
+          [benefitTodos[0].id],
+        )
+      ).rows[0].n,
+      beforePlanConflict.execution,
+    );
+    assert.equal(
+      (
+        await db.pool.query(
+          "SELECT count(*)::int AS n FROM salary_benefit_attachment_binding WHERE finance_document_id=$1::uuid",
+          [benefit.id],
+        )
+      ).rows[0].n,
+      beforePlanConflict.bindings,
+    );
+    const benefitConfirmationDraft = {
+      documentId: benefit.id,
+      expectedVersion: 1,
+      todoId: benefitTodos[0].id,
+      expectedPlanVersionId: benefitPlanV2.planVersionId,
+      reason: "社保已办理",
+      attachmentVersionIds: benefitAttachmentVersionIds,
+    };
+    const benefitConfirmation = await salary.confirmBenefit(
+      finance(financeId),
+      benefitConfirmationDraft,
       "benefit-confirm",
       dueAt,
+    );
+    const benefitPlanV3 = await salary.setBenefitPlan(
+      finance(financeId),
+      {
+        benefitKind: "SOCIAL_INSURANCE",
+        beneficiaryPersonId: teacherId,
+        benefitMonth: "2026-09-01",
+        executionDay: 5,
+        amountCents: "900",
+        sourceFundId: fundId,
+        active: true,
+        reason: "成功确认后修订计划",
+      },
+      "benefit-plan-after-confirm",
+      dueAt,
+    );
+    assert.notEqual(benefitPlanV3.planVersionId, benefitPlanV2.planVersionId);
+    assert.deepEqual(
+      await salary.confirmBenefit(
+        finance(financeId),
+        benefitConfirmationDraft,
+        "benefit-confirm",
+        new Date("2026-09-06T00:00:00.000Z"),
+      ),
+      { ...benefitConfirmation, replay: true },
+      "已成功确认的同命令重试必须先于计划版本比较重放",
+    );
+    await assert.rejects(
+      () =>
+        salary.confirmBenefit(
+          finance(financeId),
+          {
+            ...benefitConfirmationDraft,
+            expectedPlanVersionId: benefitPlanV3.planVersionId,
+          },
+          "benefit-confirm",
+          new Date("2026-09-06T00:00:00.000Z"),
+        ),
+      /IDEMPOTENCY_REPLAY/,
+      "计划版本必须纳入确认命令哈希",
     );
     assert.equal(await balance(db.pool, sourceAccount), 19200n);
     assert.equal(
@@ -984,7 +1118,7 @@ test("工资与社保待办补办、改计划和多次执行均保持单一业�
       0,
       "最新计划停用时不得回退旧启用版本",
     );
-    await salary.setBenefitPlan(
+    const revisedBenefitPlan = await salary.setBenefitPlan(
       finance(financeId),
       {
         benefitKind: "SOCIAL_INSURANCE",
@@ -1026,6 +1160,7 @@ test("工资与社保待办补办、改计划和多次执行均保持单一业�
         documentId: benefit.id,
         expectedVersion: 1,
         todoId: benefitTodos[0].id,
+        expectedPlanVersionId: revisedBenefitPlan.planVersionId,
         reason: "按新计划办理",
         attachmentVersionIds: await originals(benefit.id, "regression-benefit"),
       },
@@ -1037,7 +1172,7 @@ test("工资与社保待办补办、改计划和多次执行均保持单一业�
       19200n,
       "未执行待办读取最新计划金额",
     );
-    await salary.setBenefitPlan(
+    const afterExecutionBenefitPlan = await salary.setBenefitPlan(
       finance(financeId),
       {
         benefitKind: "SOCIAL_INSURANCE",
@@ -1077,6 +1212,7 @@ test("工资与社保待办补办、改计划和多次执行均保持单一业�
             documentId: duplicateBenefit.id,
             expectedVersion: 1,
             todoId: benefitTodos[0].id,
+            expectedPlanVersionId: afterExecutionBenefitPlan.planVersionId,
             reason: "不得重复执行",
             attachmentVersionIds: [randomUUID(), randomUUID()],
           },
