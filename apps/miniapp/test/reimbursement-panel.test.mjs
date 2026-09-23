@@ -79,13 +79,17 @@ const getBundled = async () => {
 };
 test.after(async () => { if (bundled !== undefined) await rm(bundled.directory, { recursive: true, force: true }); });
 
-const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, submitStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
+const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, executeFirstUnknown = false, submitStatus = 200, executeStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
   const { ReimbursementPanel } = (await getBundled()).module;
   const currentSession = snapshot(subject, scope);
   const requests = [];
-  let currentAttachments = attachments;
-  let creates = 0; let submits = 0; let reviews = 0; let uploadedAttachmentReads = 0; let invalidations = 0;
-  let busyChanges = 0; let unconfirmedChanges = 0;
+  let currentAttachments = attachments; let currentRecords = records; let currentDetail = detailRecord;
+  let creates = 0; let submits = 0; let reviews = 0; let executions = 0; let uploadedAttachmentReads = 0; let invalidations = 0;
+  let busyChanges = 0; let unconfirmedChanges = 0; let dataChanges = 0;
+  const fallbackDetail = () => ({ ...summary, attachments: [
+    { versionId: "support-v2", purpose: "SUPPORTING_DOCUMENT", originalFilename: "new-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
+    { versionId: "screenshot-v2", purpose: "APPLICATION_SCREENSHOT", originalFilename: "screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
+  ] });
   globalThis.__miniappTaro = {
     showActionSheet: async () => ({ tapIndex: 0 }), chooseImage: async () => ({ tempFilePaths: ["wxfile://reimbursement.png"] }), chooseMessageFile: async () => ({ tempFiles: [] }),
     getFileSystemManager: () => ({ readFile: ({ success }) => success({ data: pngBytes }) }),
@@ -104,11 +108,11 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
       if (request.path === "/v1/session") return success(currentSession);
       if (request.path === "/v1/finance/reimbursements/mine") {
         if (failReadsAfterSuccess && submits > 0) throw new Error("read unavailable");
-        return success({ documents: records });
+        return success({ documents: currentRecords });
       }
       if (request.path === "/v1/finance/reimbursements/managed") {
         if (failReadsAfterSuccess && reviews > 0) throw new Error("read unavailable");
-        return success({ documents: records });
+        return success({ documents: currentRecords });
       }
       if (request.path === "/v1/finance/drafts/mine") return success(drafts);
       if (request.path === `/v1/finance/drafts/${draft.id}`) return success(draft);
@@ -129,27 +133,31 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
         if (submitStatus !== 200) return { status: submitStatus, body: { error: { code: "VERSION_CONFLICT", message: "changed" } } };
         return success({ id: draft.id, status: "PENDING_APPROVAL", version: 2, replay: submits > 1 });
       }
-      if (request.path === "/v1/finance/reimbursements/reimbursement-1") {
-        return success(detailRecord ?? { ...summary, attachments: [
-          { versionId: "support-v2", purpose: "SUPPORTING_DOCUMENT", originalFilename: "new-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
-          { versionId: "screenshot-v2", purpose: "APPLICATION_SCREENSHOT", originalFilename: "screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
-        ] });
-      }
+      if (request.path === "/v1/finance/reimbursements/reimbursement-1") return success(currentDetail ?? fallbackDetail());
       if (request.path === "/v1/finance/reimbursements/reimbursement-1/approve" || request.path === "/v1/finance/reimbursements/reimbursement-1/reject") {
         reviews += 1;
         if (reviewFirstUnknown && reviews === 1) throw new Error("network uncertain");
         return success({ id: "reimbursement-1", status: request.path.endsWith("approve") ? "APPROVED" : "REJECTED", version: 3, replay: reviews > 1 });
+      }
+      if (request.path === "/v1/finance/reimbursements/reimbursement-1/execute") {
+        executions += 1;
+        if (executeFirstUnknown && executions === 1) throw new Error("network uncertain");
+        if (executeStatus !== 200) return { status: executeStatus, body: { error: { code: executeStatus === 409 ? "REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING" : "FORBIDDEN_SCOPE", message: "execution failed" } } };
+        const previous = currentDetail ?? fallbackDetail();
+        currentDetail = { ...previous, status: "COMPLETED", version: previous.version + 1, completedAt: "2026-09-22T00:00:00.000Z" };
+        currentRecords = currentRecords.map((item) => item.id === "reimbursement-1" ? { ...item, status: "COMPLETED", version: item.version + 1, completedAt: "2026-09-22T00:00:00.000Z" } : item);
+        return success({ id: "reimbursement-1", status: "COMPLETED", version: previous.version + 1, replay: executions > 1 });
       }
       throw new Error(`unexpected ${request.method} ${request.path}`);
     }
   });
   await client.login({ phoneNormalized: "13800000000", password: "password" });
   return {
-    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges,
+    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges, dataChanges: () => dataChanges,
     mount: async (container) => {
       const root = createRoot(container);
       await act(async () => { root.render(React.createElement(ReimbursementPanel, {
-        client, session: currentSession, mode, onInvalidated: () => { invalidations += 1; }, onBusyChange: () => { busyChanges += 1; }, onUnconfirmedChange: () => { unconfirmedChanges += 1; }
+        client, session: currentSession, mode, onInvalidated: () => { invalidations += 1; }, onBusyChange: () => { busyChanges += 1; }, onUnconfirmedChange: () => { unconfirmedChanges += 1; }, onDataMayChange: () => { dataChanges += 1; }
       })); });
       await flush();
       return root;
@@ -369,4 +377,46 @@ test("已完成报销保留两份原件和内部划拨时间；个人不会看�
     assert.equal(container.querySelector('[data-reimbursement-action="review"]'), null);
     await act(async () => root.unmount());
   });
+});
+
+
+test("严格总部财务执行已批准报销：未知重试同键、成功刷新且管理员只读", async () => {
+  const approved = { ...summary, status: "APPROVED", version: 3 };
+  const approvedDetail = { ...approved, attachments: [
+    { versionId: "support-approved", purpose: "SUPPORTING_DOCUMENT", originalFilename: "approved-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
+    { versionId: "screen-approved", purpose: "APPLICATION_SCREENSHOT", originalFilename: "approved-screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
+  ], decision: { decision: "APPROVED", reason: "资料核验完成", decidedAt: "2026-09-21T01:00:00.000Z" } };
+  const fixture = await mountPanel({ subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", mode: "managed", records: [approved], detailRecord: approvedDetail, executeFirstUnknown: true });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container);
+    await click(button(container, "查看报销详情"));
+    await click(button(container, "执行内部欢乐豆划拨"));
+    assert.ok(container.querySelector('[data-reimbursement-pending="execute"]'));
+    await click(button(container, "安全重试原内部划拨"));
+    const executions = fixture.requests.filter((request) => request.path.endsWith("/execute"));
+    assert.deepEqual(executions.map((request) => request.body), [
+      { expectedVersion: 3, idempotencyKey: "reimbursement-key-1" },
+      { expectedVersion: 3, idempotencyKey: "reimbursement-key-1" }
+    ]);
+    assert.match(container.textContent, /已完成/); assert.match(container.textContent, /内部划拨完成时间/);
+    assert.equal(fixture.dataChanges(), 1);
+    assert.equal(container.querySelector('[data-reimbursement-action="execute"]'), null);
+    await act(async () => root.unmount());
+  });
+  const conflict = await mountPanel({ subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", mode: "managed", records: [approved], detailRecord: approvedDetail, executeStatus: 409 });
+  await withDom(async (container) => {
+    const root = await conflict.mount(container);
+    await click(button(container, "查看报销详情")); await click(button(container, "执行内部欢乐豆划拨"));
+    assert.equal(conflict.requests.filter((request) => request.path.endsWith("/execute")).length, 1);
+    assert.match(container.textContent, /跨财年报销归属待确认，本次未划拨/);
+    await act(async () => root.unmount());
+  });
+  for (const subject of ["SYSTEM_ADMIN", "SYSTEM_OWNER"]) {
+    const readonly = await mountPanel({ subject, scope: "GLOBAL", mode: "managed", records: [approved], detailRecord: approvedDetail });
+    await withDom(async (container) => {
+      const root = await readonly.mount(container); await click(button(container, "查看报销详情"));
+      assert.equal(container.querySelector('[data-reimbursement-action="execute"]'), null, `${subject} must not execute`);
+      await act(async () => root.unmount());
+    });
+  }
 });

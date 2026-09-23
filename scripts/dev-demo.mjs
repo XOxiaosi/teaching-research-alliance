@@ -172,6 +172,7 @@ try {
     const salaryFundId = randomUUID();
     await pool.query("INSERT INTO company_finance_fund(id,kind,fund_code,display_name,organization_unit_id,status,version,created_by_person_id,created_at,updated_at) VALUES($1::uuid,'HEADQUARTERS_FINANCE_OPERATING',$2,$3,NULL,'ACTIVE',1,$4::uuid,$5,$5)", [salaryFundId, "HQ_SALARY", "演示工资账户", ids.platformFinance, at.toISOString()]);
     await pool.query("INSERT INTO company_finance_fund_assignment(id,fund_id,duty_subject,scope_type,scope_id,responsibility_code,valid_from,created_by_person_id,created_at) VALUES($1::uuid,$2::uuid,'HEADQUARTERS_FINANCE','GLOBAL',NULL,'FINANCE_OPERATING_SOURCE',$3,$4::uuid,$3)", [randomUUID(), salaryFundId, at.toISOString(), ids.platformFinance]);
+    await addAccount(pool, "COMPANY", salaryFundId, `company:fund:${salaryFundId}`);
     const salaryContext = { personId: ids.platformFinance, subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL" };
     const salaryPlan = await salary.setCashWagePlan(salaryContext, { teacherPersonId: ids.teacher, salaryMonth: "2026-09-01", plannedCashCents: "4900", plannedDeductionCents: "4900", active: true, reason: "演示九月工资" }, `demo-salary-plan-${suffix}`, at);
     const salaryTodos = await salary.generateCashWageTodos(salaryContext, `demo-salary-todo-${suffix}`, at);
@@ -185,7 +186,6 @@ try {
     }
     await salary.confirmCashWage(salaryContext, { documentId: salaryDocument.id, expectedVersion: 1, todoId: salaryTodos[0].id, cashPaidCents: "4900", deductionCents: "4900", paidAt: at.toISOString(), reason: "演示工资已发", attachmentVersionIds: salaryAttachmentIds }, `demo-salary-confirm-${suffix}`, at);
     if (process.env.DEMO_WITH_BENEFITS === "1") {
-      await addAccount(pool, "COMPANY", salaryFundId, `company:fund:${salaryFundId}`);
       const benefitDraft = { benefitKind: "SOCIAL_INSURANCE", beneficiaryPersonId: ids.teacher, benefitMonth: "2026-09-01", executionDay: 5, amountCents: "7000", sourceFundId: salaryFundId, active: true, reason: "Synthetic benefit initial plan" };
       await salary.setBenefitPlan(salaryContext, benefitDraft, `demo-benefit-plan1-${suffix}`, at);
       const benefitTodos = await salary.generateBenefitTodos(salaryContext, `demo-benefit-todos-${suffix}`, at);

@@ -493,6 +493,17 @@ export type ReimbursementReviewSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
+/** The server resolves accounts, amount, evidence, and authorization from the approved record. */
+export type ReimbursementExecuteDraft = Readonly<{
+  documentId: string;
+  expectedVersion: number;
+}>;
+
+export type ReimbursementExecuteSubmission = Readonly<{
+  draft: ReimbursementExecuteDraft;
+  idempotencyKey: string;
+}>;
+
 export type ReimbursementStatus = "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED";
 
 export type ReimbursementCommandResult = Readonly<{
@@ -1127,6 +1138,7 @@ type Submission =
   | SelfPurchaseReversalSubmission
   | ReimbursementSubmission
   | ReimbursementReviewSubmission
+  | ReimbursementExecuteSubmission
   | RefundSubmission
   | RefundReviewSubmission
   | CompanyFundCreateSubmission
@@ -1561,6 +1573,13 @@ const validateReimbursementReviewDraft = (
   if (draft.decision !== "APPROVE" && draft.decision !== "REJECT") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:decision");
   }
+};
+
+const validateReimbursementExecuteDraft = (
+  draft: ReimbursementExecuteDraft,
+): void => {
+  requireNonBlank(draft.documentId, "documentId");
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
 };
 
 const validateSalaryBenefitDocumentDraft = (
@@ -2543,6 +2562,29 @@ export class TeacherApiClient {
     return submission;
   }
 
+  /** Executes only the immutable, already-approved reimbursement chain. */
+  public createReimbursementExecuteSubmission(
+    draft: ReimbursementExecuteDraft,
+  ): ReimbursementExecuteSubmission {
+    validateReimbursementExecuteDraft(draft);
+    this.requireReimbursementReviewer();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+      }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
   /** Refunds can only originate from the current teaching teacher's own role context. */
   public createRefundSubmission(
     draft: RefundSubmissionDraft,
@@ -3211,6 +3253,32 @@ export class TeacherApiClient {
             idempotencyKey: submission.idempotencyKey,
           },
         );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async executeReimbursement(
+    submission: ReimbursementExecuteSubmission,
+  ): Promise<ReimbursementCommandResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireReimbursementReviewer();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<ReimbursementCommandResult>(
+        "POST",
+        `/v1/finance/reimbursements/${encodeURIComponent(submission.draft.documentId)}/execute`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;

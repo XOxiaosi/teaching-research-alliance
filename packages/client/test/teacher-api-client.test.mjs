@@ -1581,3 +1581,49 @@ test('refund reads preserve scope generations and encode document identifiers',a
  assert.deepEqual(requests.map(request=>request.path),['/v1/finance/refunds/mine','/v1/finance/refunds/managed','/v1/finance/refunds/document%2Fa%20b']);
  await assert.rejects(client.getRefundDetail(' '),ApiClientError);
 });
+
+test("普通报销执行冻结版本并以同键重试，拒绝个人、管理员和过期会话", async () => {
+  const requests = [];
+  let attempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "reimbursement-execute-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("HEADQUARTERS_FINANCE"));
+      requests.push(request);
+      if (request.path === "/v1/finance/reimbursements/approved-1/execute") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("network uncertain");
+        return success({ id: "approved-1", status: "COMPLETED", version: 4, replay: true });
+      }
+      throw new Error(`unexpected ${request.method} ${request.path}`);
+    }
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReimbursementExecuteSubmission({ documentId: "approved-1", expectedVersion: 3, sourceAccountId: "forged", amountCents: "1" });
+  assert.equal(Object.isFrozen(submission), true); assert.equal(Object.isFrozen(submission.draft), true);
+  await assert.rejects(client.executeReimbursement(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.executeReimbursement(submission), { id: "approved-1", status: "COMPLETED", version: 4, replay: true });
+  assert.deepEqual(requests.map((request) => ({ path: request.path, body: request.body })), [
+    { path: "/v1/finance/reimbursements/approved-1/execute", body: { expectedVersion: 3, idempotencyKey: "reimbursement-execute-key-1" } },
+    { path: "/v1/finance/reimbursements/approved-1/execute", body: { expectedVersion: 3, idempotencyKey: "reimbursement-execute-key-1" } }
+  ]);
+
+  const administrator = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession());
+    throw new Error("administrator execution must not be sent");
+  } });
+  await administrator.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.throws(() => administrator.createReimbursementExecuteSubmission({ documentId: "approved-1", expectedVersion: 3 }), ApiClientError);
+
+  let sessions = 0; let posts = 0;
+  const reviewer = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") { sessions += 1; return success({ ...administratorSession("HEADQUARTERS_FINANCE"), sessionId: `execute-session-${sessions}` }); }
+    posts += 1; throw new Error("stale execution must not be sent");
+  } });
+  await reviewer.login({ phoneNormalized: "13800000000", password: "password" });
+  const stale = reviewer.createReimbursementExecuteSubmission({ documentId: "approved-1", expectedVersion: 3 });
+  await reviewer.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(reviewer.executeReimbursement(stale), StaleResponseError);
+  assert.equal(posts, 0);
+});

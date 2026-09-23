@@ -8,6 +8,7 @@ import {
   type FinanceDraftSubmission,
   type ReimbursementCommandResult,
   type ReimbursementDetail,
+  type ReimbursementExecuteSubmission,
   type ReimbursementReviewSubmission,
   type ReimbursementSubmission,
   type ReimbursementSummary
@@ -16,9 +17,10 @@ import { Button } from "./components/ui/button.js";
 import { Card } from "./components/ui/card.js";
 import { AttachmentDownload, AttachmentPicker, financeError, isFinanceAuthError, type FinancePanelProps } from "./finance-shared.js";
 
-type Props = Omit<FinancePanelProps, "onDataMayChange"> & { mode: "personal" | "managed" };
+type Props = FinancePanelProps & { mode: "personal" | "managed" };
 type Command = { kind: "submit"; submission: ReimbursementSubmission }
-  | { kind: "review"; submission: ReimbursementReviewSubmission };
+  | { kind: "review"; submission: ReimbursementReviewSubmission }
+  | { kind: "execute"; submission: ReimbursementExecuteSubmission };
 const purposes = [
   { purpose: "SUPPORTING_DOCUMENT", label: "报销业务单据" },
   { purpose: "APPLICATION_SCREENSHOT", label: "报销申请截图" }
@@ -30,8 +32,8 @@ const statusLabel = (status: ReimbursementSummary["status"]): string => ({
   PENDING_APPROVAL: "待审核", APPROVED: "审核通过·待划拨", COMPLETED: "已完成", REJECTED: "已驳回"
 })[status];
 
-/** The panel submits and reviews requests only; completed transfers remain read-only records. */
-export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedChange, mode }: Props): ReactNode {
+/** The panel submits, reviews, and explicitly executes approved internal reimbursement transfers. */
+export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedChange, onDataMayChange, mode }: Props): ReactNode {
   const personal = mode === "personal";
   const started = useRef(false);
   const pendingUploads = useRef(new Set<Purpose>());
@@ -147,12 +149,18 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
     }
     if (isFinanceAuthError(listFailure)) throw listFailure;
     if (isFinanceAuthError(detailFailure)) throw detailFailure;
+    const crossFinanceYear = conflict instanceof ApiClientError && conflict.code === "REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING";
     if (listFailure !== undefined || detailFailure !== undefined) {
       const reads = [
         listFailure !== undefined ? `报销列表未能读取：${financeError(listFailure)}` : "",
         detailFailure !== undefined ? `报销详情未能读取：${financeError(detailFailure)}` : ""
       ].filter(Boolean).join("；");
-      setNotice(`${financeError(conflict)} 旧输入已清空；${reads}。请刷新并重新核对，原请求不会自动改写或重发。`);
+      const prefix = crossFinanceYear ? "跨财年报销归属待确认，本次未划拨。" : `${financeError(conflict)} 旧输入已清空；`;
+      setNotice(`${prefix}${reads}。请刷新并重新核对，原请求不会自动改写或重发。`);
+      return;
+    }
+    if (crossFinanceYear) {
+      setNotice("跨财年报销归属待确认，本次未划拨。已重新读取当前记录；原执行请求不会自动重发。");
       return;
     }
     setNotice(includeDetail
@@ -166,18 +174,21 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
       setDraft(null); resetForm();
       setDrafts((items) => items.filter((item) => item.id !== result.id));
       setReceipt("报销申请已提交，等待总部财务人工审核；尚未发生欢乐豆划拨。");
-    } else {
+    } else if (command.kind === "review") {
       resetReview();
       setReceipt(result.status === "APPROVED"
         ? "报销审核已通过，等待后续财务划拨；本次审核不改变欢乐豆余额。"
         : "报销已驳回，本次未发生欢乐豆划拨。");
+    } else {
+      resetReview(); onDataMayChange();
+      setReceipt(result.replay ? "内部欢乐豆划拨已确认，未重复执行。" : "内部欢乐豆划拨已完成；此记录不表示银行卡到账。");
     }
     setDetail(null);
     let listFailure: unknown;
     let detailFailure: unknown;
     try { await load(); }
     catch (error) { listFailure = error; }
-    if (command.kind === "review") {
+    if (command.kind !== "submit") {
       try { setDetail(await client.getReimbursementDetail(result.id)); }
       catch (error) { detailFailure = error; }
     }
@@ -188,7 +199,8 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
         listFailure !== undefined ? `报销列表刷新失败：${financeError(listFailure)}` : "",
         detailFailure !== undefined ? `报销详情刷新失败：${financeError(detailFailure)}` : ""
       ].filter(Boolean).join("；");
-      setNotice(`本次${command.kind === "submit" ? "报销申请提交" : "报销审核"}结果已确认，但${reads}。请刷新后核对，勿重复提交或审核。`);
+      const action = command.kind === "submit" ? "报销申请提交" : command.kind === "review" ? "报销审核" : "内部欢乐豆划拨";
+      setNotice(`本次${action}结果已确认，但${reads}。请刷新后核对，勿重复操作。`);
     }
   };
 
@@ -198,25 +210,31 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
     try {
       result = command.kind === "submit"
         ? await client.submitReimbursement(command.submission)
-        : await client.reviewReimbursement(command.submission);
-      if (command.kind === "submit" && result.status !== "PENDING_APPROVAL") throw new Error("REIMBURSEMENT_SUBMISSION_RESULT_UNCONFIRMED");
-      if (command.kind === "review") {
-        const expectedStatus = command.submission.draft.decision === "APPROVE" ? "APPROVED" : "REJECTED";
-        if (result.status !== expectedStatus) throw new Error("REIMBURSEMENT_REVIEW_RESULT_UNCONFIRMED");
-      }
+        : command.kind === "review"
+          ? await client.reviewReimbursement(command.submission)
+          : await client.executeReimbursement(command.submission);
+      const expectedStatus = command.kind === "submit" ? "PENDING_APPROVAL"
+        : command.kind === "review" ? (command.submission.draft.decision === "APPROVE" ? "APPROVED" : "REJECTED")
+          : "COMPLETED";
+      if (result.status !== expectedStatus || result.id !== command.submission.draft.documentId
+        || result.version !== command.submission.draft.expectedVersion + 1) throw new Error("REIMBURSEMENT_RESULT_UNCONFIRMED");
     } catch (error) {
       if (uncertain(error)) {
-        setNotice(command.kind === "submit"
+        const message = command.kind === "submit"
           ? "尚不能确认报销申请结果，可能已经进入待审核。金额、原因与原件已锁定，请安全重试原报销申请。"
-          : "尚不能确认审核结果，可能已经处理。审核决定与原因已锁定，请安全重试原审核操作。");
+          : command.kind === "review"
+            ? "尚不能确认审核结果，可能已经处理。审核决定与原因已锁定，请安全重试原审核操作。"
+            : "尚不能确认内部欢乐豆划拨结果，原划拨请求已锁定，请安全重试原内部划拨。";
+        setNotice(message);
       } else {
         setPendingCommand(null);
         if (error instanceof ApiClientError && error.status === 409) {
           if (command.kind === "submit") { setDraft(null); resetForm(); setDetail(null); }
           else resetReview();
-          await refreshAfterConflict(command.submission.draft.documentId, error, command.kind === "review");
+          await refreshAfterConflict(command.submission.draft.documentId, error, command.kind !== "submit");
         } else {
-          setNotice(`${command.kind === "submit" ? "报销申请" : "报销审核"}未执行：${financeError(error)}。请重新读取并核对后再操作。`);
+          const action = command.kind === "submit" ? "报销申请" : command.kind === "review" ? "报销审核" : "内部欢乐豆划拨";
+          setNotice(`${action}未执行：${financeError(error)}。请重新读取并核对后再操作。`);
         }
       }
       if (isFinanceAuthError(error)) throw error;
@@ -283,6 +301,12 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
     await execute({ kind: "review", submission });
   };
 
+  const executeTransfer = async (): Promise<void> => {
+    if (!canReview || detail === null || detail.status !== "APPROVED" || pending || !fresh) return;
+    const submission = client.createReimbursementExecuteSubmission({ documentId: detail.id, expectedVersion: detail.version });
+    await execute({ kind: "execute", submission });
+  };
+
   return <section className="finance-panel" data-finance-module="reimbursement" data-mode={mode} aria-label={personal ? "我的报销" : "报销管理记录"} hidden={!active}>
     <div className="section-heading"><div><p className="eyebrow">{personal ? "我的账户" : "财务查询"}</p><h2>{personal ? "普通报销申请" : "普通报销管理"}</h2>
       <p>{personal ? "提交完整申请原件后等待总部财务人工审核；申请本身不划拨欢乐豆。" : "查看普通报销申请、审核结果与原件。仅总部财务可审核，管理员与系统所有者仅可查看。"}</p></div>
@@ -292,8 +316,8 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
     {notice && <p className="finance-notice" role="alert">{notice}</p>}
     {validation && <p className="finance-notice" role="alert">{validation.message}</p>}
     {pendingCreate !== null && <Card className="finance-warning" data-reimbursement-pending="create"><p>草稿创建结果待确认，原请求已保留。</p><Button disabled={busy} onClick={() => void run(createDraft)}>安全重试原创建请求</Button></Card>}
-    {pendingCommand !== null && <Card className="finance-warning" data-reimbursement-pending={pendingCommand.kind}><p>{pendingCommand.kind === "submit" ? "报销申请结果待确认。金额、原因与原件已锁定。" : `审核结果待确认。本次审核决定：${pendingCommand.submission.draft.decision === "APPROVE" ? "批准" : "驳回"}；审核原因已锁定。`}</p>
-      <Button disabled={busy} onClick={() => void run(() => execute(pendingCommand))}>{pendingCommand.kind === "submit" ? "安全重试原报销申请" : "安全重试原审核操作"}</Button>
+    {pendingCommand !== null && <Card className="finance-warning" data-reimbursement-pending={pendingCommand.kind}><p>{pendingCommand.kind === "submit" ? "报销申请结果待确认。金额、原因与原件已锁定。" : pendingCommand.kind === "review" ? `审核结果待确认。本次审核决定：${pendingCommand.submission.draft.decision === "APPROVE" ? "批准" : "驳回"}；审核原因已锁定。` : "内部欢乐豆划拨结果待确认；原请求已锁定。"}</p>
+      <Button disabled={busy} onClick={() => void run(() => execute(pendingCommand))}>{pendingCommand.kind === "submit" ? "安全重试原报销申请" : pendingCommand.kind === "review" ? "安全重试原审核操作" : "安全重试原内部划拨"}</Button>
     </Card>}
     {!loaded && <p>{busy ? "正在读取报销记录…" : "暂未读取到报销记录，请点击刷新。"}</p>}
     {loaded && !fresh && <p className="finance-muted">记录尚未刷新，请先核对最新结果再发起新操作。</p>}
@@ -322,12 +346,13 @@ export function ReimbursementPanel({ client, busy, active, run, onUnconfirmedCha
     {detail !== null && <Card className="finance-card"><div className="section-heading"><h3>报销详情</h3><Button variant="outline" disabled={locked || uploadCount > 0} onClick={() => { setDetail(null); resetReview(); }}>收起报销详情</Button></div>
       <dl className="finance-detail"><dt>状态</dt><dd>{statusLabel(detail.status)}</dd><dt>金额</dt><dd>{formatCentsAsBeans(detail.amountCents)} 欢乐豆</dd><dt>报销原因</dt><dd>{detail.reason}</dd><dt>申请人</dt><dd>{detail.applicantDisplayName}</dd><dt>申请时间</dt><dd>{timeLabel(detail.submittedAt)}</dd>{detail.status === "COMPLETED" && detail.completedAt && <><dt>内部划拨完成时间</dt><dd>{timeLabel(detail.completedAt)}</dd></>}<dt>申请编号</dt><dd>{detail.id}</dd>
         {detail.decision && <><dt>审核决定</dt><dd>{detail.decision.decision === "APPROVED" ? "审核通过" : "已驳回"}</dd><dt>审核原因</dt><dd>{detail.decision.reason}</dd><dt>审核时间</dt><dd>{timeLabel(detail.decision.decidedAt)}</dd></>}
-        {!personal && detail.management?.completion && <><dt>内部划拨来源账户</dt><dd>{detail.management.completion.sourceAccountId}</dd><dt>内部划拨目标账户</dt><dd>{detail.management.completion.destinationAccountId}</dd><dt>执行人编号</dt><dd>{detail.management.completion.executedByPersonId}</dd><dt>执行账本事件编号</dt><dd>{detail.management.completion.ledgerEventId}</dd><dt>角色任命编号</dt><dd>{detail.management.completion.roleAssignmentId}</dd><dt>公司资金任命编号</dt><dd>{detail.management.completion.companyFundAssignmentId}</dd></>}
+        {!personal && detail.management?.completion && <><dt>内部划拨来源账户</dt><dd>{detail.management.completion.sourceAccountId}</dd><dt>内部划拨目标账户</dt><dd>{detail.management.completion.destinationAccountId}</dd><dt>执行人编号</dt><dd>{detail.management.completion.executedByPersonId}</dd></>}
       </dl>
       <p className="finance-muted">{detail.status === "PENDING_APPROVAL" ? "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : detail.status === "COMPLETED" ? "内部欢乐豆划拨已完成；此记录不表示银行卡到账，原申请和原件保留。" : "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。"}</p>
       {canReview && detail.status === "PENDING_APPROVAL" && <div className="finance-action-section" data-reimbursement-action="review"><h4>人工审核</h4><p>批准或驳回都会保留审核原因。批准只改变审核状态为待划拨，不会自动增加任何账户余额。</p><label>审核原因<textarea value={reviewReason} maxLength={1000} disabled={locked || uploadCount > 0 || !fresh} onChange={(event) => { setReviewReason(event.target.value); setValidation((current) => current?.field === "review" ? null : current); }} placeholder="填写审核依据或驳回原因" /></label>
         <div className="finance-action-buttons"><Button disabled={locked || uploadCount > 0 || !fresh || reviewReason.trim() === ""} onClick={() => void run(() => review("APPROVE"))}>批准报销申请</Button><Button variant="destructive" disabled={locked || uploadCount > 0 || !fresh || reviewReason.trim() === ""} onClick={() => void run(() => review("REJECT"))}>驳回报销申请</Button></div>
       </div>}
+      {canReview && detail.status === "APPROVED" && <div className="finance-action-section" data-reimbursement-action="execute"><h4>执行内部欢乐豆划拨</h4><p>此操作会按已审核记录从当前有效公司资金账户向申请人欢乐豆账户划拨；不表示银行卡到账。</p><Button disabled={locked || uploadCount > 0 || !fresh} onClick={() => void run(executeTransfer)}>执行内部欢乐豆划拨</Button></div>}
       {detail.attachments.map((item) => <div className="finance-attachment-row" key={item.versionId}><span>{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : item.purpose === "INVOICE" ? "发票" : "报销业务单据"} · {item.originalFilename}</span><AttachmentDownload client={client} versionId={item.versionId} filename={item.originalFilename} disabled={busy} run={run} /></div>)}
     </Card>}
   </section>;

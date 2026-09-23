@@ -628,6 +628,7 @@ export default function IndexPage(): ReactNode {
               }}
               onBusyChange={setReimbursementBusy}
               onUnconfirmedChange={setReimbursementUnconfirmed}
+              onDataMayChange={() => setOverview(null)}
             />
           )}
 
