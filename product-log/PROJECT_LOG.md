@@ -993,3 +993,10 @@
 - 主Agent实际验证：`npm run check`190/190（11.30秒）、`npm run db:check`25项；本地隔离合成库API全量PG100/100（230.81秒），随后对工资整条关联修复重跑工资read+writer11/11（31.47秒），新人员目录PG2/2（5.46秒），无失败或跳过。组织营收HTTP/client边界5/5、最新组织PG4/4及候选HTTP/client边界包含在统一检查中。证据 `/tmp/alliance-batch-final-check.log`、`/tmp/alliance-final-backend-pg.log`、`/tmp/alliance-wage-integrity-final.log`、`/tmp/alliance-directory-root-pg.log`。
 - 独立审查：P18奖金目录、P19归属、P20范围隔离、P21工资链已复核通过；P22工资凭证个人视角隔离已由57e3867提交并推送，远端同SHA核对。前端与Excel writer未计入本后端完成范围。未连接银行、真实教师资料或生产。
 - 迁移：0025从空合成库执行通过，追加结构与约束；代码回滚不替代数据迁移恢复。提交仅后端/shared及本日志、问题状态，保留用户原始副本删除与AGENTS副本，不提交其他任务在写的前端和worker文件。
+
+### DEV-011A｜2026-09-23｜完整备份的固定数据范围与一致快照预检查
+
+- 范围：新增 worker 固定注册表及只读预检查，覆盖当前0001–0025迁移的77张表；每列明确为直接导出、需转换或秘密排除。密码哈希、会话、提现HMAC不进入导出读取；银行卡密文字段、JSON和幂等标识须后续转换，不伪称已经完整导出。
+- 行为：实际schema与固定名单逐表逐列相等才接受；新增、缺失、未知列均拒绝。REPEATABLE READ READ ONLY事务持有一致快照，关闭后释放连接；只生成显式列计划，未生成xlsx、附件包、调度任务或可下载文件。
+- 主Agent验证：`DATABASE_URL=<本地合成库> node --test apps/worker/test/integration/postgres-export-preflight-live.test.mjs`，随机隔离schema，5/5、20.54秒、无跳过；覆盖秘密排除、未知表/列拒绝、并发提交不改变快照计数。证据 `/tmp/alliance-preflight-root-pg.log`。当前统一检查163/163、迁移静态检查25项通过；独立审查未发现P1/P2。
+- 依赖与边界：注册表对应0025迁移，该迁移已随6c41aff整合，本包单独提交。后续仍须实现安全字段转换、Excel工作表/manifest、附件原件完整性、异步调度及下载验权，不能将本预检查标为F14完成。
