@@ -15,6 +15,7 @@ const cloneSheets = () => JSON.parse(JSON.stringify(BUSINESS_BACKUP_SHEETS));
 
 test("business schema is an explicit, incomplete eight-table audit baseline", () => {
   const schema = createFullBackupBusinessSchema();
+  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v2");
   assert.equal(schema.schemaVersion, FULL_BACKUP_BUSINESS_SCHEMA_VERSION);
   assert.equal(schema.mode, "BUSINESS_SCHEMA_ONLY");
   assert.equal(schema.complete, false);
@@ -53,6 +54,31 @@ test("every fixed business source and row key is an actual transformed output co
       assert.deepEqual(sheet.rowKeyColumns.filter((item) => item.sourceTable === sourceTable).map((item) => item.sourceColumn), expectedKeys);
     }
   }
+});
+
+test("table 5 maps the stored wage, bonus, document, reversal, and ledger traceability facts", () => {
+  const table5 = BUSINESS_BACKUP_SHEETS.find((sheet) => sheet.tableNumber === 5);
+  assert.ok(table5);
+  const columnsByTable = Object.fromEntries([...new Set(table5.columns.map((column) => column.sourceTable))].map((sourceTable) => [
+    sourceTable,
+    table5.columns.filter((column) => column.sourceTable === sourceTable).map((column) => column.sourceColumn),
+  ]));
+  assert.deepEqual(columnsByTable, {
+    finance_document: ["id", "applicant_person_id", "kind", "status", "version", "created_at", "updated_at"],
+    cash_wage_plan_version: ["teacher_person_id", "salary_month", "version_no", "planned_cash_cents", "planned_deduction_cents", "active", "changed_by_person_id", "changed_at", "reason", "applies_to_future_months"],
+    cash_wage_todo: ["teacher_person_id", "salary_month", "plan_version_id", "generated_at"],
+    cash_wage_confirmation: ["finance_document_id", "todo_id", "teacher_person_id", "destination_account_id", "salary_month", "cash_paid_cents", "deduction_cents", "paid_at", "reason", "ledger_event_id", "confirmed_by_person_id", "created_at", "correction_of_finance_document_id", "destination_before_cents", "destination_after_cents"],
+    project_bonus_transfer: ["finance_document_id", "project_no", "project_name", "recipient_person_id", "destination_account_id", "source_fund_id", "source_account_id", "amount_cents", "reason", "ledger_event_id", "granted_by_person_id", "created_at", "project_name_version_id"],
+    bonus_project_name_version: ["project_no", "version_no", "display_name", "changed_by_person_id", "actor_subject_code", "actor_scope_type", "change_source", "reason", "created_at"],
+    salary_benefit_reversal: ["reversal_finance_document_id", "original_finance_document_id", "original_ledger_event_id", "reversal_ledger_event_id", "reversed_by_person_id", "reason", "created_at"],
+    ledger_entry: ["event_id", "account_id", "category_key", "amount_cents", "created_at"],
+  });
+  assert.deepEqual(table5.rowKeyColumns.filter((key) => key.sourceTable === "finance_document").map((key) => key.sourceColumn), ["id"]);
+  const documentDescriptions = table5.columns.filter((column) => column.sourceTable === "finance_document").map((column) => column.relationKeyDescription);
+  const ledgerDescriptions = table5.columns.filter((column) => column.sourceTable === "ledger_entry").map((column) => column.relationKeyDescription);
+  assert.equal(documentDescriptions.every((description) => description.includes("完整关联单据事实来源") && (description.includes("不筛选") || description.includes("不声称全部行"))), true);
+  assert.equal(ledgerDescriptions.every((description) => description.includes("完整关联账本事实来源") && description.includes("不筛选或聚合")), true);
+  assert.equal(table5.columns.some((column) => column.sourceTable === "project_bonus_transfer" && column.sourceColumn === "project_name_version_id" && column.relationKeyDescription.includes("bonus_project_name_version.id")), true);
 });
 
 test("validation rejects duplicate sheets, duplicate mapped columns, unknown columns, and secret source columns", () => {
