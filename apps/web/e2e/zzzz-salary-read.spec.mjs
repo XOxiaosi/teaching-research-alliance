@@ -1,0 +1,33 @@
+import { test, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
+const password='Local-demo-only-2026';
+async function login(page, phone){await page.goto('/');await page.getByLabel('手机号',{exact:true}).fill(phone);await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:'登录',exact:true}).click();await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();}
+test('总部工资管理读取与身份切换清理', async ({page})=>{
+ await page.clock.setFixedTime(new Date('2026-09-23T04:00:00Z'));
+ let token=''; page.on('response', async response => { if (response.url().endsWith('/v1/session') && response.ok()) token=(await response.json()).data.sessionId; });
+ await login(page,'13800000003');
+ await page.getByLabel('当前身份',{exact:true}).selectOption('HEADQUARTERS_FINANCE');
+ await expect(page.getByRole('button',{name:'工资管理',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'工资管理',exact:true}).click();
+ await expect(page.locator('h1').filter({hasText:'工资管理'})).toBeVisible();
+ await expect(page.getByLabel('工资月份',{exact:true})).toBeVisible();
+ await expect(page.getByText('演示授课老师',{exact:true})).toBeVisible();
+ await expect(page.getByText('49.00 元',{exact:true})).toBeVisible();
+ await expect(page.getByText('演示授课老师 · 2026-09 · 49.00 元 · 已完成',{exact:true})).toBeVisible();
+ await page.getByText('演示授课老师 · 2026-09 · 49.00 元 · 已完成',{exact:true}).click();
+ await expect(page.getByRole('heading',{name:'演示授课老师 · 详情',exact:true})).toBeVisible();
+ await expect(page.getByText('演示工资-SUPPORTING_DOCUMENT.png')).toBeVisible();
+ await expect(page.getByRole('button',{name:'下载原件',exact:true}).first()).toBeVisible();
+ const attachmentResponse = page.waitForResponse(response => response.url().includes('/v1/finance/attachments/') && response.url().endsWith('/content'));
+ await page.getByRole('button',{name:'下载原件',exact:true}).first().click();
+ const downloaded = await attachmentResponse;
+ expect(downloaded.status()).toBe(200);
+ const direct = await page.request.get(downloaded.url(), { headers: { authorization: `Bearer ${token}` } });
+ expect(direct.status()).toBe(200);
+ const bytes = await direct.body();
+ expect(bytes.length).toBe(74);
+ const digest = createHash('sha256').update(bytes).digest('hex');
+ expect(digest).toBe('0abc0b2e70b436996e19700644aa232ce745575c8b44402141b6118f9f33c9f6');
+ await page.getByLabel('当前身份',{exact:true}).selectOption('TEACHING_TEACHER');
+ await expect(page.getByRole('button',{name:'工资管理',exact:true})).toHaveCount(0);
+});

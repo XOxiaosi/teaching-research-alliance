@@ -17,6 +17,8 @@ import { FinancialPanel } from "./financial-panel";
 import { ReimbursementPanel } from "./reimbursement-panel";
 import { RefundPanel, type RefundFeeCandidate } from "./refund-panel";
 import { VenueBoardPanel } from "./venue-board-panel";
+import { OrganizationRevenuePanel, canReadMiniOrganizationRevenue } from "./organization-revenue-panel";
+import { CashWagePanel } from "./cash-wage-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -322,6 +324,7 @@ export default function IndexPage(): ReactNode {
   const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
     && currentContext.campusId === undefined && currentContext.venueId === undefined
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext.subject);
+  const canReadSalary = managedFinance;
   const canReadOwnRefunds = currentContext?.subject === "TEACHING_TEACHER";
   const canReadManagedRefunds = managedFinance;
   const refundFeeCandidates: readonly RefundFeeCandidate[] = referrals.flatMap((referral) => referral.weeklyFees.flatMap((fee) => (
@@ -630,6 +633,9 @@ export default function IndexPage(): ReactNode {
               onUnconfirmedChange={setRefundUnconfirmed}
             />
           )}
+
+          {canReadMiniOrganizationRevenue(currentContext ?? null) && <OrganizationRevenuePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
+          {canReadSalary && <CashWagePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
 
           {canReadVenueBoard && (
             <VenueBoardPanel

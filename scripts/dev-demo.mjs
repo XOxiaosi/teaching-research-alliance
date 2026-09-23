@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, randomBytes } from "node:crypto";
 import { DEFAULT_RATE_POLICY_VALUES } from "@teaching-research-alliance/domain";
 import { createTestDatabase } from "../apps/api/test/integration/postgres-test-database.mjs";
-import { PostgresRefundSubmissionService, PostgresRefundReviewService, PostgresRefundReadService, PostgresReimbursementSubmissionService, PostgresReimbursementReviewService, PostgresReimbursementReadService, createApiServer, PostgresSelfPurchaseReversalService, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, PostgresVenueService, PostgresVenueReadService, PostgresVenueBoardReadService, hashPassword } from "../apps/api/dist/main.js";
+import { PostgresRefundSubmissionService, PostgresRefundReviewService, PostgresRefundReadService, PostgresReimbursementSubmissionService, PostgresReimbursementReviewService, PostgresReimbursementReadService, createApiServer, PostgresSelfPurchaseReversalService, PostgresSelfPurchaseService, PostgresSelfPurchaseReadService, PostgresCompanyFundService, FinanceSensitiveFieldCrypto, PostgresWithdrawalService, PostgresWithdrawalReadService, LocalAttachmentStore, PostgresFinanceAttachmentUploadService, PostgresFinanceAttachmentReadService, PostgresSessionService, PostgresPersonalReadService, PostgresTeachingReadService, PostgresReferralCreationService, PostgresSentReferralReadService, PostgresReferralAcceptanceService, PostgresReferralLifecycleService, PostgresFinanceDraftService, PostgresFinanceAttachmentService, PostgresWeeklyFeeService, PostgresVenueService, PostgresVenueReadService, PostgresVenueBoardReadService, PostgresCashWageReadService, PostgresOrganizationRevenueReadService, PostgresSalaryBenefitsService, hashPassword } from "../apps/api/dist/main.js";
 
 // Explicitly synthetic, isolated, disposable local demonstration data.
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL_REQUIRED");
@@ -79,6 +79,7 @@ try {
        VALUES ($1::uuid, 'REGION', $2), ($3::uuid, 'CAMPUS', $4)`,
       [ids.region, `测试分区-${suffix}`, ids.campus, `测试校区-${suffix}`]
     );
+    await pool.query("INSERT INTO campus_region_assignment(campus_id,region_id,valid_from,created_by) VALUES($1::uuid,$2::uuid,$3::timestamptz,$4::uuid)", [ids.campus,ids.region,validFrom,ids.admin]);
     await pool.query(
       `INSERT INTO teacher_profile (person_id, business_identity, region_id, campus_id, employment_status)
        VALUES ($1::uuid, 'ACADEMIC_PLANNER', $2::uuid, $3::uuid, 'ACTIVE'),
@@ -103,6 +104,7 @@ try {
     await addRole(pool, ids.teacherB, "TEACHING_TEACHER", "SELF", ids.teacherB, ids.admin);
     await addRole(pool, ids.platformFinance, "HEADQUARTERS_FINANCE", "GLOBAL", null, ids.admin);
     await addRole(pool, ids.platformFinance, "TEACHING_TEACHER", "SELF", ids.platformFinance, ids.admin);
+    await addRole(pool, ids.platformFinance, "CAMPUS_PRINCIPAL", "CAMPUS", ids.campus, ids.admin);
     await addRole(pool, ids.admin, "SYSTEM_ADMIN", "GLOBAL", null, ids.admin);
     await addRole(pool, ids.regionFinance, "REGION_FINANCE", "REGION", ids.region, ids.admin);
     await addRelationship(pool, ids.planner, "PLANNING_MENTOR", ids.planningMentor);
@@ -149,9 +151,14 @@ try {
 
     await pool.query("INSERT INTO teacher_student_record(id,owner_teacher_id,course_context_id,display_name) VALUES ($1,$2,'数学','演示学生 小禾')", [ids.student,ids.teacher]);
     await pool.query("INSERT INTO referral_case(id,teacher_student_record_id,referrer_person_id,receiver_person_id,referrer_identity,status,submitted_at,unaccepted_expires_at) VALUES ($1,$2,$3,$4,'ACADEMIC_PLANNER','PENDING',$5,$6)", [ids.referral,ids.student,ids.planner,ids.teacher,at,new Date(at.getTime()+21*86400000)]);
+    if (process.env.DEMO_WITH_ORGANIZATION_FEES === "1") {
+      const teacherContext = { personId: ids.teacher, subject: "TEACHING_TEACHER", scope: "SELF" };
+      await new PostgresReferralAcceptanceService(pool).accept(teacherContext, ids.referral, { venueId: ids.venue, expectedVersion: 1 }, `demo-org-accept-${suffix}`, at);
+      await new PostgresWeeklyFeeService(pool).recordWeeklyFee(teacherContext, { referralCaseId: ids.referral, teachingWeekId: ids.week, venueId: ids.venue, settlementMonth: "2026-09-01", grossAmountCents: 100000n }, `demo-org-fee-${suffix}`);
+    }
     const password = "Local-demo-only-2026";
     const hash = await hashPassword(password);
-    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"]]) {
+    for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"],[ids.regionFinance,"13800000005"]]) {
       await pool.query("INSERT INTO user_account(person_id,phone_normalized,password_hash,login_status) VALUES ($1,$2,$3,'ACTIVE')", [personId,phone,hash]);
     }
     await pool.query("UPDATE person SET nickname='演示授课老师' WHERE id=$1", [ids.teacher]);
@@ -161,7 +168,23 @@ try {
     attachmentRoot=await mkdtemp(join(tmpdir(),"alliance-demo-attachments-"));
     const attachmentStore=await LocalAttachmentStore.create(attachmentRoot,fileURLToPath(new URL("../",import.meta.url)));
     const financeCrypto=new FinanceSensitiveFieldCrypto("synthetic-demo",{"synthetic-demo":randomBytes(32).toString("hex")});
-    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),refunds:new PostgresRefundSubmissionService(pool,attachmentStore),refundReviews:new PostgresRefundReviewService(pool,attachmentStore),refundReads:new PostgresRefundReadService(pool),reimbursements:new PostgresReimbursementSubmissionService(pool,attachmentStore),reimbursementReviews:new PostgresReimbursementReviewService(pool,attachmentStore),reimbursementReads:new PostgresReimbursementReadService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),venues:new PostgresVenueService(pool),venueReads:new PostgresVenueReadService(pool),venueBoards:new PostgresVenueBoardReadService(pool),now:()=>at});
+    const salary = new PostgresSalaryBenefitsService(pool, attachmentStore);
+    const salaryFundId = randomUUID();
+    await pool.query("INSERT INTO company_finance_fund(id,kind,fund_code,display_name,organization_unit_id,status,version,created_by_person_id,created_at,updated_at) VALUES($1::uuid,'HEADQUARTERS_FINANCE_OPERATING',$2,$3,NULL,'ACTIVE',1,$4::uuid,$5,$5)", [salaryFundId, "HQ_SALARY", "演示工资账户", ids.platformFinance, at.toISOString()]);
+    await pool.query("INSERT INTO company_finance_fund_assignment(id,fund_id,duty_subject,scope_type,scope_id,responsibility_code,valid_from,created_by_person_id,created_at) VALUES($1::uuid,$2::uuid,'HEADQUARTERS_FINANCE','GLOBAL',NULL,'FINANCE_OPERATING_SOURCE',$3,$4::uuid,$3)", [randomUUID(), salaryFundId, at.toISOString(), ids.platformFinance]);
+    const salaryContext = { personId: ids.platformFinance, subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL" };
+    const salaryPlan = await salary.setCashWagePlan(salaryContext, { teacherPersonId: ids.teacher, salaryMonth: "2026-09-01", plannedCashCents: "4900", plannedDeductionCents: "4900", active: true, reason: "演示九月工资" }, `demo-salary-plan-${suffix}`, at);
+    const salaryTodos = await salary.generateCashWageTodos(salaryContext, `demo-salary-todo-${suffix}`, at);
+    const salaryDocument = await salary.createEvidenceDocument(salaryContext, "CASH_WAGE", `demo-salary-doc-${suffix}`, at);
+    const salaryBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4AWP8DwQMQMDEAAUAPfgEADYYS7QAAAAASUVORK5CYII=", "base64");
+    const salaryAttachmentIds = [];
+    for (const purpose of ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT"]) {
+      const reserved = await new PostgresFinanceAttachmentService(pool).reserve(salaryContext, salaryDocument.id, { purpose, originalFilename: `演示工资-${purpose}.png`, declaredMediaType: "image/png", declaredSizeBytes: salaryBytes.length }, `demo-salary-attachment-${purpose}-${suffix}`, at);
+      await new PostgresFinanceAttachmentUploadService(pool, attachmentStore).upload(salaryContext, reserved.versionId, (async function* () { yield salaryBytes; })(), at);
+      salaryAttachmentIds.push(reserved.versionId);
+    }
+    await salary.confirmCashWage(salaryContext, { documentId: salaryDocument.id, expectedVersion: 1, todoId: salaryTodos[0].id, cashPaidCents: "4900", deductionCents: "4900", paidAt: at.toISOString(), reason: "演示工资已发", attachmentVersionIds: salaryAttachmentIds }, `demo-salary-confirm-${suffix}`, at);
+    server = createApiServer({sessions:new PostgresSessionService(pool),personal:new PostgresPersonalReadService(pool),teaching:new PostgresTeachingReadService(pool),referrals:new PostgresReferralCreationService(pool),sentReferrals:new PostgresSentReferralReadService(pool),referralAcceptance:new PostgresReferralAcceptanceService(pool),referralLifecycle:new PostgresReferralLifecycleService(pool),refunds:new PostgresRefundSubmissionService(pool,attachmentStore),refundReviews:new PostgresRefundReviewService(pool,attachmentStore),refundReads:new PostgresRefundReadService(pool),reimbursements:new PostgresReimbursementSubmissionService(pool,attachmentStore),reimbursementReviews:new PostgresReimbursementReviewService(pool,attachmentStore),reimbursementReads:new PostgresReimbursementReadService(pool),selfPurchases:new PostgresSelfPurchaseService(pool,attachmentStore),selfPurchaseReversals:new PostgresSelfPurchaseReversalService(pool),selfPurchaseReads:new PostgresSelfPurchaseReadService(pool),companyFunds:new PostgresCompanyFundService(pool),financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,attachmentStore),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,attachmentStore),withdrawals:new PostgresWithdrawalService(pool,attachmentStore,financeCrypto),withdrawalReads:new PostgresWithdrawalReadService(pool,financeCrypto),weeklyFees:new PostgresWeeklyFeeService(pool),venues:new PostgresVenueService(pool),venueReads:new PostgresVenueReadService(pool),venueBoards:new PostgresVenueBoardReadService(pool),cashWageReads:new PostgresCashWageReadService(pool),organizationRevenue:new PostgresOrganizationRevenueReadService(pool),now:()=>at});
     await new Promise((resolve,reject) => { server.once('error',reject); server.listen(port,'127.0.0.1',resolve); });
     console.log(`合成演示API http://127.0.0.1:${port}；业务时钟固定为北京时间2026-09-21 12:00；正常退出时删除本次独立演示数据。`);
     console.log(`授课老师：13800000001；规划师：13800000002；总部财务：13800000003；管理员：13800000004；合成演示密码：${password}`);
