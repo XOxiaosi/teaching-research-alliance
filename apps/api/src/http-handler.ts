@@ -339,6 +339,15 @@ export type ApiServices = Readonly<{
       at: Date,
     ) => unknown | Promise<unknown>;
   }>;
+  reimbursementTransfers?: Readonly<{
+    execute: (
+      context: RoleContext,
+      id: string,
+      draft: { expectedVersion: number },
+      key: string,
+      at: Date,
+    ) => unknown | Promise<unknown>;
+  }>;
   reimbursementReads?: Readonly<{
     listOwn: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listManaged: (context: RoleContext) => unknown | Promise<unknown>;
@@ -660,6 +669,7 @@ const errorStatus = (code: string): number => {
   if (
     [
       "REIMBURSEMENT_STATE_CONFLICT",
+      "REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING",
       "REFUND_STATE_CONFLICT",
       "WEEKLY_FEE_REFUNDED",
       "SALARY_BENEFIT_STATE_CONFLICT",
@@ -2162,6 +2172,41 @@ export const handleRequest = async (
             expectedVersion: body.expectedVersion,
             reason: requiredString(body, "reason"),
           },
+          requiredString(body, "idempotencyKey"),
+          at,
+        ),
+      );
+    }
+    const reimbursementExecutePath = request.path.match(
+      /^\/v1\/finance\/reimbursements\/([^/]+)\/execute$/,
+    );
+    if (reimbursementExecutePath !== null && request.method === "POST") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      const context = currentContext(
+        await services.sessions.get(sessionIdFrom(body), at),
+      );
+      if (!services.reimbursementTransfers)
+        throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if (
+        Object.keys(body).some(
+          (key) =>
+            ![
+              "sessionId",
+              "expectedVersion",
+              "idempotencyKey",
+            ].includes(key),
+        ) ||
+        typeof body.expectedVersion !== "number" ||
+        !Number.isSafeInteger(body.expectedVersion) ||
+        body.expectedVersion < 1
+      )
+        throw new Error("INVALID_INPUT");
+      return success(
+        await services.reimbursementTransfers.execute(
+          context,
+          reimbursementExecutePath[1]!,
+          { expectedVersion: body.expectedVersion },
           requiredString(body, "idempotencyKey"),
           at,
         ),

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ACTIONS,
+  API_ERROR_CODES,
   ENDPOINT_CONTRACTS,
   PERMISSION_RULES,
   hasPermission,
@@ -65,6 +66,26 @@ test("普通报销审核独立于个人提交和管理员查阅，不宣告通�
   assert.equal(hasPermission('REGION_FINANCE','READ_MANAGED_REIMBURSEMENT'),false);
   assert.equal(ENDPOINT_CONTRACTS.some(item=>item.path==='/v1/finance/documents/:documentId/approve'),false);
   for(const action of ['approve','reject'])assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===`/v1/finance/reimbursements/:documentId/${action}`).action,'REVIEW_REIMBURSEMENT');
+});
+
+test("普通报销执行严格限定总部财务全局动作，系统管理员与所有者仅可读取",()=>{
+  assert.equal(ACTIONS.includes("EXECUTE_REIMBURSEMENT"), true);
+  assert.equal(permissionScope("HEADQUARTERS_FINANCE", "EXECUTE_REIMBURSEMENT"), "GLOBAL");
+  assert.equal(hasPermission("HEADQUARTERS_FINANCE", "EXECUTE_REIMBURSEMENT"), true);
+  for (const subject of ["SYSTEM_ADMIN", "SYSTEM_OWNER", "REGION_FINANCE", "CAMPUS_PRINCIPAL", "TEACHING_TEACHER"]) {
+    assert.equal(hasPermission(subject, "EXECUTE_REIMBURSEMENT"), false);
+  }
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/finance/reimbursements/:documentId/execute"),
+    {
+      method: "POST",
+      path: "/v1/finance/reimbursements/:documentId/execute",
+      action: "EXECUTE_REIMBURSEMENT",
+      responseVersion: "reimbursement.v1",
+      requiresRoleContext: true,
+    },
+  );
+  assert.equal(API_ERROR_CODES.includes("REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING"), true);
 });
 
 test("契约规则没有重复动作定义", () => {

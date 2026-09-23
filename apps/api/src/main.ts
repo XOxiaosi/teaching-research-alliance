@@ -42,6 +42,7 @@ export { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-s
 export { PostgresReimbursementSubmissionService } from "./postgres-reimbursement-submission-service.js";
 export { PostgresReimbursementReviewService } from "./postgres-reimbursement-review-service.js";
 export { PostgresReimbursementReadService } from "./postgres-reimbursement-read-service.js";
+export { PostgresReimbursementTransferService } from "./postgres-reimbursement-transfer-service.js";
 
 export { PostgresRefundSubmissionService } from "./postgres-refund-submission-service.js";
 export { PostgresRefundReviewService } from "./postgres-refund-review-service.js";

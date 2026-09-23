@@ -84,3 +84,86 @@ test('普通报销真实HTTP：提交锁定原件，财务审核不划豆，管�
     assert.equal((await success(await request(`/documents/${draft.id}/attachments`,undefined,3))).attachments.length,2);
   }finally{if(server)await new Promise(resolve=>server.close(resolve));await db.close();await rm(root,{recursive:true,force:true});}
 });
+
+test('普通报销execute真实HTTP：权限、严格入参、总部划拨幂等、完成读取与跨财年零副作用',async()=>{
+  const db=await createTestDatabase(process.env.DATABASE_URL),pool=db.pool;
+  const root=await mkdtemp(join(tmpdir(),'alliance-reimbursement-execute-http-'));
+  let at=new Date('2026-09-21T04:00:00Z'),server,missingServiceServer;
+  const [applicantId,hqId,adminId,otherId,ownerId]=[randomUUID(),randomUUID(),randomUUID(),randomUUID(),randomUUID()];
+  try{
+    for(const [id,name] of [[applicantId,'execute-http-applicant'],[hqId,'execute-http-hq'],[adminId,'execute-http-admin'],[otherId,'execute-http-other'],[ownerId,'execute-http-owner']])
+      await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES($1,$2,'合成人员','ACTIVE')",[id,name]);
+    const destinationAccountId=randomUUID(),fundId=randomUUID(),sourceAccountId=randomUUID(),assignmentId=randomUUID();
+    await pool.query("INSERT INTO settlement_account(id,owner_type,owner_id,account_code,status) VALUES($1,'PERSON',$2,$3,'ACTIVE'),($4,'COMPANY',$5,$6,'ACTIVE')",[destinationAccountId,applicantId,`person:${applicantId}`,sourceAccountId,fundId,`company:${fundId}`]);
+    await pool.query("INSERT INTO account_balance_projection(account_id,balance_cents) VALUES($1,20),($2,1000)",[destinationAccountId,sourceAccountId]);
+    await pool.query("INSERT INTO role_assignment(id,person_id,subject_code,scope_type,scope_id,valid_from,created_by,created_at) VALUES($1,$2,'HEADQUARTERS_FINANCE','GLOBAL',NULL,$3,$2,$3)",[randomUUID(),hqId,at.toISOString()]);
+    await pool.query("INSERT INTO company_finance_fund(id,kind,fund_code,display_name,organization_unit_id,status,version,created_by_person_id,created_at,updated_at) VALUES($1,'HEADQUARTERS_FINANCE_OPERATING','HQ_HTTP_EXECUTE','总部HTTP执行测试',NULL,'ACTIVE',1,$2,$3,$3)",[fundId,hqId,at.toISOString()]);
+    await pool.query("INSERT INTO company_finance_fund_assignment(id,fund_id,duty_subject,scope_type,scope_id,responsibility_code,valid_from,created_by_person_id,created_at) VALUES($1,$2,'HEADQUARTERS_FINANCE','GLOBAL',NULL,'FINANCE_OPERATING_SOURCE',$3,$4,$3)",[assignmentId,fundId,at.toISOString(),hqId]);
+    let sequence=0;
+    const sessions=new SessionService({accounts:[applicantId,hqId,adminId,otherId,ownerId].map((personId,index)=>({accountId:personId,personId,phoneNormalized:`1360000000${index}`,credentialDigest:'synthetic-only',status:'ACTIVE'})),assignments:[
+      {personId:applicantId,subject:'TEACHING_TEACHER',scope:'SELF',validFrom:new Date('2026-01-01')},
+      {personId:hqId,subject:'HEADQUARTERS_FINANCE',scope:'GLOBAL',validFrom:new Date('2026-01-01')},
+      {personId:adminId,subject:'SYSTEM_ADMIN',scope:'GLOBAL',validFrom:new Date('2026-01-01')},
+      {personId:otherId,subject:'TEACHING_TEACHER',scope:'SELF',validFrom:new Date('2026-01-01')},
+      {personId:ownerId,subject:'SYSTEM_OWNER',scope:'GLOBAL',validFrom:new Date('2026-01-01')}],sessionIdFactory:()=>`execute-http-token-${++sequence}`});
+    for(let i=0;i<5;i++)sessions.login(`1360000000${i}`,'synthetic-only',at);
+    sessions.switchRole('execute-http-token-1','TEACHING_TEACHER',at);
+    sessions.switchRole('execute-http-token-2','HEADQUARTERS_FINANCE',at);
+    sessions.switchRole('execute-http-token-3','SYSTEM_ADMIN',at);
+    sessions.switchRole('execute-http-token-4','TEACHING_TEACHER',at);
+    sessions.switchRole('execute-http-token-5','SYSTEM_OWNER',at);
+    const store=await LocalAttachmentStore.create(root,fileURLToPath(new URL('../../../../',import.meta.url)));
+    server=createApiServer({sessions,weeklyFees:{},financeDrafts:new PostgresFinanceDraftService(pool),financeAttachments:new PostgresFinanceAttachmentService(pool),
+      financeAttachmentUploads:new PostgresFinanceAttachmentUploadService(pool,store),financeAttachmentReads:new PostgresFinanceAttachmentReadService(pool,store),
+      reimbursements:new PostgresReimbursementSubmissionService(pool,store),reimbursementReviews:new PostgresReimbursementReviewService(pool,store),reimbursementReads:new PostgresReimbursementReadService(pool),
+      reimbursementTransfers:new (await import('../../dist/postgres-reimbursement-transfer-service.js')).PostgresReimbursementTransferService(pool,store),now:()=>at});
+    await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+    const base=`http://127.0.0.1:${server.address().port}/v1/finance`;
+    const request=(path,body,who=2,extra={})=>fetch(base+path,{method:body===undefined?'GET':'POST',headers:{...(who===null?{}:{authorization:`Bearer execute-http-token-${who}`}),...(body instanceof Uint8Array?{}:{'content-type':'application/json'}),...extra},...(body===undefined?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})});
+    const json=async response=>({status:response.status,body:await response.json()});
+    const success=async response=>{const result=await json(response);assert.equal(result.status,200,JSON.stringify(result.body));return result.body.data;};
+    const bytes=PNG.sync.write({width:2,height:2,data:Buffer.alloc(16,191)});
+    const createApproved=async(key,createdAt=at)=>{
+      at=createdAt;
+      const draft=await success(await request('/drafts',{kind:'REIMBURSEMENT',idempotencyKey:key},1)),versions=[];
+      for(const purpose of ['SUPPORTING_DOCUMENT','APPLICATION_SCREENSHOT']){
+        const reserved=await success(await request(`/drafts/${draft.id}/attachment-uploads`,{purpose,originalFilename:'合成报销凭证.png',declaredMediaType:'image/png',declaredSizeBytes:bytes.length,idempotencyKey:key+purpose},1));
+        const uploaded=await request(`/attachment-uploads/${reserved.versionId}/content`,bytes,1,{'content-type':'image/png'});assert.equal(uploaded.status,200);
+        versions.push(reserved.versionId);
+      }
+      await success(await request(`/drafts/${draft.id}/reimbursement-submit`,{expectedVersion:1,amountCents:'150',reason:'HTTP执行测试',attachmentVersionIds:versions,idempotencyKey:key+'-submit'},1));
+      await success(await request(`/reimbursements/${draft.id}/approve`,{expectedVersion:2,reason:'总部财务审核通过',idempotencyKey:key+'-approve'},2));
+      return draft.id;
+    };
+    const command={sessionId:'ignored-by-bearer',expectedVersion:3,idempotencyKey:'execute-once'};
+    const approvedId=await createApproved('execute-main');
+    assert.equal((await request(`/reimbursements/${approvedId}/execute`,{expectedVersion:3,idempotencyKey:'execute-once'},null)).status,401);
+    assert.equal((await request(`/reimbursements/${approvedId}/execute`,command,1)).status,403);
+    assert.equal((await request(`/reimbursements/${approvedId}/execute`,command,3)).status,403);
+    assert.equal((await request(`/reimbursements/${approvedId}/execute`,command,5)).status,403);
+    assert.equal((await request(`/reimbursements/${approvedId}/execute`,{...command,extra:'reject-me'},2)).status,400);
+    missingServiceServer=createApiServer({sessions,weeklyFees:{},now:()=>at});
+    await new Promise((resolve,reject)=>{missingServiceServer.once('error',reject);missingServiceServer.listen(0,'127.0.0.1',resolve);});
+    const unavailable=await json(await fetch(`http://127.0.0.1:${missingServiceServer.address().port}/v1/finance/reimbursements/${approvedId}/execute`,{method:'POST',headers:{authorization:'Bearer execute-http-token-2','content-type':'application/json'},body:JSON.stringify(command)}));
+    assert.equal(unavailable.status,503);assert.equal(unavailable.body.error.code,'FINANCE_SERVICE_UNAVAILABLE');
+    await new Promise(resolve=>missingServiceServer.close(resolve));missingServiceServer=undefined;
+    assert.equal((await pool.query("SELECT balance_cents::text AS balance FROM account_balance_projection WHERE account_id=$1",[sourceAccountId])).rows[0].balance,'1000');
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM ledger_event')).rows[0].count,0);
+    const completed=await success(await request(`/reimbursements/${approvedId}/execute`,command,2));
+    assert.deepEqual(completed,{id:approvedId,status:'COMPLETED',version:4,replay:false});
+    assert.equal((await pool.query("SELECT balance_cents::text AS balance FROM account_balance_projection WHERE account_id=$1",[sourceAccountId])).rows[0].balance,'850');
+    assert.equal((await pool.query("SELECT balance_cents::text AS balance FROM account_balance_projection WHERE account_id=$1",[destinationAccountId])).rows[0].balance,'170');
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM ledger_event')).rows[0].count,1);
+    assert.deepEqual(await success(await request(`/reimbursements/${approvedId}/execute`,command,2)),{...completed,replay:true});
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM ledger_event')).rows[0].count,1);
+    const detail=await success(await request(`/reimbursements/${approvedId}`,undefined,2));assert.equal(detail.status,'COMPLETED');assert.equal(detail.management.completion.executedByPersonId,hqId);
+
+    const crossCreated=new Date('2026-08-31T15:00:00Z');
+    const crossId=await createApproved('execute-cross',crossCreated);
+    at=new Date('2026-08-31T16:00:00Z');
+    const cross=await json(await request(`/reimbursements/${crossId}/execute`,{expectedVersion:3,idempotencyKey:'cross-year'},2));
+    assert.equal(cross.status,409);assert.equal(cross.body.error.code,'REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING');
+    assert.deepEqual((await pool.query("SELECT status,version::text AS version FROM finance_document WHERE id=$1",[crossId])).rows,[{status:'APPROVED',version:'3'}]);
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM ledger_event')).rows[0].count,1);
+  }finally{if(missingServiceServer)await new Promise(resolve=>missingServiceServer.close(resolve));if(server)await new Promise(resolve=>server.close(resolve));await db.close();await rm(root,{recursive:true,force:true});}
+});
