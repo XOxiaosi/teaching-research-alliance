@@ -1,6 +1,14 @@
 export const SYSTEM_AUTHORITIES = ["SYSTEM_OWNER", "SYSTEM_ADMIN"] as const;
 export type SystemAuthority = (typeof SYSTEM_AUTHORITIES)[number];
 
+/**
+ * A registered person's baseline account role.  It is deliberately separate
+ * from TEACHING_TEACHER, which is a business identity with teaching and
+ * settlement responsibilities.
+ */
+export const BASE_IDENTITIES = ["TEACHER"] as const;
+export type BaseIdentity = (typeof BASE_IDENTITIES)[number];
+
 export const BUSINESS_IDENTITIES = [
   "TEACHING_TEACHER",
   "ACADEMIC_PLANNER",
@@ -74,10 +82,11 @@ export const ACTIONS = [
   "MANAGE_PERSON_RELATIONSHIPS",
   "VIEW_ALL_DATA",
   "EXPORT_FULL_BACKUP",
+  "MANAGE_ACCOUNT_ACCESS",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type PermissionSubject = SystemAuthority | Duty | BusinessIdentity;
+export type PermissionSubject = SystemAuthority | Duty | BusinessIdentity | BaseIdentity;
 export type PermissionScope =
   | "SELF"
   | "REGION"
@@ -112,10 +121,30 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("SYSTEM_OWNER", "CONFIGURE_RATES", "GLOBAL"),
   rule("SYSTEM_OWNER", "MANAGE_PERSON_RELATIONSHIPS", "GLOBAL"),
   rule("SYSTEM_OWNER", "EXPORT_FULL_BACKUP", "GLOBAL"),
+  rule("SYSTEM_OWNER", "MANAGE_ACCOUNT_ACCESS", "GLOBAL"),
   rule("SYSTEM_ADMIN", "VIEW_ALL_DATA", "GLOBAL"),
   rule("SYSTEM_ADMIN", "CONFIGURE_RATES", "GLOBAL"),
   rule("SYSTEM_ADMIN", "MANAGE_PERSON_RELATIONSHIPS", "GLOBAL"),
   rule("SYSTEM_ADMIN", "EXPORT_FULL_BACKUP", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "MANAGE_ACCOUNT_ACCESS", "GLOBAL"),
+  rule("TEACHER", "VIEW_OWN_PROFILE", "SELF"),
+  rule("TEACHER", "VIEW_OWN_BALANCE", "SELF"),
+  rule("TEACHER", "VIEW_OWN_CURRENT_YEAR_SETTLEMENT", "SELF"),
+  rule("TEACHER", "CREATE_PERSONAL_WITHDRAWAL", "SELF"),
+  rule("TEACHER", "CREATE_FINANCE_DOCUMENT", "SELF"),
+  rule("TEACHER", "READ_OWN_FINANCE_DRAFT", "SELF"),
+  rule("TEACHER", "UPLOAD_OWN_FINANCE_ATTACHMENT", "SELF"),
+  rule("TEACHER", "READ_OWN_FINANCE_ATTACHMENT", "SELF"),
+  rule("TEACHER", "READ_OWN_WITHDRAWAL", "SELF"),
+  rule("TEACHER", "SUBMIT_OWN_SELF_PURCHASE", "SELF"),
+  rule("TEACHER", "READ_OWN_SELF_PURCHASE", "SELF"),
+  rule("TEACHER", "SUBMIT_OWN_REIMBURSEMENT", "SELF"),
+  rule("TEACHER", "READ_OWN_REIMBURSEMENT", "SELF"),
+  rule("TEACHER", "CREATE_VENUE", "SELF"),
+  rule("TEACHER", "MANAGE_OWN_VENUE", "SELF"),
+  rule("TEACHER", "READ_OWN_VENUES", "SELF"),
+  rule("TEACHER", "VIEW_SHARED_VENUE_BOARD", "VENUE"),
+  rule("TEACHER", "WITHDRAW_FROM_SHARED_VENUE", "VENUE"),
   rule("TEACHING_TEACHER", "VIEW_OWN_PROFILE", "SELF"),
   rule("TEACHING_TEACHER", "VIEW_OWN_BALANCE", "SELF"),
   rule("TEACHING_TEACHER", "VIEW_OWN_CURRENT_YEAR_SETTLEMENT", "SELF"),
@@ -282,6 +311,11 @@ export const API_ERROR_CODES = [
   "ORGANIZATION_REVENUE_DATA_UNAVAILABLE",
   "ORGANIZATION_REVENUE_SERVICE_UNAVAILABLE",
   "UNAUTHENTICATED",
+  "LOGIN_RATE_LIMITED",
+  "ACCOUNT_ACCESS_SERVICE_UNAVAILABLE",
+  "REGISTRATION_PHONE_CONFLICT",
+  "REGISTRATION_NICKNAME_CONFLICT",
+  "ACCOUNT_NOT_FOUND",
   "PERSON_NOT_FOUND",
   "REFERRAL_NOT_FOUND",
   "REFERRAL_ARCHIVED",
@@ -440,6 +474,27 @@ export type GroupLeaderRelationshipPublishDto = Readonly<{
 }>;
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
+  {
+    method: "POST",
+    path: "/v1/accounts/register",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "account-registration.v1",
+    requiresRoleContext: false,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/accounts",
+    action: "MANAGE_ACCOUNT_ACCESS",
+    responseVersion: "account-directory.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/accounts/:accountId/password-reset",
+    action: "MANAGE_ACCOUNT_ACCESS",
+    responseVersion: "account-password-reset.v1",
+    requiresRoleContext: true,
+  },
   { method: "GET", path: "/v1/organizations/revenue", action: "VIEW_ORGANIZATION_REVENUE", responseVersion: "organization-revenue.v1", requiresRoleContext: true },
   {
     method: "GET",

@@ -18,6 +18,12 @@ export { PostgresWeeklyFeeService } from "./postgres-weekly-fee-service.js";
 export { PostgresPersonalReadService } from "./postgres-personal-read-service.js";
 
 export { PostgresSessionService } from "./postgres-session-service.js";
+export { PostgresAccountAccessService } from "./postgres-account-access-service.js";
+export {
+  normalizePhone,
+  normalizeNickname,
+  normalizeLegalName,
+} from "./identity-input.js";
 export { hashPassword, verifyPassword } from "./password.js";
 export { PostgresTeachingReadService } from "./postgres-teaching-read-service.js";
 export { PostgresReferralCreationService } from "./postgres-referral-creation-service.js";

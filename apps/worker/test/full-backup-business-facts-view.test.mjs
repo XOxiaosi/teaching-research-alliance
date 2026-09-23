@@ -80,6 +80,10 @@ test("projects fixed stored facts from a complete spool without joining or coerc
     });
     const accountSource = description.sources.find((source) => source.sourceTable === "user_account");
     assert.equal(accountSource.columns.some((column) => ["password_hash", "auth_version"].includes(column.sourceColumn)), false);
+    for (const sourceTable of ["auth_login_throttle", "auth_password_reset_command"]) {
+      const source = description.sources.find((item) => item.sourceTable === sourceTable);
+      assert.equal(source, undefined, `${sourceTable} is excluded from business facts`);
+    }
     assert.deepEqual(await rows(view, 1, "person"), [{
       sourceTable: "person", sourceRecordKey: '[["id","001"]]', rowNumber: "1", values: ["001", "", "INACTIVE"],
     }]);

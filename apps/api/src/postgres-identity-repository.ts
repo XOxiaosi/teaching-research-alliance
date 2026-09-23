@@ -1,4 +1,5 @@
 import {
+  BASE_IDENTITIES,
   BUSINESS_IDENTITIES,
   DUTIES,
   SYSTEM_AUTHORITIES,
@@ -34,7 +35,12 @@ type AssignmentRow = Readonly<{
   valid_to: Date | string | null;
 }>;
 
-const SUBJECTS: readonly string[] = [...SYSTEM_AUTHORITIES, ...DUTIES, ...BUSINESS_IDENTITIES];
+const SUBJECTS: readonly string[] = [
+  ...SYSTEM_AUTHORITIES,
+  ...BASE_IDENTITIES,
+  ...DUTIES,
+  ...BUSINESS_IDENTITIES,
+];
 const SCOPES: readonly string[] = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"];
 
 const asDate = (value: Date | string): Date => {

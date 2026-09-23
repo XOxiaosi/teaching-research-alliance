@@ -7,8 +7,9 @@ import { createFullBackupLayout } from "../dist/full-backup-layout.js";
 import { FullBackupSpool } from "../dist/full-backup-spool.js";
 
 const layout = createFullBackupLayout();
+const secretTables = new Set(layout.filter((item) => item.policy === "AUTH_SECRET_TABLE_EXCLUDED").map((item) => item.tableName));
 const columnsFor = (tableName) => {
-  if (tableName === "user_session") return [];
+  if (secretTables.has(tableName)) return [];
   if (tableName === "person") return ["id", "nickname"];
   if (tableName === "finance_withdrawal_submission") return ["finance_document_id", "recipient_name", "bank_account"];
   return ["id"];
@@ -78,7 +79,7 @@ const transformer = (options = {}) => ({
   },
 });
 
-test("固定77表按多批稳定NDJSON流式写入，摘要和异常清单不含原始敏感输入", async () => {
+test("固定84表按多批稳定NDJSON流式写入，摘要和异常清单不含原始敏感输入", async () => {
   await withTemp(async (root) => {
     const rowsByTable = {
       person: [
@@ -107,8 +108,10 @@ test("固定77表按多批稳定NDJSON流式写入，摘要和异常清单不含
     assert.deepEqual(JSON.parse(anomalyText), {
       code: "TRANSFORM_VALUE_ANOMALY", tableName: "person", columnName: "nickname", rowNumber: "2", field: "nickname",
     });
-    assert.equal(first.calls.count.includes("user_session"), false);
-    assert.equal(first.calls.stream.includes("user_session"), false);
+    for (const tableName of secretTables) {
+      assert.equal(first.calls.count.includes(tableName), false);
+      assert.equal(first.calls.stream.includes(tableName), false);
+    }
     assert.equal(first.calls.close, 1);
 
     const second = mockSource({ rowsByTable });

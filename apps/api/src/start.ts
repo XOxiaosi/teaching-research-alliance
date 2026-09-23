@@ -30,6 +30,7 @@ import { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-
 import { createApiServer } from "./http-server.js";
 import { createPostgresPool } from "./postgres-pool.js";
 import { PostgresSessionService } from "./postgres-session-service.js";
+import { PostgresAccountAccessService } from "./postgres-account-access-service.js";
 import { PostgresPersonalReadService } from "./postgres-personal-read-service.js";
 import { PostgresWeeklyFeeService } from "./postgres-weekly-fee-service.js";
 import { PostgresTeachingReadService } from "./postgres-teaching-read-service.js";
@@ -69,9 +70,11 @@ if (process.env.FINANCE_KEY_RING_JSON) {
 }
 const pool = createPostgresPool();
 const groupLeaderRelationships = new PostgresGroupLeaderRelationshipService(pool);
+const accountAccess = new PostgresAccountAccessService(pool);
 const server = createApiServer({
   organizationRevenue: new PostgresOrganizationRevenueReadService(pool),
   sessions: new PostgresSessionService(pool),
+  accountAccess,
   weeklyFees: new PostgresWeeklyFeeService(pool),
   personal: new PostgresPersonalReadService(pool),
   teaching: new PostgresTeachingReadService(pool),

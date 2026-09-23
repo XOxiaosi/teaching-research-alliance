@@ -42,4 +42,13 @@ const systemEventsMigration = await readFile(join(directory.pathname, "0010_refe
 for (const required of ["referral_case_event_actor_consistency", "actor_type = 'SYSTEM' AND actor_person_id IS NULL", "referral_case_event_immutable", "referral_case_unaccepted_expiry_lookup"]) {
   if (!systemEventsMigration.includes(required)) throw new Error(`MIGRATION_CONSTRAINT:${required}`);
 }
+const accountAccessMigration = await readFile(join(directory.pathname, "0029_account_access.sql"), "utf8");
+for (const required of [
+  "auth_login_throttle", "dimension_type", "dimension_key", "failure_count", "blocked_until", "created_at",
+  "auth_password_reset_command", "password_hash", "result_auth_version",
+  "actor_subject_code IN ('SYSTEM_OWNER','SYSTEM_ADMIN')", "actor_scope_type = 'GLOBAL'",
+  "AUTH_PASSWORD_RESET_COMMAND_IMMUTABLE",
+]) {
+  if (!accountAccessMigration.includes(required)) throw new Error(`MIGRATION_SHAPE:${required}`);
+}
 console.log(`checked ${files.length} migration(s)`);

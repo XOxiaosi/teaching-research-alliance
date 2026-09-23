@@ -89,6 +89,45 @@ test("提现、事件、命令结果和审计使用真实 writer 形状", async 
   await row("audit_event", { before_json: null, after_json: JSON.stringify({ contextSubject: "HEADQUARTERS_FINANCE" }) }, { subject_type: "FINANCE_REIMBURSEMENT", action_code: "REIMBURSEMENT_DETAIL_READ" });
 });
 
+test("账号注册与密码重置审计只接受固定 USER_ACCOUNT 业务形状", async () => {
+  const registration = JSON.stringify({ baseSubject: "TEACHER", scope: "SELF" });
+  const registered = await row(
+    "audit_event",
+    { before_json: null, after_json: registration },
+    { subject_type: "USER_ACCOUNT", action_code: "ACCOUNT_REGISTERED" },
+  );
+  assert.equal(registered.values.after_json, registration);
+  assert.deepEqual(registered.anomalies, []);
+
+  const before = JSON.stringify({ authVersion: "1" });
+  const after = JSON.stringify({ authVersion: "2" });
+  const reset = await row(
+    "audit_event",
+    { before_json: before, after_json: after },
+    { subject_type: "USER_ACCOUNT", action_code: "ACCOUNT_PASSWORD_RESET" },
+  );
+  assert.equal(reset.values.before_json, before);
+  assert.equal(reset.values.after_json, after);
+  assert.deepEqual(reset.anomalies, []);
+
+  const malformedRegistration = await row(
+    "audit_event",
+    { before_json: null, after_json: JSON.stringify({ baseSubject: "SYSTEM_ADMIN", scope: "GLOBAL" }) },
+    { subject_type: "USER_ACCOUNT", action_code: "ACCOUNT_REGISTERED" },
+  );
+  assert.deepEqual(malformedRegistration.anomalies.map((item) => item.field).sort(), ["baseSubject", "scope"]);
+  const malformedReset = await row(
+    "audit_event",
+    { before_json: JSON.stringify({ authVersion: "0" }), after_json: JSON.stringify({ authVersion: "not-a-version" }) },
+    { subject_type: "USER_ACCOUNT", action_code: "ACCOUNT_PASSWORD_RESET" },
+  );
+  assert.equal(malformedReset.anomalies.filter((item) => item.field === "authVersion").length, 2);
+  await assert.rejects(
+    row("audit_event", { before_json: null, after_json: registration }, { subject_type: "PERSON", action_code: "ACCOUNT_REGISTERED" }),
+    { message: "EXPORT_TRANSFORM_SCHEMA_GAP" },
+  );
+});
+
 test("未知判别、空 JSON 绕过与嵌套未知字段均 fail closed", async () => {
   await assert.rejects(row("finance_document_event", { details_json: null }, { event_type: "FUTURE_EVENT" }), { message: "EXPORT_TRANSFORM_SCHEMA_GAP" });
   await assert.rejects(row("audit_event", { before_json: null, after_json: null }, { subject_type: "PERSON", action_code: "FUTURE" }), { message: "EXPORT_TRANSFORM_SCHEMA_GAP" });
@@ -207,7 +246,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v4");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v5");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");

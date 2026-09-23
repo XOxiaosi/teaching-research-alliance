@@ -3,7 +3,7 @@ import { financeYearBounds } from "./finance-year.js";
 import { readCompletedReimbursementIncome } from "./postgres-reimbursement-read-service.js";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 
-const PERSONAL_SUBJECTS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
+const PERSONAL_SUBJECTS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const SETTLEMENT_CATEGORIES = [
   "referrer",
   "planningMentor",

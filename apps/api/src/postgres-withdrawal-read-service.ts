@@ -4,7 +4,7 @@ import { FinanceSensitiveFieldCrypto } from "./finance-sensitive-field-crypto.js
 import { financeYearBounds } from "./finance-year.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const personal=(context:RoleContext):boolean=>["TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(context.subject)
+const personal=(context:RoleContext):boolean=>["TEACHER","TEACHING_TEACHER","ACADEMIC_PLANNER","PLANNING_MENTOR"].includes(context.subject)
   && ["SELF","REGION","CAMPUS","ASSOCIATED_TEACHERS","MENTEES","VENUE","GLOBAL"].includes(context.scope??"");
 const globalReader=(context:RoleContext):boolean=>["HEADQUARTERS_FINANCE","SYSTEM_ADMIN","SYSTEM_OWNER"].includes(context.subject)
   && context.scope==="GLOBAL" && context.regionId===undefined && context.campusId===undefined && context.venueId===undefined;

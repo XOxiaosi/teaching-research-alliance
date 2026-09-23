@@ -27,7 +27,7 @@ export type FinanceAttachmentVersionAuthorization = FinanceAttachmentDocumentSta
 
 type ScopedRoleContext = RoleContext & Readonly<{ scope?: PermissionScope }>;
 
-const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
+const personalSubjects = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 
 export const isPersonalAttachmentContext = (context: RoleContext): boolean =>
   personalSubjects.includes(context.subject as (typeof personalSubjects)[number]);

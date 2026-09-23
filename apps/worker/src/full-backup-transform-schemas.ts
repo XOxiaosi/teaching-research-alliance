@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v4";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v5";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -326,6 +326,29 @@ const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
       : { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
   }
   const subject = input.row.subject_type; const action = input.row.action_code; const venueActions = ["VENUE_CREATED", "VENUE_RENAMED", "VENUE_STATUS_CHANGED", "VENUE_DEFAULT_CHANGED", "VENUE_PERMISSION_CHANGED"];
+  if (subject === "USER_ACCOUNT" && action === "ACCOUNT_REGISTERED") {
+    if (input.columnName === "before_json") {
+      if (input.raw === null) return [];
+      if (input.raw === "null") return [anomaly(input)];
+      return gap();
+    }
+    if (input.raw === null || input.raw === "null") return [anomaly(input)];
+    const root = parseObject(input);
+    const anomalies = auditExact(input, root, ["baseSubject", "scope"], ["baseSubject", "scope"], []);
+    if (typeof root.baseSubject === "string" && root.baseSubject !== "TEACHER")
+      anomalies.push(anomaly(input, "baseSubject"));
+    if (typeof root.scope === "string" && root.scope !== "SELF")
+      anomalies.push(anomaly(input, "scope"));
+    return anomalies;
+  }
+  if (subject === "USER_ACCOUNT" && action === "ACCOUNT_PASSWORD_RESET") {
+    if (input.raw === null || input.raw === "null") return [anomaly(input)];
+    const root = parseObject(input);
+    const anomalies = auditExact(input, root, ["authVersion"], ["authVersion"], []);
+    if (typeof root.authVersion === "string" && !/^[1-9]\d*$/.test(root.authVersion))
+      anomalies.push(anomaly(input, "authVersion"));
+    return anomalies;
+  }
   if (subject === "VENUE" && venueActions.includes(action ?? "")) { if (input.raw === null) return []; if (input.raw === "null") return [anomaly(input)]; if (action === "VENUE_PERMISSION_CHANGED" && input.columnName === "before_json") return auditExact(input, parseObject(input), ["id", "venue_id", "grantee_person_id", "can_view", "can_withdraw", "valid_from", "valid_to", "version"], [], []); return auditExact(input, parseObject(input), ["id", "venueId", "ownerPersonId", "name", "status", "defaultForOwner", "version", "accountId", "accountCode", "previousDefaultVenueId", "granteePersonId", "canView", "canWithdraw", "validFrom", "validTo", "replay"]); }
   const companyActions = ["COMPANY_FUND_CREATED", "COMPANY_FUND_ASSIGNMENT_CONFIRMED", "COMPANY_FUND_ASSIGNED", "COMPANY_FUND_STATUS_SET"];
   if (subject === "COMPANY_FINANCE_FUND" && companyActions.includes(action ?? "")) { if (input.raw === null) return []; if (input.raw === "null") return [anomaly(input)]; return auditExact(input, parseObject(input), ["id", "fundId", "accountId", "accountCode", "fundCode", "displayName", "status", "version", "validFrom", "previousAssignmentId"]); }

@@ -10,12 +10,14 @@ export type ExportTable = Readonly<{
 
 const columns = (value: string): readonly string[] => value.split(",");
 
-// This is intentionally a fixed allow-list generated from migrations 0001–0028.
+// This is intentionally a fixed allow-list generated from migrations 0001–0029.
 // It is not a schema discovery mechanism: pg_catalog is checked against it at runtime.
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   academic_period: columns("id,academic_year_plan_id,label,starts_on,ends_on,created_at"),
   academic_year_plan: columns("id,label,starts_on,ends_on,timezone,created_by,created_at"),
   account_balance_projection: columns("account_id,balance_cents,updated_at"),
+  auth_login_throttle: columns("dimension_type,dimension_key,window_started_at,failure_count,blocked_until,updated_at,created_at"),
+  auth_password_reset_command: columns("actor_person_id,idempotency_key,target_account_id,reason,password_hash,result_auth_version,actor_subject_code,actor_scope_type,created_at"),
   audit_event: columns("id,actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at"),
   bonus_project_catalog_command_idempotency: columns("actor_person_id,idempotency_key,operation,request_hash,result_json,created_at"),
   bonus_project_name_version: columns("id,project_no,version_no,display_name,changed_by_person_id,actor_subject_code,actor_scope_type,change_source,reason,created_at"),
@@ -97,11 +99,11 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   weekly_fee_refund_effect: columns("weekly_fee_entry_id,finance_document_id,allocation_snapshot_id,source_weekly_fee_version,gross_amount_cents,snapshot_json,created_at")
 };
 
-// These are primary keys from migrations 0001–0028. Keeping them alongside the
+// These are primary keys from migrations 0001–0029. Keeping them alongside the
 // fixed column allow-list makes the stream order deterministic without trusting
 // a possibly changed live index definition.
 const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
-  academic_period: ["id"], academic_year_plan: ["id"], account_balance_projection: ["account_id"], audit_event: ["id"],
+  academic_period: ["id"], academic_year_plan: ["id"], account_balance_projection: ["account_id"], auth_login_throttle: ["dimension_type", "dimension_key"], auth_password_reset_command: ["actor_person_id", "idempotency_key"], audit_event: ["id"],
   bonus_project_catalog_command_idempotency: ["actor_person_id", "idempotency_key"], bonus_project_name_version: ["id"], bonus_project_slot: ["project_no"], campus_region_assignment: ["id"],
   cash_wage_confirmation: ["finance_document_id"], cash_wage_plan_version: ["id"], cash_wage_todo: ["id"], company_finance_fund: ["id"],
   company_finance_fund_assignment: ["id"], company_finance_fund_command_idempotency: ["actor_person_id", "idempotency_key"], finance_attachment: ["id"], finance_attachment_event: ["id"],
@@ -121,6 +123,8 @@ const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
 };
 
 const SECRET_COLUMNS = new Set([
+  "auth_login_throttle.dimension_type", "auth_login_throttle.dimension_key", "auth_login_throttle.window_started_at", "auth_login_throttle.failure_count", "auth_login_throttle.blocked_until", "auth_login_throttle.updated_at", "auth_login_throttle.created_at",
+  "auth_password_reset_command.actor_person_id", "auth_password_reset_command.idempotency_key", "auth_password_reset_command.target_account_id", "auth_password_reset_command.reason", "auth_password_reset_command.password_hash", "auth_password_reset_command.result_auth_version", "auth_password_reset_command.actor_subject_code", "auth_password_reset_command.actor_scope_type", "auth_password_reset_command.created_at",
   "user_account.password_hash", "user_account.auth_version", "user_session.id", "user_session.token_hash", "user_session.account_id",
   "user_session.auth_version", "user_session.current_subject", "user_session.expires_at", "user_session.created_at",
   "finance_withdrawal_command_idempotency.request_hmac", "finance_withdrawal_command_idempotency.hmac_key_id"

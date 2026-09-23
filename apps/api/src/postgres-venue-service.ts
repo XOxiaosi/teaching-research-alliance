@@ -3,7 +3,7 @@ import type { RoleContext } from "@teaching-research-alliance/contracts";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const TEACHER_SUBJECTS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
+const TEACHER_SUBJECTS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 type Status = "ACTIVE" | "INACTIVE";
 type GrantResult = Readonly<{ id: string | null; venueId: string; granteePersonId: string; canView: boolean; canWithdraw: boolean; validFrom: string | null; validTo: string | null; version: number }>;
 export type VenueResult = Readonly<{ id: string; ownerPersonId: string; name: string; status: Status; defaultForOwner: boolean; version: number; accountId: string; accountCode: string; replay: boolean }>;

@@ -33,7 +33,7 @@ export type ReimbursementDetail = ReimbursementSummary & Readonly<{
   management?: Readonly<{
     destinationAccountId: string;
     submittedByPersonId: string;
-    applicantContextSubject: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
+    applicantContextSubject: "TEACHER" | "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
     applicantContextScope: string;
     applicantContextRegionId?: string;
     applicantContextCampusId?: string;
@@ -207,7 +207,7 @@ type ParsedSummary = Readonly<{
   summary: ReimbursementSummary;
   destinationAccountId: string;
   submittedByPersonId: string;
-  applicantContextSubject: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
+  applicantContextSubject: "TEACHER" | "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
   applicantContextScope: string;
   applicantContextRegionId: string | null;
   applicantContextCampusId: string | null;
@@ -238,7 +238,7 @@ type ParsedSummary = Readonly<{
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
-const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
+const personalSubjects = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const knownPersonalScopes = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"] as const;
 const statuses = ["PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED", "REVERSED"] as const;
 const reversalSubjects = ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"] as const;

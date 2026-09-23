@@ -78,7 +78,7 @@ const nextBatch = async (stream) => {
   return result.value;
 };
 
-test("全量备份数据源以注册的 82 表、固定主键和统一快照打开", async () => {
+test("全量备份数据源以注册的 84 表、固定主键和统一快照打开", async () => {
   await withDatabase(async (database) => {
     const observed = sourcePool(database);
     const source = await new PostgresFullBackupSource(observed.pool).open();
@@ -87,7 +87,7 @@ test("全量备份数据源以注册的 82 表、固定主键和统一快照打�
       assert.equal(source.snapshotId.length > 0, true);
       assert.equal(source.asOf.length > 0, true);
       assert.deepEqual(source.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
-      assert.equal(source.datasets.length, 82);
+      assert.equal(source.datasets.length, 84);
       for (const dataset of source.datasets) {
         const registry = EXPORT_SCHEMA_REGISTRY.find((item) => item.name === dataset.tableName);
         assert.deepEqual(dataset.orderBy, registry.orderBy);
@@ -164,13 +164,16 @@ test("数据源显式读取文本值、保持精度和 JSON 转换值，并绝�
       const declarations = observed.queries.filter((sql) => sql.startsWith("DECLARE"));
       assert.equal(declarations.some((sql) => sql.includes("password_hash") || sql.includes("auth_version")), false);
       assert.equal(declarations.some((sql) => sql.includes("SELECT *")), false);
-      await assert.rejects(() => source.openStream("user_session", 1), {
-        message: "EXPORT_DATASET_NO_READABLE_COLUMNS",
-      });
-      await assert.rejects(() => source.countRows("user_session"), {
-        message: "EXPORT_DATASET_NO_READABLE_COLUMNS",
-      });
-      assert.equal(observed.queries.some((sql) => sql.includes('count(*)::text AS row_count FROM "user_session"')), false);
+      for (const tableName of ["user_session", "auth_login_throttle", "auth_password_reset_command"]) {
+        await assert.rejects(() => source.openStream(tableName, 1), {
+          message: "EXPORT_DATASET_NO_READABLE_COLUMNS",
+        });
+        await assert.rejects(() => source.countRows(tableName), {
+          message: "EXPORT_DATASET_NO_READABLE_COLUMNS",
+        });
+        assert.equal(observed.queries.some((sql) => sql.includes(`count(*)::text AS row_count FROM "${tableName}"`)), false);
+        assert.equal(observed.queries.some((sql) => sql.startsWith("DECLARE") && sql.includes(`FROM "${tableName}"`)), false);
+      }
     } finally {
       await source.close();
     }

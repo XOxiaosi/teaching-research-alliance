@@ -16,6 +16,79 @@ test("权限契约覆盖开发者、管理员和基础教师能力", () => {
   assert.equal(permissionScope("TEACHING_TEACHER", "CREATE_WEEKLY_FEE"), "SELF");
 });
 
+test("普通注册教师只取得个人基础能力，不取得授课与转介绍身份", () => {
+  for (const action of [
+    "VIEW_OWN_PROFILE",
+    "SUBMIT_OWN_REIMBURSEMENT",
+    "READ_OWN_REIMBURSEMENT",
+    "CREATE_PERSONAL_WITHDRAWAL",
+    "SUBMIT_OWN_SELF_PURCHASE",
+    "CREATE_VENUE",
+    "READ_OWN_VENUES",
+  ]) {
+    assert.equal(permissionScope("TEACHER", action), "SELF", `${action} should remain personal`);
+  }
+  for (const action of ["VIEW_SHARED_VENUE_BOARD", "WITHDRAW_FROM_SHARED_VENUE"]) {
+    assert.equal(permissionScope("TEACHER", action), "VENUE", `${action} should stay venue-scoped`);
+  }
+  for (const action of [
+    "CREATE_REFERRAL",
+    "ACCEPT_REFERRAL",
+    "CREATE_WEEKLY_FEE",
+    "LIST_OPEN_TEACHING_WEEKS",
+    "LIST_AVAILABLE_VENUES",
+  ]) {
+    assert.equal(hasPermission("TEACHER", action), false, `${action} requires a teaching role`);
+  }
+});
+
+test("账号访问管理仅授予系统所有者和系统管理员，并声明稳定接口错误", () => {
+  for (const subject of ["SYSTEM_OWNER", "SYSTEM_ADMIN"]) {
+    assert.equal(permissionScope(subject, "MANAGE_ACCOUNT_ACCESS"), "GLOBAL");
+  }
+  for (const subject of ["TEACHER", "TEACHING_TEACHER", "HEADQUARTERS_FINANCE", "REGION_FINANCE"]) {
+    assert.equal(hasPermission(subject, "MANAGE_ACCOUNT_ACCESS"), false);
+  }
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.filter((item) => item.path.startsWith("/v1/admin/accounts")),
+    [
+      {
+        method: "GET",
+        path: "/v1/admin/accounts",
+        action: "MANAGE_ACCOUNT_ACCESS",
+        responseVersion: "account-directory.v1",
+        requiresRoleContext: true,
+      },
+      {
+        method: "POST",
+        path: "/v1/admin/accounts/:accountId/password-reset",
+        action: "MANAGE_ACCOUNT_ACCESS",
+        responseVersion: "account-password-reset.v1",
+        requiresRoleContext: true,
+      },
+    ],
+  );
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/accounts/register"),
+    {
+      method: "POST",
+      path: "/v1/accounts/register",
+      action: "VIEW_OWN_PROFILE",
+      responseVersion: "account-registration.v1",
+      requiresRoleContext: false,
+    },
+  );
+  for (const code of [
+    "LOGIN_RATE_LIMITED",
+    "ACCOUNT_ACCESS_SERVICE_UNAVAILABLE",
+    "REGISTRATION_PHONE_CONFLICT",
+    "REGISTRATION_NICKNAME_CONFLICT",
+    "ACCOUNT_NOT_FOUND",
+  ]) {
+    assert.equal(API_ERROR_CODES.includes(code), true, `${code} must be stable`);
+  }
+});
+
 test("分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限", () => {
   assert.equal(hasPermission("REGION_FINANCE", "VIEW_REGION_PERSONAL_SUMMARY"), true);
   assert.equal(hasPermission("REGION_FINANCE", "VIEW_OWN_CURRENT_YEAR_SETTLEMENT"), false);

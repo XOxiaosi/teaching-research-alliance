@@ -32,6 +32,8 @@ export type ApiRequest = Readonly<{
   /** Decoded URL query; the HTTP server rejects duplicate keys before reaching this boundary. */
   query?: Readonly<Record<string, string>>;
   sessionId?: string;
+  /** Trusted transport peer address. Request JSON must never supply this value. */
+  sourceIp?: string;
 }>;
 
 export type ApiResponse = Readonly<{
@@ -62,6 +64,7 @@ export type SessionApiService = Readonly<{
     phone: string,
     credential: string,
     at: Date,
+    sourceIp?: string,
   ) => SessionView | Promise<SessionView>;
   get: (sessionId: string, at: Date) => SessionView | Promise<SessionView>;
   switchRole: (
@@ -73,6 +76,29 @@ export type SessionApiService = Readonly<{
 
 export type ApiServices = Readonly<{
   sessions: SessionApiService;
+  accountAccess?: Readonly<{
+    register: (
+      draft: {
+        nickname: string;
+        legalName: string;
+        phoneNormalized: string;
+        password: string;
+      },
+      at: Date,
+    ) => Promise<{ nickname: string; session: SessionView }>;
+    listAccounts: (
+      context: RoleContext,
+      at: Date,
+    ) => unknown | Promise<unknown>;
+    resetPassword: (
+      context: RoleContext,
+      accountId: string,
+      newPassword: string,
+      reason: string,
+      idempotencyKey: string,
+      at: Date,
+    ) => unknown | Promise<unknown>;
+  }>;
   weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
   groupLeaderRelationships?: Readonly<{
@@ -676,6 +702,12 @@ const sessionIdFrom = (body: Record<string, unknown>): string =>
   requiredString(body, "sessionId");
 
 const errorStatus = (code: string): number => {
+  if (code === "LOGIN_RATE_LIMITED") return 429;
+  if (code === "ACCOUNT_ACCESS_SERVICE_UNAVAILABLE") return 503;
+  if (
+    code === "REGISTRATION_PHONE_CONFLICT" ||
+    code === "REGISTRATION_NICKNAME_CONFLICT"
+  ) return 409;
   if (code === "RELATIONSHIP_SERVICE_UNAVAILABLE") return 503;
   if (code === "ORGANIZATION_REVENUE_DATA_UNAVAILABLE") return 500;
   if (code === "ORGANIZATION_REVENUE_SERVICE_UNAVAILABLE") return 503;
@@ -870,6 +902,7 @@ const subjectFrom = (value: string): PermissionSubject => {
   const subjects: readonly PermissionSubject[] = [
     "SYSTEM_OWNER",
     "SYSTEM_ADMIN",
+    "TEACHER",
     "TEACHING_TEACHER",
     "ACADEMIC_PLANNER",
     "HEADQUARTERS_FINANCE",
@@ -1028,6 +1061,60 @@ export const handleRequest = async (
       request.sessionId === undefined
         ? parsedBody
         : { ...parsedBody, sessionId: request.sessionId };
+    if (request.method === "POST" && request.path === "/v1/accounts/register") {
+      if (
+        Object.keys(body).some(
+          (key) => !["nickname", "legalName", "phoneNormalized", "password"].includes(key),
+        )
+      ) throw new Error("INVALID_INPUT");
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      const registration = await services.accountAccess.register(
+        {
+          nickname: requiredString(body, "nickname"),
+          legalName: requiredString(body, "legalName"),
+          phoneNormalized: requiredString(body, "phoneNormalized"),
+          password: requiredString(body, "password"),
+        },
+        at,
+      );
+      return success({
+        nickname: registration.nickname,
+        ...sessionData(registration.session),
+      });
+    }
+    if (request.method === "GET" && request.path === "/v1/admin/accounts") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      const context = currentContext(
+        await services.sessions.get(sessionIdFrom(body), at),
+      );
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.listAccounts(context, at));
+    }
+    const passwordResetPath = request.path.match(
+      /^\/v1\/admin\/accounts\/([^/]+)\/password-reset$/,
+    );
+    if (request.method === "POST" && passwordResetPath !== null) {
+      if (
+        Object.keys(body).some(
+          (key) => !["sessionId", "newPassword", "reason", "idempotencyKey"].includes(key),
+        )
+      ) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      const context = currentContext(
+        await services.sessions.get(sessionIdFrom(body), at),
+      );
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.resetPassword(
+        context,
+        passwordResetPath[1]!,
+        requiredString(body, "newPassword"),
+        requiredString(body, "reason"),
+        requiredString(body, "idempotencyKey"),
+        at,
+      ));
+    }
     if (request.method === "POST" && request.path === "/v1/session/logout") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim())
         throw new Error("UNAUTHENTICATED");
@@ -1245,13 +1332,17 @@ export const handleRequest = async (
       );
     }
     if (request.method === "POST" && request.path === "/v1/session") {
+      const credentialField = services.sessions.credentialField ?? "credentialDigest";
+      if (
+        Object.keys(body).some(
+          (key) => !["phoneNormalized", credentialField].includes(key),
+        )
+      ) throw new Error("INVALID_INPUT");
       const view = await services.sessions.login(
         requiredString(body, "phoneNormalized"),
-        requiredString(
-          body,
-          services.sessions.credentialField ?? "credentialDigest",
-        ),
+        requiredString(body, credentialField),
         at,
+        request.sourceIp,
       );
       return success(sessionData(view));
     }

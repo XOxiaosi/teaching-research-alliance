@@ -27,7 +27,7 @@ test("export preflight classifies every migrated table and keeps secrets out of 
     try {
       assert.equal(plan.mode, "PRECHECK_ONLY");
       assert.equal(plan.snapshotId.length > 0, true);
-      assert.equal(plan.datasets.length, 82);
+      assert.equal(plan.datasets.length, 84);
       assert.deepEqual(plan.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
 
       const allExportColumns = plan.datasets.flatMap((item) => item.exportColumns.map((column) => `${item.tableName}.${column}`));
@@ -43,6 +43,16 @@ test("export preflight classifies every migrated table and keeps secrets out of 
       assert.deepEqual(sessions.exportColumns, []);
       assert.equal(sessions.selectSql, undefined);
       assert.equal(sessions.secretExcludedColumns.length, 7);
+
+      for (const tableName of ["auth_login_throttle", "auth_password_reset_command"]) {
+        const secretDataset = dataset(plan, tableName);
+        const registry = EXPORT_SCHEMA_REGISTRY.find((table) => table.name === tableName);
+        assert.ok(registry);
+        assert.deepEqual(secretDataset.exportColumns, []);
+        assert.equal(secretDataset.selectSql, undefined);
+        assert.deepEqual(secretDataset.secretExcludedColumns, registry.columns.map((column) => column.name));
+        assert.equal(registry.columns.every((column) => column.disposition === "SECRET_EXCLUDED"), true);
+      }
 
       const withdrawal = dataset(plan, "finance_withdrawal_submission");
       assert.equal(withdrawal.exportColumns.includes("recipient_ciphertext"), false);

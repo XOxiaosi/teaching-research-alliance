@@ -80,6 +80,9 @@ export const createApiServer = (
         (pathname.startsWith("/v1/organizations/") || pathname.startsWith("/v1/finance/")) ||
         pathname.startsWith("/v1/admin/company-funds") ||
         pathname.startsWith("/v1/admin/bonus-projects") ||
+        pathname.startsWith("/v1/admin/accounts") ||
+        pathname === "/v1/accounts/register" ||
+        pathname === "/v1/session" ||
         pathname === "/v1/admin/person-relationships" ||
         pathname.startsWith("/v1/admin/person-relationships/")
       ) {
@@ -200,6 +203,7 @@ export const createApiServer = (
           path: pathname,
           query: queryFrom(url),
           body: await readJson(request, maxBodyBytes),
+          sourceIp: request.socket.remoteAddress ?? "unknown",
           ...(bearer?.[1] === undefined ? {} : { sessionId: bearer[1] }),
         },
         services,

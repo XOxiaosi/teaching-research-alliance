@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  BASE_IDENTITIES,
   BUSINESS_IDENTITIES,
   DUTIES,
   SYSTEM_AUTHORITIES,
@@ -8,12 +9,24 @@ import {
 } from "@teaching-research-alliance/contracts";
 import { roleContextsFor } from "@teaching-research-alliance/domain";
 import { verifyPassword } from "./password.js";
+import { phoneForLogin } from "./identity-input.js";
 import { PostgresIdentityRepository } from "./postgres-identity-repository.js";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 import type { SessionView } from "./session-service.js";
 
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1_000;
-const KNOWN_SUBJECTS: readonly string[] = [...SYSTEM_AUTHORITIES, ...DUTIES, ...BUSINESS_IDENTITIES];
+const DEFAULT_FAILURE_WINDOW_MS = 15 * 60 * 1_000;
+const DEFAULT_BLOCK_DURATION_MS = 15 * 60 * 1_000;
+const DEFAULT_ACCOUNT_FAILURE_LIMIT = 5;
+const DEFAULT_IP_FAILURE_LIMIT = 20;
+const DUMMY_PASSWORD_HASH = "scrypt-v1$32768$8$3$KPhADXGQFqhanRNzJlTEQA$QaXPgEL6lQGtC1x0DJKrH88kOG3h73US1ydONYGlFiI";
+const PASSWORD_HASH_PATTERN = /^scrypt-v1\$32768\$8\$3\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/;
+const KNOWN_SUBJECTS: readonly string[] = [
+  ...SYSTEM_AUTHORITIES,
+  ...BASE_IDENTITIES,
+  ...DUTIES,
+  ...BUSINESS_IDENTITIES,
+];
 
 type LockedAccountRow = Readonly<{
   account_id: string;
@@ -32,8 +45,32 @@ type SessionRow = Readonly<{
   current_subject: string | null;
 }>;
 
+type ThrottleRow = Readonly<{
+  dimension_type: "ACCOUNT" | "IP";
+  dimension_key: string;
+  window_started_at: Date | string;
+  failure_count: number;
+  blocked_until: Date | string | null;
+}>;
+
+type ThrottleDimension = Readonly<{
+  type: "ACCOUNT" | "IP";
+  key: string;
+  limit: number;
+}>;
+
+type LoginOutcome =
+  | Readonly<{ kind: "SUCCESS"; view: SessionView }>
+  | Readonly<{ kind: "FAIL" }>
+  | Readonly<{ kind: "RATE_LIMITED" }>;
+
 export type PostgresSessionServiceOptions = Readonly<{
   sessionTtlMs?: number;
+  failureWindowMs?: number;
+  blockDurationMs?: number;
+  accountFailureLimit?: number;
+  ipFailureLimit?: number;
+  dummyPasswordHash?: string;
 }>;
 
 const assertValidDate = (at: Date): void => {
@@ -41,6 +78,20 @@ const assertValidDate = (at: Date): void => {
 };
 
 const tokenHash = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+const dimensionKey = (type: "ACCOUNT" | "IP", value: string): string =>
+  createHash("sha256").update(`login-throttle.v1:${type}:${value}`).digest("hex");
+
+const sourceIpKey = (value: string): string => {
+  const normalized = value.normalize("NFKC").trim().toLowerCase();
+  return normalized.length === 0 ? "unknown" : normalized.slice(0, 256);
+};
+
+const dateValue = (value: Date | string): number => {
+  const result = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  if (!Number.isFinite(result)) throw new Error("AUTH_THROTTLE_DATA_INVALID");
+  return result;
+};
 
 const unauthenticated = (): never => {
   throw new Error("UNAUTHENTICATED");
@@ -51,6 +102,11 @@ const knownSubject = (value: string): value is PermissionSubject => KNOWN_SUBJEC
 export class PostgresSessionService {
   public readonly credentialField = "password" as const;
   private readonly sessionTtlMs: number;
+  private readonly failureWindowMs: number;
+  private readonly blockDurationMs: number;
+  private readonly accountFailureLimit: number;
+  private readonly ipFailureLimit: number;
+  private readonly dummyPasswordHash: string;
 
   public constructor(private readonly pool: PostgresPool, options: PostgresSessionServiceOptions = {}) {
     const sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
@@ -58,6 +114,20 @@ export class PostgresSessionService {
       throw new Error("SESSION_TTL_INVALID");
     }
     this.sessionTtlMs = sessionTtlMs;
+    this.failureWindowMs = options.failureWindowMs ?? DEFAULT_FAILURE_WINDOW_MS;
+    this.blockDurationMs = options.blockDurationMs ?? DEFAULT_BLOCK_DURATION_MS;
+    this.accountFailureLimit = options.accountFailureLimit ?? DEFAULT_ACCOUNT_FAILURE_LIMIT;
+    this.ipFailureLimit = options.ipFailureLimit ?? DEFAULT_IP_FAILURE_LIMIT;
+    this.dummyPasswordHash = options.dummyPasswordHash ?? DUMMY_PASSWORD_HASH;
+    for (const value of [this.failureWindowMs, this.blockDurationMs]) {
+      if (!Number.isSafeInteger(value) || value <= 0) throw new Error("LOGIN_RATE_LIMIT_CONFIG_INVALID");
+    }
+    for (const value of [this.accountFailureLimit, this.ipFailureLimit]) {
+      if (!Number.isSafeInteger(value) || value <= 0) throw new Error("LOGIN_RATE_LIMIT_CONFIG_INVALID");
+    }
+    if (!PASSWORD_HASH_PATTERN.test(this.dummyPasswordHash)) {
+      throw new Error("LOGIN_DUMMY_PASSWORD_HASH_INVALID");
+    }
   }
 
   private async transaction<T>(work: (client: PostgresClient) => Promise<T>): Promise<T> {
@@ -79,6 +149,90 @@ export class PostgresSessionService {
     const identity = new PostgresIdentityRepository(client);
     const assignments = await identity.listRoleAssignments(personId);
     return roleContextsFor(personId, assignments, at);
+  }
+
+  private activeThrottle(
+    row: ThrottleRow | undefined,
+    dimension: ThrottleDimension,
+    at: Date,
+  ): boolean {
+    if (row === undefined) return false;
+    const now = at.getTime();
+    const started = dateValue(row.window_started_at);
+    const blocked = row.blocked_until === null ? undefined : dateValue(row.blocked_until);
+    if (blocked !== undefined && blocked > now) return true;
+    return now >= started
+      && now - started < this.failureWindowMs
+      && row.failure_count >= dimension.limit;
+  }
+
+  private async lockThrottleRows(
+    client: PostgresClient,
+    dimensions: readonly ThrottleDimension[],
+  ): Promise<ReadonlyMap<string, ThrottleRow>> {
+    for (const dimension of [...dimensions].sort((left, right) =>
+      `${left.type}:${left.key}`.localeCompare(`${right.type}:${right.key}`))) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [`login-throttle:${dimension.type}:${dimension.key}`],
+      );
+    }
+    const result = await client.query<ThrottleRow>(
+      `SELECT dimension_type,dimension_key,window_started_at,failure_count,blocked_until
+         FROM auth_login_throttle
+        WHERE (dimension_type=$1 AND dimension_key=$2)
+           OR (dimension_type=$3 AND dimension_key=$4)
+        FOR UPDATE`,
+      [
+        dimensions[0]!.type,
+        dimensions[0]!.key,
+        dimensions[1]!.type,
+        dimensions[1]!.key,
+      ],
+    );
+    return new Map(
+      result.rows.map((row) => [`${row.dimension_type}:${row.dimension_key}`, row]),
+    );
+  }
+
+  private async recordLoginFailure(
+    client: PostgresClient,
+    dimensions: readonly ThrottleDimension[],
+    rows: ReadonlyMap<string, ThrottleRow>,
+    at: Date,
+  ): Promise<boolean> {
+    let limited = false;
+    const now = at.getTime();
+    for (const dimension of dimensions) {
+      const row = rows.get(`${dimension.type}:${dimension.key}`);
+      const started = row === undefined ? now : dateValue(row.window_started_at);
+      const continuesWindow = now >= started && now - started < this.failureWindowMs;
+      const windowStartedAt = continuesWindow ? new Date(started) : at;
+      const failureCount = continuesWindow ? (row?.failure_count ?? 0) + 1 : 1;
+      const blockedUntil = failureCount >= dimension.limit
+        ? new Date(now + this.blockDurationMs)
+        : null;
+      limited ||= blockedUntil !== null;
+      await client.query(
+        `INSERT INTO auth_login_throttle(
+           dimension_type,dimension_key,window_started_at,failure_count,blocked_until,updated_at,created_at
+         ) VALUES($1,$2,$3::timestamptz,$4,$5::timestamptz,$6::timestamptz,$6::timestamptz)
+         ON CONFLICT(dimension_type,dimension_key) DO UPDATE
+           SET window_started_at=EXCLUDED.window_started_at,
+               failure_count=EXCLUDED.failure_count,
+               blocked_until=EXCLUDED.blocked_until,
+               updated_at=EXCLUDED.updated_at`,
+        [
+          dimension.type,
+          dimension.key,
+          windowStartedAt.toISOString(),
+          failureCount,
+          blockedUntil?.toISOString() ?? null,
+          at.toISOString(),
+        ],
+      );
+    }
+    return limited;
   }
 
   private view(
@@ -133,18 +287,59 @@ export class PostgresSessionService {
     return session;
   }
 
-  public async login(phoneNormalized: string, password: string, at: Date): Promise<SessionView> {
+  public async login(
+    phoneInput: string,
+    password: string,
+    at: Date,
+    sourceIp = "unknown",
+  ): Promise<SessionView> {
     assertValidDate(at);
-    return this.transaction(async (client) => {
-      const identity = new PostgresIdentityRepository(client);
-      const candidate = await identity.findAccountByPhone(phoneNormalized);
-      if (
-        candidate === undefined
-        || candidate.status !== "ACTIVE"
-        || !(await verifyPassword(password, candidate.credentialDigest))
-      ) return unauthenticated();
+    const phoneNormalized = phoneForLogin(phoneInput);
+    const accountDimensionValue = phoneNormalized
+      ?? createHash("sha256").update(phoneInput.normalize("NFKC")).digest("hex");
+    const dimensions: readonly ThrottleDimension[] = [
+      {
+        type: "ACCOUNT",
+        key: dimensionKey("ACCOUNT", accountDimensionValue),
+        limit: this.accountFailureLimit,
+      },
+      {
+        type: "IP",
+        key: dimensionKey("IP", sourceIpKey(sourceIp)),
+        limit: this.ipFailureLimit,
+      },
+    ];
+    const outcome = await this.transaction<LoginOutcome>(async (client) => {
+      const throttleRows = await this.lockThrottleRows(client, dimensions);
+      if (dimensions.some((dimension) =>
+        this.activeThrottle(
+          throttleRows.get(`${dimension.type}:${dimension.key}`),
+          dimension,
+          at,
+        ))) {
+        return { kind: "RATE_LIMITED" };
+      }
 
-      const lockedResult = await client.query<LockedAccountRow>(
+      const identity = new PostgresIdentityRepository(client);
+      const candidate = phoneNormalized === undefined
+        ? undefined
+        : await identity.findAccountByPhone(phoneNormalized);
+      const usableCandidateHash = candidate !== undefined
+        && PASSWORD_HASH_PATTERN.test(candidate.credentialDigest);
+      const verificationPassword = password.length >= 8 && password.length <= 1_024
+        ? password
+        : "invalid-password-input";
+      const passwordMatches = await verifyPassword(
+        verificationPassword,
+        usableCandidateHash ? candidate.credentialDigest : this.dummyPasswordHash,
+      );
+
+      const lockedResult = candidate !== undefined
+        && candidate.status === "ACTIVE"
+        && password.length >= 8
+        && password.length <= 1_024
+        && passwordMatches
+        ? await client.query<LockedAccountRow>(
         `SELECT account.id::text AS account_id,
                 account.person_id::text AS person_id,
                 account.password_hash,
@@ -156,14 +351,22 @@ export class PostgresSessionService {
           WHERE account.id = $1::uuid
           FOR SHARE OF account, person`,
         [candidate.accountId]
-      );
+      ) : { rows: [] as readonly LockedAccountRow[] };
       const locked = lockedResult.rows[0];
       if (
         locked === undefined
         || locked.login_status !== "ACTIVE"
         || locked.person_status !== "ACTIVE"
-        || locked.password_hash !== candidate.credentialDigest
-      ) return unauthenticated();
+        || locked.password_hash !== candidate?.credentialDigest
+      ) {
+        const limited = await this.recordLoginFailure(
+          client,
+          dimensions,
+          throttleRows,
+          at,
+        );
+        return { kind: limited ? "RATE_LIMITED" : "FAIL" };
+      }
 
       const contexts = await this.contexts(client, locked.person_id, at);
       const currentSubject = contexts.length === 1 ? contexts[0]?.subject ?? null : null;
@@ -186,14 +389,21 @@ export class PostgresSessionService {
       );
       const sessionId = inserted.rows[0]?.id;
       if (sessionId === undefined) throw new Error("SESSION_CREATE_FAILED");
-      return this.view(token, {
+      await client.query(
+        "DELETE FROM auth_login_throttle WHERE dimension_type='ACCOUNT' AND dimension_key=$1",
+        [dimensions[0]!.key],
+      );
+      return { kind: "SUCCESS", view: this.view(token, {
         session_id: sessionId,
         account_id: locked.account_id,
         person_id: locked.person_id,
         auth_version: locked.auth_version,
         current_subject: currentSubject
-      }, contexts);
+      }, contexts) };
     });
+    if (outcome.kind === "SUCCESS") return outcome.view;
+    if (outcome.kind === "RATE_LIMITED") throw new Error("LOGIN_RATE_LIMITED");
+    return unauthenticated();
   }
 
   public async get(token: string, at: Date): Promise<SessionView> {

@@ -2,7 +2,7 @@ import type { RoleContext } from "@teaching-research-alliance/contracts";
 import type { PostgresPool } from "./postgres-ledger-repository.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const TEACHERS = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"];
+const TEACHERS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"];
 const assertTeacher = (context: RoleContext): void => { if (!TEACHERS.includes(context.subject)) throw new Error("FORBIDDEN_SCOPE"); };
 export type VenueView = Readonly<{ id: string; ownerPersonId: string; ownerNickname: string; name: string; status: "ACTIVE" | "INACTIVE"; defaultForOwner: boolean; version: number; accountId?: string; balanceCents?: string; canView: boolean; canWithdraw: boolean; grants?: readonly VenueGrantView[] }>;
 export type VenueGrantView = Readonly<{ id: string; granteePersonId: string; granteeNickname: string; canView: boolean; canWithdraw: boolean; validFrom: string; validTo: string | null; version: number }>;
