@@ -1006,6 +1006,12 @@ export class PostgresSalaryBenefitsService {
         now.day,
       ]);
     return this.inTx(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+        [
+          `salary-benefit-command:${actor}:GENERATE_BENEFIT_TODOS:${idem}`,
+        ],
+      );
       const replay = await this.replay<readonly DueTodo[]>(
         client,
         actor,
@@ -1014,25 +1020,81 @@ export class PostgresSalaryBenefitsService {
         request,
       );
       if (replay) return replay;
-      const rows = (
+      const identities = (
         await client.query<{
-          id: string;
-          plan_version_id: string;
           benefit_kind: string;
           beneficiary_person_id: string;
           benefit_month: string;
         }>(
-          `WITH latest AS (SELECT DISTINCT ON (benefit_kind,beneficiary_person_id,benefit_month) id,benefit_kind,beneficiary_person_id,benefit_month,execution_day,active FROM finance_benefit_plan_version WHERE benefit_month=$1::date ORDER BY benefit_kind,beneficiary_person_id,benefit_month,version_no DESC) INSERT INTO finance_benefit_todo(plan_version_id,benefit_kind,beneficiary_person_id,benefit_month,generated_at) SELECT latest.id,latest.benefit_kind,latest.beneficiary_person_id,latest.benefit_month,$3::timestamptz FROM latest LEFT JOIN finance_benefit_todo todo ON todo.benefit_kind=latest.benefit_kind AND todo.beneficiary_person_id=latest.beneficiary_person_id AND todo.benefit_month=latest.benefit_month WHERE latest.active AND latest.execution_day <= $2 AND todo.id IS NULL RETURNING id::text AS id,plan_version_id::text AS plan_version_id,benefit_kind,beneficiary_person_id::text AS beneficiary_person_id,benefit_month::text AS benefit_month`,
-          [now.month, now.day, at.toISOString()],
+          `SELECT benefit_kind,beneficiary_person_id::text AS beneficiary_person_id,benefit_month::text AS benefit_month FROM finance_benefit_plan_version WHERE benefit_month=$1::date GROUP BY benefit_kind,beneficiary_person_id,benefit_month ORDER BY benefit_kind,beneficiary_person_id,benefit_month`,
+          [now.month],
         )
       ).rows;
-      const result = rows.map((row) => ({
-        id: row.id,
-        planVersionId: row.plan_version_id,
-        subjectPersonId: row.beneficiary_person_id,
-        month: row.benefit_month,
-        kind: row.benefit_kind,
-      }));
+      const result: DueTodo[] = [];
+      for (const identity of identities) {
+        const todoExists = async (): Promise<boolean> =>
+          (
+            await client.query(
+              `SELECT 1 FROM finance_benefit_todo WHERE benefit_kind=$1 AND beneficiary_person_id=$2::uuid AND benefit_month=$3::date`,
+              [
+                identity.benefit_kind,
+                identity.beneficiary_person_id,
+                identity.benefit_month,
+              ],
+            )
+          ).rows.length > 0;
+        // Todos are immutable. Skipping an existing row before taking the plan
+        // lock also preserves confirmBenefit's todo-row -> plan-lock ordering.
+        if (await todoExists()) continue;
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+          [
+            `benefit-plan:${identity.benefit_kind}:${identity.beneficiary_person_id}:${identity.benefit_month}`,
+          ],
+        );
+        if (await todoExists()) continue;
+        const current = (
+          await client.query<{
+            id: string;
+            active: boolean;
+            execution_day: number;
+          }>(
+            `SELECT id::text AS id,active,execution_day FROM finance_benefit_plan_version WHERE benefit_kind=$1 AND beneficiary_person_id=$2::uuid AND benefit_month=$3::date ORDER BY version_no DESC LIMIT 1`,
+            [
+              identity.benefit_kind,
+              identity.beneficiary_person_id,
+              identity.benefit_month,
+            ],
+          )
+        ).rows[0];
+        if (!current?.active || current.execution_day > now.day) continue;
+        const row = (
+          await client.query<{
+            id: string;
+            plan_version_id: string;
+            benefit_kind: string;
+            beneficiary_person_id: string;
+            benefit_month: string;
+          }>(
+            `INSERT INTO finance_benefit_todo(plan_version_id,benefit_kind,beneficiary_person_id,benefit_month,generated_at) VALUES($1::uuid,$2,$3::uuid,$4::date,$5::timestamptz) ON CONFLICT ON CONSTRAINT finance_benefit_todo_business_key DO NOTHING RETURNING id::text AS id,plan_version_id::text AS plan_version_id,benefit_kind,beneficiary_person_id::text AS beneficiary_person_id,benefit_month::text AS benefit_month`,
+            [
+              current.id,
+              identity.benefit_kind,
+              identity.beneficiary_person_id,
+              identity.benefit_month,
+              at.toISOString(),
+            ],
+          )
+        ).rows[0];
+        if (row)
+          result.push({
+            id: row.id,
+            planVersionId: row.plan_version_id,
+            subjectPersonId: row.beneficiary_person_id,
+            month: row.benefit_month,
+            kind: row.benefit_kind,
+          });
+      }
       await this.record(
         client,
         actor,
