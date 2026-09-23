@@ -16,12 +16,12 @@
 | 当前任务状态 | 周费用与分润账本、退款/采买/提现已有合成环境闭环；普通报销同财年双侧划拨、完成态读取和个人收入已验证，HTTP与两端执行及原笔撤销已在合成环境验证；组织营收、工资读取及计划维护、医社保公积金读取已通过两端验证。普通周组长预览/发布及两端未知结果恢复已验证，继续其他关系重算、其余财务写页面和备份；注册/重置/登录限流已合成验证；全产品验收、真机及生产尚未完成 |
 | 已有实现 | TypeScript monorepo、权限/接口契约、最大余数分币基础库、15档动态费率与九项分配纯函数、费率档位和总比例校验、管理员费率预览/发布/历史及岗位比例过滤、周费用输入校验与版本历史、登录/职责切换内存服务、推荐接收与周费用幂等内存服务、HTTP请求处理边界、账本差额与事件幂等基础、账本事务接口及内存回滚适配器、参数化PostgreSQL账本/身份/推荐与周费用仓储、不可变账本和周费用历史迁移、API/worker/两端入口、本地 Docker 合成数据库门禁、本地检查入口 |
 | 技术状态 | 依赖锁定于package-lock；默认测试、迁移静态检查和本地 PostgreSQL 合成库集成检查可运行；真实业务数据、生产凭据和设备验收未接入 |
-| 验证概况 | 最新隔离统一533/533；账号后端PG19/19+个人回归10/10、网页真实账户流程2/2、两端构建通过；清单证据、RAW及八张业务表清单已验证，最终整包回读已通过P36修复及实际PG。业务工作簿已提交，迁移29项、RAW84；F14整体、任务/下载/自动备份、真机、用户及生产仍未验收 |
+| 验证概况 | 最新隔离统一534/534；账号后端PG19/19+个人回归10/10、网页真实账户流程2/2、两端构建通过；清单证据、RAW及八张业务表清单已验证，最终整包回读已通过P36修复及实际PG。业务工作簿已提交，迁移29项、RAW84；F14整体、任务/下载/自动备份、真机、用户及生产仍未验收 |
 | 当前检查入口 | `npm run check`、`npm run db:check`、`git diff --check`；网页另执行 `npm run build:web` 与本地合成环境中的 `ALLIANCE_SYNTHETIC_E2E=1 npm run test:browser --workspace @teaching-research-alliance/web` |
 | 长任务目标及结束条件 | 持续完成开发计划F01–F14；当前工作包以基础契约可复用、空库迁移可执行和首个闭环可验证为阶段目标 |
-| 当前可执行任务 | DEV-011本地单次runner、后续任务/下载契约；DEV-007普通周学业规划导师关系在隔离worktree实施。其他关系及财务分支继续；DEV-009尚未部署常驻 |
+| 当前可执行任务 | DEV-011本地单次runner已验证，后续任务/下载契约待按依赖落地；梳理现有后端可立即接入的财务写页面；DEV-007普通周学业规划导师关系在隔离worktree实施。其他关系及财务分支继续；DEV-009尚未部署常驻 |
 | 被阻塞任务及解除条件 | 小程序真机需要AppID与设备环境；P09普通报销跨财年收入归属待用户决定，不阻塞其他工作；生产门禁需处理P07及部署授权。普通付款、人工调账等仍有未实现分支，不能把已验证单据当作全部财务完成 |
-| 下一步 | 20份工作簿及外部清单已验证，继续本地runner及手动任务/下载契约；普通周规划导师关系与财务分支并行。P27校区/分区一致性单独处理；生产/真机边界不扩展 |
+| 下一步 | 本地单次备份流水线已验证；手动任务/下载等待完整覆盖与持久模型分阶段接线，继续现有后端的财务写页面及普通周规划导师关系。P27校区/分区一致性单独处理；生产/真机边界不扩展 |
 
 
 ### 当前授权和运行边界
@@ -1429,3 +1429,12 @@
 - P36审查闭环：初版仅读manifest留下业务页CRC洞；补全部条目后，ROOT继续发现业务XML缺少行状态，追加rowOpen/固定列宽和畸形行新CRC反例。两轮独审在`/tmp/alliance-manifest-reader-independent-review.md`收口，无未解决P1/P2；组包独审`/tmp/alliance-final-manifest-assembler-independent-review.md`。
 - ROOT最终门禁：冻结统一533/533，`/tmp/alliance-final-package-frozen-check.log`；实际PG整包与legacy回归2/2，`/tmp/alliance-final-package-frozen-pg.log`。核对20本首表/同批同快照、每个载荷SHA/大小与总字节、2原件、退款负向记录、manifest自排除；拒伪context、缺整套组件、无manifest的旧书及不同fileGroup新hash书，旧成功包不变且调用方视图仍可用。4文件逐字节与冻结副本一致。
 - 本包不含正在新增的runner三文件；未建立任务、下载或调度，不宣称F14完成。接下来封装同流程本地单次入口并保持complete=false；并行设计手动任务/授权下载，0030仍由规划导师包占用。基线a92e456a9f6118884bccdb53806677cba4e539e1已核对GitHub同SHA。
+
+
+### DEV-011｜2026-09-23｜本地单次备份流水线与清理边界
+
+- 新增FullBackupLocalRunner，顺序编排一个PG只读快照、磁盘索引/派生视图、唯一清单上下文、20工作簿、精确版本附件和最终组包。调用方提供已配置的transformer及附件读取能力；不接受任意SQL/附件路径，不接API、CLI或调度，不填虚构任务身份。
+- 暂存根与保留根私有规范化后拒绝相同/互相包含。所有mkdtemp后验证进入try/finally；按periods、ledger、income、index顺序关闭并只清本次workspace。调用方pool不关闭；发布后关闭失败保留已生成包，以带localPackage身份的错误支持恢复。
+- ROOT最终验证：冻结统一534/534，`/tmp/alliance-local-runner-frozen-check.log`；真实PG单入口全过程1/1，`/tmp/alliance-local-runner-frozen-pg.log`，实际运行成功、附件读取失败、已发布后index关闭失败三种分支。逐payload复核SHA/大小/总数/总字节；原成功包在失败后不变、临时workspace清空，三阶段caller pool的SELECT 1均成功。三个文件与冻结副本逐字节一致。
+- 独审`/tmp/alliance-local-runner-independent-review.md`关闭创建后核验在try外的清理缺口，无未解决P1/P2。已批准runner契约为`/tmp/alliance-backup-runner-next-contract.md`，SHA27941c6973d86d06fb917143d6c88d5a68588a7dbce6c85f4722f3cc6957468c；过程中其临时副本被误覆盖，所有者已逐字恢复并由ROOT重核SHA，仓库与实现范围未改变。
+- 边界：结果仍LOCAL_PACKAGE_PUBLISHED、complete=false、INCOMPLETE_IMPLEMENTATION；下载/任务/每周自动备份尚未实现。后续手动任务API设计`/tmp/alliance-backup-task-api-contract.md`仅作方案，持久模型应先行保留非成功状态，再接完整覆盖门禁，不能因现有未实现缺口而伪造AVAILABLE。0030仍保留给规划导师，未创建0031。下一步接现有财务后端的两端写流程，普通周规划导师关系继续并行。基线ca693b5b7e430afe0943648d8fb32a6f08917e8e已核对GitHub同SHA。
