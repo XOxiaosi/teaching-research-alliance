@@ -15,7 +15,7 @@ const cloneSheets = () => JSON.parse(JSON.stringify(BUSINESS_BACKUP_SHEETS));
 
 test("business schema is an explicit, incomplete eight-table audit baseline", () => {
   const schema = createFullBackupBusinessSchema();
-  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v2");
+  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v3");
   assert.equal(schema.schemaVersion, FULL_BACKUP_BUSINESS_SCHEMA_VERSION);
   assert.equal(schema.mode, "BUSINESS_SCHEMA_ONLY");
   assert.equal(schema.complete, false);
@@ -54,6 +54,29 @@ test("every fixed business source and row key is an actual transformed output co
       assert.deepEqual(sheet.rowKeyColumns.filter((item) => item.sourceTable === sourceTable).map((item) => item.sourceColumn), expectedKeys);
     }
   }
+});
+
+test("table 4 maps all ordinary-reimbursement transfer, approval, attachment, and command facts without making a workbook", () => {
+  const table4 = BUSINESS_BACKUP_SHEETS.find((sheet) => sheet.tableNumber === 4);
+  assert.ok(table4);
+  assert.equal(table4.mode, "STORED_FACTS");
+  assert.equal(table4.rowModel, "SOURCE_ROWS_ONLY");
+  const columnsByTable = Object.fromEntries([...new Set(table4.columns.map((column) => column.sourceTable))].map((sourceTable) => [
+    sourceTable,
+    table4.columns.filter((column) => column.sourceTable === sourceTable).map((column) => column.sourceColumn),
+  ]));
+  assert.deepEqual(columnsByTable.finance_reimbursement_transfer, fullBackupOutputColumns("finance_reimbursement_transfer"));
+  assert.deepEqual(columnsByTable.finance_reimbursement_submission, fullBackupOutputColumns("finance_reimbursement_submission"));
+  assert.deepEqual(columnsByTable.finance_reimbursement_decision, fullBackupOutputColumns("finance_reimbursement_decision"));
+  assert.deepEqual(columnsByTable.finance_reimbursement_attachment_binding, fullBackupOutputColumns("finance_reimbursement_attachment_binding"));
+  assert.deepEqual(columnsByTable.finance_reimbursement_command_idempotency, fullBackupOutputColumns("finance_reimbursement_command_idempotency"));
+  assert.deepEqual(table4.rowKeyColumns.filter((key) => key.sourceTable === "finance_reimbursement_transfer").map((key) => key.sourceColumn), ["finance_document_id"]);
+  assert.deepEqual(table4.rowKeyColumns.filter((key) => key.sourceTable === "finance_reimbursement_attachment_binding").map((key) => key.sourceColumn), ["finance_document_id", "stage", "finance_attachment_version_id"]);
+  assert.deepEqual(table4.rowKeyColumns.filter((key) => key.sourceTable === "finance_reimbursement_command_idempotency").map((key) => key.sourceColumn), ["actor_person_id", "operation", "idempotency_key_fingerprint"]);
+  assert.equal(table4.columns.filter((column) => column.sourceTable === "finance_reimbursement_transfer" && column.sourceColumn !== "authorization_snapshot").every((column) => column.relationKeyDescription.includes("同财年普通报销实际划拨事实")), true);
+  assert.equal(table4.columns.some((column) => column.sourceTable === "finance_reimbursement_transfer" && column.sourceColumn === "source_after_cents" && column.relationKeyDescription.includes("可为负余额")), true);
+  assert.equal(table4.columns.some((column) => column.sourceTable === "finance_reimbursement_command_idempotency" && column.sourceColumn === "idempotency_key_fingerprint"), true);
+  assert.equal(table4.columns.some((column) => column.sourceTable === "finance_reimbursement_transfer" && column.sourceColumn === "authorization_snapshot" && column.relationKeyDescription.includes("白名单")), true);
 });
 
 test("table 5 maps the stored wage, bonus, document, reversal, and ledger traceability facts", () => {
@@ -117,7 +140,7 @@ test("business gaps remain explicit and separate from the existing raw-source ga
     "PER_TEACHER_RATE_OVERRIDE_NOT_IMPLEMENTED",
     "CLASS_TYPE_RATE_CONFIG_NOT_IMPLEMENTED",
     "PROJECT_DEDUCTION_1_TO_10_NOT_IMPLEMENTED",
-    "REIMBURSEMENT_TRANSFER_BUSINESS_MAPPING_PENDING",
+    "REIMBURSEMENT_TRANSFER_BUSINESS_WORKBOOK_PENDING",
     "EXTERNAL_PAYMENT_WORKFLOW_NOT_IMPLEMENTED",
     "SETTLEMENT_PUBLISHED_SNAPSHOTS_NOT_IMPLEMENTED",
     "RELATIONSHIP_CHANGE_PREVIEW_BATCH_NOT_IMPLEMENTED",

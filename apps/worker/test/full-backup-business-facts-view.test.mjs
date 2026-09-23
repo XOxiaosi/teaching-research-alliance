@@ -92,8 +92,8 @@ test("projects fixed stored facts from a complete spool without joining or coerc
       rowNumber: "1", values: ["case-001", "0002", "venue-001"],
     }]);
     assert.deepEqual(await rows(view, 4, "finance_attachment_version"), [
-      { sourceTable: "finance_attachment_version", sourceRecordKey: '[["id","attachment-v-ready"]]', rowNumber: "1", values: ["attachment-v-ready", "READY"] },
-      { sourceTable: "finance_attachment_version", sourceRecordKey: '[["id","attachment-v-uploading"]]', rowNumber: "2", values: ["attachment-v-uploading", "UPLOADING"] },
+      { sourceTable: "finance_attachment_version", sourceRecordKey: '[["id","attachment-v-ready"]]', rowNumber: "1", values: ["attachment-v-ready", null, null, "READY", null, null, null, null, null, null, null, null, null, null, null] },
+      { sourceTable: "finance_attachment_version", sourceRecordKey: '[["id","attachment-v-uploading"]]', rowNumber: "2", values: ["attachment-v-uploading", null, null, "UPLOADING", null, null, null, null, null, null, null, null, null, null, null] },
     ]);
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
