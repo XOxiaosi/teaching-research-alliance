@@ -12,11 +12,11 @@
 | 项目 | 教研联盟管理平台 |
 | 更新时间 | 2026-09-23 |
 | 需求版本 | V1.23最终需求正文；REQ-026收口三项开发边界 |
-| 当前任务 | 普通报销同财年申请/审批/执行、历史读取与表4来源映射已验证；继续原笔撤销及表4事实工作簿。关系变更预览/发布仍待实现，P09/P26边界不扩展 |
+| 当前任务 | 普通报销原笔撤销0027、撤销读取与两端交互并行实现；表4事实工作簿与RAW79已完成阶段检查，继续实际撤销记录导出验收。关系变更预览/发布仍待实现，P09/P26边界不扩展 |
 | 当前任务状态 | 周费用与分润账本、退款/采买/提现已有合成环境闭环；普通报销同财年双侧划拨、完成态读取和个人收入已验证，HTTP与两端执行已在合成环境验证，原笔撤销继续；组织营收、工资读取及计划维护、医社保公积金读取已通过两端验证。继续完整关系重算、其余财务写页面和备份；注册/重置/登录限流、全产品验收、真机及生产尚未完成 |
 | 已有实现 | TypeScript monorepo、权限/接口契约、最大余数分币基础库、15档动态费率与九项分配纯函数、费率档位和总比例校验、管理员费率预览/发布/历史及岗位比例过滤、周费用输入校验与版本历史、登录/职责切换内存服务、推荐接收与周费用幂等内存服务、HTTP请求处理边界、账本差额与事件幂等基础、账本事务接口及内存回滚适配器、参数化PostgreSQL账本/身份/推荐与周费用仓储、不可变账本和周费用历史迁移、API/worker/两端入口、本地 Docker 合成数据库门禁、本地检查入口 |
 | 技术状态 | 依赖锁定于package-lock；默认测试、迁移静态检查和本地 PostgreSQL 合成库集成检查可运行；真实业务数据、生产凭据和设备验收未接入 |
-| 验证概况 | 最新统一418/418、迁移26项；普通报销完整Web浏览器5/5、两端构建通过；历史授权与报销PG6/6、执行HTTP2/2、表4来源与表5XLSX PG2/2。福利系统PG7/7、旧福利6/6、HTTP3/3已验证。真机、用户及生产未验收 |
+| 验证概况 | 最新统一426/426、迁移27项；普通报销撤销/读取/HTTP/原笔XLSX最终PG15/15、两端构建通过；新撤销Web浏览器流程待验。原执行Web5/5是前次证据；RAW完整数据源与旧划拨13/13，worker聚焦24/24。真机、用户及生产未验收 |
 | 当前检查入口 | `npm run check`、`npm run db:check`、`git diff --check`；网页另执行 `npm run build:web` 与本地合成环境中的 `ALLIANCE_SYNTHETIC_E2E=1 npm run test:browser --workspace @teaching-research-alliance/web` |
 | 长任务目标及结束条件 | 持续完成开发计划F01–F14；当前工作包以基础契约可复用、空库迁移可执行和首个闭环可验证为阶段目标 |
 | 当前可执行任务 | DEV-008A普通报销原笔撤销；DEV-011表4事实工作簿及其余业务导出（表5已验证）；完整关系重算与其余财务分支继续。DEV-009系统入口已验证、尚未部署常驻 |
@@ -1213,3 +1213,19 @@
 - 证据：`/tmp/alliance-reimbursement-execute-root-browser-final-all.log`、`/tmp/alliance-reimbursement-ui-history-schema-final-check.log`、`/tmp/alliance-reimbursement-execute-root-web-build.log`、`/tmp/alliance-reimbursement-execute-root-mini-build.log`；截图更新于本目录 `evidence/DEV-010-reimbursement/`，全部合成资料。
 - 发现并修复演示初始化问题：公司资金账户原只随DEMO_WITH_BENEFITS创建，默认模式任命存在但缺实际账户；移至无条件创建，福利分支不再重复。root仅重建自己3116随机演示schema，用户5173实例未修改。首次全浏览器运行4通过/1失败为旧用例点击禁用导航及假定没有执行入口；按当前已确认交互更新锁定/恢复与审批不入账断言，最终全5通过，保留失败日志 `/tmp/alliance-reimbursement-execute-root-browser-full.log`。
 - 本阶段不代表完整财务完成。原笔撤销、其他财务类型、完整关系变更、完整备份、真机及生产继续；达到当前门禁后立即进入下一包，不等待用户再次确认。
+
+
+### DEV-008A / DEV-011｜2026-09-23｜普通报销原笔撤销与表4导出持续集成（进行中）
+
+- 分工：外部开发任务独占0027迁移、撤销服务和服务PG；本任务负责RAW79、表4映射、整合与独立验证；共享读取、HTTP、两端界面分别指定写入负责人。保留用户副本文档删除及AGENTS副本，未夹带提交。
+- 已有阶段证据：统一检查421/421，`/tmp/alliance-reversal-workbook-check.log`；27迁移静态检查通过。RAW预检/spool/实际XLSX与表4事实读取的隔离PG检查9/9，`/tmp/alliance-reversal-workbook-root-pg.log`（33.67秒）。共享完成链helper独立PG1/1，`/tmp/alliance-reimbursement-helper-root-pg.log`。这些是阶段结果，后续写入后仍须重跑受影响门禁。
+- 导出实际边界：RAW79表，78可读及1秘密专用；layout v3、transform v3，指纹域维持v1；business schema v4。表4目前17个声明来源独立输出，包含原划拨和原笔撤销映射；退款提交仅声明单据键，不能声称完整退款提交字段。已修正工作簿说明并保留complete:false；表3/7派生、其他表与完整备份任务交付仍待完成。
+- 独立审查：RAW递归授权白名单、表4映射及共享完成链无P1/P2；另一任务指出工作簿“完整事实”说明过度，已改为仅导出声明字段并加入说明断言。真实撤销服务/读取/HTTP/UI仍在集成，尚未标为可用交付。
+- 下一步：根任务以真实撤销记录贯穿账本、个人净收入和表4XLSX，完成服务/HTTP/网页回归后再提交。跨财年首次执行P09仍拒绝；对已完成原笔的后续撤销保留原执行期间与当前余额变化，不发生银行动作。
+
+- 后续根任务证据：普通报销撤销服务4项与实际原/反向表4XLSX2项合计6/6，`/tmp/alliance-reversal-core-xlsx-root-pg.log`（26.04秒）；严格REVERSED读取及完成链helper4/4，`/tmp/alliance-reversal-read-root-pg.log`（22.24秒）；旧划拨与RAW完整数据源13/13，`/tmp/alliance-reversal-registry-root-regression.log`（42.04秒）；表4/表5与schema/transform单测24/24，`/tmp/alliance-reversal-workbook-final-unit.log`。
+- 保留失败：首次实际撤销XLSX因B包SQL遗漏两个计数字段失败（`/tmp/alliance-reversal-finance-xlsx-root-pg.log`），已修复并由上条6/6覆盖；旧报销测试写死78张源表导致目录升级后失败（`/tmp/alliance-reversal-existing-http-root-pg.log`），更新为79后由13/13覆盖。新Mini撤销409测试卡住，根统一检查终止对应子进程，`/tmp/alliance-reversal-final-check.log`记425通过/1失败（SIGTERM），仍待修复后完整重跑；不以阶段通过替代最终门禁。
+
+- 终态复审与最终后台门禁：新增P29，0027补数据库延迟完整性、办理时点真实GLOBAL任职、反向唯一和终态追加保护；独立复审确认两项缺口均修复。因新约束，HTTP与跨年读取夹具补真实管理员/开发者任职，未放宽约束。根最终PG15/15，`/tmp/alliance-reversal-final-root-pg.log`（72.23秒），覆盖服务、REVERSED读取、HTTP、旧划拨、P28、共享helper、原/反向真实XLSX。
+- 最终统一检查426/426，`/tmp/alliance-reversal-complete-check.log`（64.33秒）；Web和Mini实际构建均退出0，`/tmp/alliance-reversal-web-build.log`、`/tmp/alliance-reversal-mini-build.log`，Mini保留既有体积建议警告。旧409测试错误要求刷新后不显示有效COMPLETED操作区，已改为验证旧原因清空及仅一次请求，13项Mini单测正常退出；其余断言未削弱。
+- 本次先提交已验证后台、HTTP、RAW79及表4工作簿；两端源码通过统一检查和构建，新Web浏览器流程仍待实际验收后单独提交。迁移0027只增加报销约束与反向表，不能将代码回滚当作数据库恢复。

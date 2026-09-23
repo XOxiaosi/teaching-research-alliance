@@ -8,6 +8,7 @@ import { PostgresReimbursementSubmissionService } from "./postgres-reimbursement
 import { PostgresReimbursementReviewService } from "./postgres-reimbursement-review-service.js";
 import { PostgresReimbursementReadService } from "./postgres-reimbursement-read-service.js";
 import { PostgresReimbursementTransferService } from "./postgres-reimbursement-transfer-service.js";
+import { PostgresReimbursementReversalService } from "./postgres-reimbursement-reversal-service.js";
 import { fileURLToPath } from "node:url";
 import { LocalAttachmentStore } from "./local-attachment-store.js";
 import { PostgresFinanceAttachmentUploadService } from "./postgres-finance-attachment-upload-service.js";
@@ -89,6 +90,7 @@ const server = createApiServer({
       }
     : {}),
   reimbursementReads: new PostgresReimbursementReadService(pool),
+  reimbursementReversals: new PostgresReimbursementReversalService(pool),
   ...(attachmentStore
     ? {
         reimbursements: new PostgresReimbursementSubmissionService(

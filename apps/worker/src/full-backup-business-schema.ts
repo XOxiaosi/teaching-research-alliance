@@ -7,7 +7,7 @@ import { fullBackupOutputColumns } from "./full-backup-transformer.js";
  * deliberately does not assemble rows, join source tables, or calculate
  * amounts.  Raw-source workbooks remain the authoritative stored-fact export.
  */
-export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v3";
+export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v4";
 
 export type BusinessBackupSheetMode = "STORED_FACTS" | "DERIVED_REQUIRED";
 export type BusinessBackupRowModel = "SOURCE_ROWS_ONLY" | "DERIVED_NOT_GENERATED";
@@ -141,6 +141,7 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     key("finance_reimbursement_command_idempotency", "actor_person_id", "普通报销命令封口的复合键第1项，关联办理人员"),
     key("finance_reimbursement_command_idempotency", "operation", "普通报销命令封口的复合键第2项"),
     key("finance_reimbursement_command_idempotency", "idempotency_key_fingerprint", "普通报销命令封口的复合键第3项，仅保留原始幂等键指纹"),
+    key("finance_reimbursement_reversal", "finance_document_id", "普通报销原笔撤销关联原划拨与单据"),
     key("finance_reimbursement_transfer", "finance_document_id", "同财年普通报销实际划拨按 finance_document_id 关联单据"),
     key("finance_self_purchase_transfer", "finance_document_id", "自采买转账按 finance_document_id 关联单据"),
     key("finance_self_purchase_reversal", "finance_document_id", "自采买冲回按 finance_document_id 关联单据"),
@@ -198,14 +199,33 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     source("finance_reimbursement_attachment_binding", "bound_at", "报销附件绑定时间", "普通报销附件绑定事实；关联 finance_document_id"),
     source("finance_reimbursement_attachment_binding", "created_at", "报销附件绑定创建时间", "普通报销附件绑定事实；关联 finance_document_id"),
     source("finance_reimbursement_command_idempotency", "actor_person_id", "报销命令办理人ID", "普通报销命令封口事实；复合键关联 person.id"),
-    source("finance_reimbursement_command_idempotency", "operation", "报销命令操作", "普通报销命令封口事实；复合键区分提交、审批、拒绝与执行"),
+    source("finance_reimbursement_command_idempotency", "operation", "报销命令操作", "普通报销命令封口事实；复合键区分提交、审批、拒绝、执行与撤销"),
     source("finance_reimbursement_command_idempotency", "request_hash", "报销命令请求摘要", "普通报销命令封口事实；关联操作、单据和结果版本"),
     source("finance_reimbursement_command_idempotency", "finance_document_id", "报销命令单据ID", "普通报销命令封口事实；关联 finance_document.id"),
     source("finance_reimbursement_command_idempotency", "result_status", "报销命令结果状态", "普通报销命令封口事实；关联操作与单据版本"),
     source("finance_reimbursement_command_idempotency", "result_document_version", "报销命令结果单据版本", "普通报销命令封口事实；关联 finance_document.version"),
     source("finance_reimbursement_command_idempotency", "created_at", "报销命令封口时间", "普通报销命令封口事实；关联 finance_document_id"),
     source("finance_reimbursement_command_idempotency", "idempotency_key_fingerprint", "报销命令幂等键指纹", "普通报销命令封口事实；仅导出原始幂等键指纹"),
-    source("finance_reimbursement_transfer", "finance_document_id", "报销划拨单据ID", "同财年普通报销实际划拨事实；关联 finance_document.id，不生成业务工作簿或汇总"),
+    source("finance_reimbursement_reversal", "finance_document_id", "报销撤销单据ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "source_document_version", "报销撤销来源版本", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "result_document_version", "报销撤销结果版本", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "source_account_id", "报销撤销原支出账户ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "destination_account_id", "报销撤销原收款账户ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "amount_cents", "报销撤销金额", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "original_ledger_event_id", "报销原划拨账本事件ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "reversal_ledger_event_id", "报销撤销账本事件ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "reason", "报销撤销原因", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "reversed_by_person_id", "报销撤销办理人ID", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "actor_subject_code", "报销撤销办理人身份", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "actor_scope_type", "报销撤销办理人范围", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "authorization_snapshot", "报销撤销授权快照", "转换后白名单字段；保留原划拨授权和撤销办理授权"),
+    source("finance_reimbursement_reversal", "reversed_at", "报销撤销时间", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "created_at", "报销撤销记录创建时间", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "source_before_cents", "报销撤销前支出账户余额", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "source_after_cents", "报销撤销后支出账户余额", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "destination_before_cents", "报销撤销前收款账户余额", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_reversal", "destination_after_cents", "报销撤销后收款账户余额", "普通报销原笔撤销事实；按原单据与账户关联，余额允许为负；不聚合或删除原划拨"),
+    source("finance_reimbursement_transfer", "finance_document_id", "报销划拨单据ID", "同财年普通报销实际划拨事实；关联 finance_document.id，按独立事实行导出，不生成汇总"),
     source("finance_reimbursement_transfer", "source_document_version", "报销划拨来源单据版本", "同财年普通报销实际划拨事实；与 result_document_version 形成版本链"),
     source("finance_reimbursement_transfer", "result_document_version", "报销划拨结果单据版本", "同财年普通报销实际划拨事实；关联 finance_document.version"),
     source("finance_reimbursement_transfer", "role_assignment_id", "报销划拨财务角色ID", "同财年普通报销实际划拨事实；关联 role_assignment.id"),
@@ -372,7 +392,6 @@ export const BUSINESS_BACKUP_COVERAGE_GAPS: readonly BusinessCoverageGap[] = Obj
   Object.freeze({ code: "PER_TEACHER_RATE_OVERRIDE_NOT_IMPLEMENTED", tableNumbers: Object.freeze([8]), description: "尚无按接收方教师保存的费率覆盖模型，不能将全局策略冒充个别配置。" }),
   Object.freeze({ code: "CLASS_TYPE_RATE_CONFIG_NOT_IMPLEMENTED", tableNumbers: Object.freeze([8]), description: "尚无班型费率配置模型，不能从全局策略或逐笔快照反推完整配置。" }),
   Object.freeze({ code: "PROJECT_DEDUCTION_1_TO_10_NOT_IMPLEMENTED", tableNumbers: Object.freeze([6]), description: "项目1至10个人扣费尚无存储模型，不能复用奖金名称或奖金划拨数据。" }),
-  Object.freeze({ code: "REIMBURSEMENT_TRANSFER_BUSINESS_WORKBOOK_PENDING", tableNumbers: Object.freeze([4]), description: "同财年报销划拨已有原始事实模型并已纳入表4来源映射，但业务工作簿尚未生成；跨财年归属仍待定。" }),
   Object.freeze({ code: "EXTERNAL_PAYMENT_WORKFLOW_NOT_IMPLEMENTED", tableNumbers: Object.freeze([4]), description: "对外付款工作流尚未建模，不能提现记录替代。" }),
   Object.freeze({ code: "SETTLEMENT_PUBLISHED_SNAPSHOTS_NOT_IMPLEMENTED", tableNumbers: Object.freeze([3, 7]), description: "月度收入和费用结算尚无已发布汇总快照模型，不能由分录即时聚合冒充。" }),
   Object.freeze({ code: "RELATIONSHIP_CHANGE_PREVIEW_BATCH_NOT_IMPLEMENTED", tableNumbers: Object.freeze([1, 4]), description: "关系变更的预览范围与发布批次尚无独立模型，不能由当前关系或分配快照倒推。" }),

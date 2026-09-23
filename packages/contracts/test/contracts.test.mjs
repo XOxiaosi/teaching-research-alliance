@@ -88,6 +88,29 @@ test("普通报销执行严格限定总部财务全局动作，系统管理员�
   assert.equal(API_ERROR_CODES.includes("REIMBURSEMENT_CROSS_FINANCE_YEAR_PENDING"), true);
 });
 
+test("普通报销撤销独立于执行，三类全局财务身份可办理",()=>{
+  assert.equal(ACTIONS.includes("REVERSE_REIMBURSEMENT"), true);
+  for (const subject of ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"]) {
+    assert.equal(permissionScope(subject, "REVERSE_REIMBURSEMENT"), "GLOBAL");
+    assert.equal(hasPermission(subject, "REVERSE_REIMBURSEMENT"), true);
+  }
+  for (const subject of ["REGION_FINANCE", "CAMPUS_PRINCIPAL", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"]) {
+    assert.equal(hasPermission(subject, "REVERSE_REIMBURSEMENT"), false);
+  }
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/finance/reimbursements/:documentId/reverse"),
+    {
+      method: "POST",
+      path: "/v1/finance/reimbursements/:documentId/reverse",
+      action: "REVERSE_REIMBURSEMENT",
+      responseVersion: "reimbursement.v1",
+      requiresRoleContext: true,
+    },
+  );
+  assert.equal(hasPermission("SYSTEM_ADMIN", "EXECUTE_REIMBURSEMENT"), false);
+  assert.equal(hasPermission("SYSTEM_OWNER", "EXECUTE_REIMBURSEMENT"), false);
+});
+
 test("契约规则没有重复动作定义", () => {
   const keys = PERMISSION_RULES.map((item) => `${item.subject}:${item.action}`);
   assert.equal(new Set(keys).size, keys.length);

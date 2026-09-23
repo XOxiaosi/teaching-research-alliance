@@ -15,7 +15,7 @@ const cloneSheets = () => JSON.parse(JSON.stringify(BUSINESS_BACKUP_SHEETS));
 
 test("business schema is an explicit, incomplete eight-table audit baseline", () => {
   const schema = createFullBackupBusinessSchema();
-  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v3");
+  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v4");
   assert.equal(schema.schemaVersion, FULL_BACKUP_BUSINESS_SCHEMA_VERSION);
   assert.equal(schema.mode, "BUSINESS_SCHEMA_ONLY");
   assert.equal(schema.complete, false);
@@ -66,6 +66,7 @@ test("table 4 maps all ordinary-reimbursement transfer, approval, attachment, an
     table4.columns.filter((column) => column.sourceTable === sourceTable).map((column) => column.sourceColumn),
   ]));
   assert.deepEqual(columnsByTable.finance_reimbursement_transfer, fullBackupOutputColumns("finance_reimbursement_transfer"));
+  assert.deepEqual(new Set(columnsByTable.finance_reimbursement_reversal), new Set(fullBackupOutputColumns("finance_reimbursement_reversal")));
   assert.deepEqual(columnsByTable.finance_reimbursement_submission, fullBackupOutputColumns("finance_reimbursement_submission"));
   assert.deepEqual(columnsByTable.finance_reimbursement_decision, fullBackupOutputColumns("finance_reimbursement_decision"));
   assert.deepEqual(columnsByTable.finance_reimbursement_attachment_binding, fullBackupOutputColumns("finance_reimbursement_attachment_binding"));
@@ -140,7 +141,6 @@ test("business gaps remain explicit and separate from the existing raw-source ga
     "PER_TEACHER_RATE_OVERRIDE_NOT_IMPLEMENTED",
     "CLASS_TYPE_RATE_CONFIG_NOT_IMPLEMENTED",
     "PROJECT_DEDUCTION_1_TO_10_NOT_IMPLEMENTED",
-    "REIMBURSEMENT_TRANSFER_BUSINESS_WORKBOOK_PENDING",
     "EXTERNAL_PAYMENT_WORKFLOW_NOT_IMPLEMENTED",
     "SETTLEMENT_PUBLISHED_SNAPSHOTS_NOT_IMPLEMENTED",
     "RELATIONSHIP_CHANGE_PREVIEW_BATCH_NOT_IMPLEMENTED",

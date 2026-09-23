@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v2";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v3";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -184,6 +184,7 @@ const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
     case "finance_refund_decision.authorization_snapshot": return validateReviewerDecision(input, root, "REFUND");
     case "finance_reimbursement_decision.authorization_snapshot": return validateReviewerDecision(input, root, "REIMBURSEMENT");
     case "finance_reimbursement_transfer.authorization_snapshot": return validateReimbursementTransferAuthorization(input, root);
+    case "finance_reimbursement_reversal.authorization_snapshot": return [...exactKeys(input, root, ["originalTransferAuthorization", "originalLedgerEventId", "originalExecutedByPersonId", "actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode"], undefined, { strings: ["originalLedgerEventId", "originalExecutedByPersonId", "actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode"] }), ...validateReimbursementTransferAuthorization(input, root.originalTransferAuthorization)];
     case "finance_self_purchase_transfer.authorization_snapshot": return validateSelfPurchaseAuthorization(input, root);
     case "finance_self_purchase_reversal.authorization_snapshot": return [...exactKeys(input, root, ["actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode", "originalLedgerEventId", "originalTransferAuthorization"], undefined, { strings: ["actorPersonId", "actorSubjectCode", "actorScopeType", "processingMode", "originalLedgerEventId"] }), ...validateSelfPurchaseAuthorization(input, root.originalTransferAuthorization)];
     case "finance_withdrawal_submission.authorization_snapshot": {
@@ -200,6 +201,7 @@ export const KNOWN_FINANCE_EVENT_SCHEMAS: Readonly<Record<string, readonly strin
   CREATED: null, SALARY_BENEFIT_COMPLETED: null, SALARY_BENEFIT_REVERSED: null,
   SUBMITTED: ["approvalMode", "sourceAccountId", "sourceOwnerType", "amountCents", "authorizationKind"], TRANSFERRED: ["completionAttachmentCount"], REVOKED: ["reason", "amountCents"],
   REIMBURSEMENT_SUBMITTED: ["amountCents", "reason", "destinationAccountId", "applicantContext"], REIMBURSEMENT_APPROVED: ["processingMode", "decision", "reason", "reviewerContext"], REIMBURSEMENT_REJECTED: ["processingMode", "decision", "reason", "reviewerContext"],
+  REIMBURSEMENT_REVERSED: ["processingMode", "reason", "originalLedgerEventId", "actorSubjectCode", "actorScopeType"],
   REIMBURSEMENT_COMPLETED: ["processingMode", "amountCents", "sourceAccountId", "destinationAccountId"],
   REFUND_SUBMITTED: ["reason", "referralCaseId", "studentRecordId", "weeklyFeeEntryIds", "applicantContext"], REFUND_APPROVED: ["reason", "processingMode", "approvedGrossAmountCents"], REFUND_REJECTED: ["reason", "processingMode", "approvedGrossAmountCents"],
   AUTO_COMPLETED: ["processingMode", "amountCents", "sourceAccountId", "destinationAccountId", "applicantContextSubject", "applicantContextScope", "applicantContextRegionId", "applicantContextCampusId", "applicantContextVenueId"], TRANSFER_REVERSED: ["processingMode", "reason", "originalLedgerEventId", "actorSubjectCode", "actorScopeType"],

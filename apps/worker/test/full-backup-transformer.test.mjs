@@ -25,6 +25,18 @@ test("普通报销执行授权快照按已知字段保真，秘密或未知嵌�
     applicantPersonId: "teacher", submittedAt: "2026-09-02T00:00:00Z", approvedAt: "2026-09-03T00:00:00Z",
     submissionDocumentVersion: 2, decisionDocumentVersion: 3,
   };
+  const reversal = { originalTransferAuthorization: snapshot, originalLedgerEventId: "original-ledger", originalExecutedByPersonId: "finance", actorPersonId: "admin", actorSubjectCode: "SYSTEM_ADMIN", actorScopeType: "GLOBAL", processingMode: "MANUAL" };
+  const reversed = await row("finance_reimbursement_reversal", { authorization_snapshot: JSON.stringify(reversal) }, { destination_after_cents: "-5300" });
+  assert.equal(reversed.values.authorization_snapshot, JSON.stringify(reversal));
+  assert.equal(reversed.values.destination_after_cents, "-5300");
+  assert.deepEqual(reversed.anomalies, []);
+  for (const bad of [{ ...reversal, accessToken: "secret" }, { ...reversal, originalTransferAuthorization: { ...snapshot, password: "secret" } }, { ...reversal, actorScopeType: { token: "secret" } }]) {
+    await assert.rejects(row("finance_reimbursement_reversal", { authorization_snapshot: JSON.stringify(bad) }), /EXPORT_TRANSFORM_SCHEMA_GAP/);
+  }
+  const reverseDetails = JSON.stringify({ processingMode: "MANUAL", reason: "原笔更正", originalLedgerEventId: "original-ledger", actorSubjectCode: "SYSTEM_ADMIN", actorScopeType: "GLOBAL" });
+  const reverseEvent = await row("finance_document_event", { details_json: reverseDetails }, { event_type: "REIMBURSEMENT_REVERSED" });
+  assert.equal(reverseEvent.values.details_json, reverseDetails);
+  assert.deepEqual(reverseEvent.anomalies, []);
   const raw = JSON.stringify(snapshot);
   const result = await row("finance_reimbursement_transfer", { authorization_snapshot: raw }, { amount_cents: "5300", source_after_cents: "-100" });
   assert.equal(result.values.authorization_snapshot, raw);
@@ -195,7 +207,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v2");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v3");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");

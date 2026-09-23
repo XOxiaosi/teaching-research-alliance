@@ -348,6 +348,15 @@ export type ApiServices = Readonly<{
       at: Date,
     ) => unknown | Promise<unknown>;
   }>;
+  reimbursementReversals?: Readonly<{
+    reverse: (
+      context: RoleContext,
+      id: string,
+      draft: { expectedVersion: number; reason: string },
+      key: string,
+      at: Date,
+    ) => unknown | Promise<unknown>;
+  }>;
   reimbursementReads?: Readonly<{
     listOwn: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     listManaged: (context: RoleContext) => unknown | Promise<unknown>;
@@ -2207,6 +2216,45 @@ export const handleRequest = async (
           context,
           reimbursementExecutePath[1]!,
           { expectedVersion: body.expectedVersion },
+          requiredString(body, "idempotencyKey"),
+          at,
+        ),
+      );
+    }
+    const reimbursementReversePath = request.path.match(
+      /^\/v1\/finance\/reimbursements\/([^/]+)\/reverse$/,
+    );
+    if (reimbursementReversePath !== null && request.method === "POST") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      const context = currentContext(
+        await services.sessions.get(sessionIdFrom(body), at),
+      );
+      if (!services.reimbursementReversals)
+        throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      if (
+        Object.keys(body).some(
+          (key) =>
+            ![
+              "sessionId",
+              "expectedVersion",
+              "reason",
+              "idempotencyKey",
+            ].includes(key),
+        ) ||
+        typeof body.expectedVersion !== "number" ||
+        !Number.isSafeInteger(body.expectedVersion) ||
+        body.expectedVersion < 1
+      )
+        throw new Error("INVALID_INPUT");
+      return success(
+        await services.reimbursementReversals.reverse(
+          context,
+          reimbursementReversePath[1]!,
+          {
+            expectedVersion: body.expectedVersion,
+            reason: requiredString(body, "reason"),
+          },
           requiredString(body, "idempotencyKey"),
           at,
         ),
