@@ -12,6 +12,9 @@ import {
   writeBackupBytes,
 } from "./backup-file-io.js";
 import type { BackupAttachmentFiles } from "./full-backup-attachment-exporter.js";
+import { BUSINESS_BACKUP_COVERAGE_GAPS } from "./full-backup-business-schema.js";
+import { FullBackupBusinessFactsView } from "./full-backup-business-facts-view.js";
+import type { FullBackupBusinessFactsWorkbookExportResult } from "./full-backup-business-facts-workbook-exporter.js";
 import { FULL_BACKUP_KNOWN_COVERAGE_GAPS, FULL_BACKUP_LAYOUT_VERSION, createFullBackupLayout } from "./full-backup-layout.js";
 import { readBackupSpoolDataset } from "./full-backup-spool-reader.js";
 import type { FullBackupSpoolResult } from "./full-backup-spool.js";
@@ -28,11 +31,59 @@ const INCOMPLETE_REASONS = [
   "00_MANIFEST_NOT_IMPLEMENTED",
   "FINAL_PACKAGE_MANIFEST_NOT_IMPLEMENTED",
 ] as const;
+const BUSINESS_FACTS_INCOMPLETE_REASONS = [
+  "BUSINESS_TABLES_3_AND_7_DERIVED_PENDING",
+  "BUSINESS_FACTS_DECLARED_FIELDS_ONLY",
+  "00_MANIFEST_NOT_IMPLEMENTED",
+  "FINAL_PACKAGE_MANIFEST_NOT_IMPLEMENTED",
+] as const;
+const FIXED_BUSINESS_FACTS = [
+  { key: "teacher", tableNumber: 1, file: "business-table-1-teacher-facts.xlsx" },
+  { key: "student", tableNumber: 2, file: "business-table-2-student-facts.xlsx" },
+  { key: "finance", tableNumber: 4, file: "business-table-4-finance-facts.xlsx" },
+  { key: "payroll", tableNumber: 5, file: "business-table-5-payroll-facts.xlsx" },
+  { key: "deduction", tableNumber: 6, file: "business-table-6-deduction-facts.xlsx" },
+  { key: "performanceConfiguration", tableNumber: 8, file: "business-table-8-performance-configuration-facts.xlsx" },
+] as const;
+const BUSINESS_FACT_TABLE_SCOPE_GAPS: Readonly<Record<BusinessFactTableNumber, string>> = Object.freeze({
+  1: "BUSINESS_TABLES_2_TO_8_NOT_INCLUDED",
+  2: "BUSINESS_TABLES_1_3_TO_8_NOT_INCLUDED",
+  4: "BUSINESS_TABLES_1_TO_3_5_TO_8_NOT_INCLUDED",
+  5: "BUSINESS_TABLES_1_TO_4_6_TO_8_NOT_INCLUDED",
+  6: "BUSINESS_TABLES_1_TO_5_7_TO_8_NOT_INCLUDED",
+  8: "BUSINESS_TABLES_1_TO_7_NOT_INCLUDED",
+});
+const DERIVED_SCOPE_GAP = "DERIVED_TABLES_3_AND_7_NOT_GENERATED";
 
 type AttachmentMediaType = keyof typeof EXTENSIONS;
 type JsonRecord = Record<string, unknown>;
 
 export type RawSourcePackageFile = Readonly<{ path: string; sizeBytes: string; sha256: string }>;
+type BusinessFactTableNumber = typeof FIXED_BUSINESS_FACTS[number]["tableNumber"];
+export type FullBackupBusinessFactInput = Readonly<{
+  directory: string;
+  result: FullBackupBusinessFactsWorkbookExportResult;
+}>;
+export type FullBackupBusinessFactsBundle = Readonly<{
+  teacher: FullBackupBusinessFactInput;
+  student: FullBackupBusinessFactInput;
+  finance: FullBackupBusinessFactInput;
+  payroll: FullBackupBusinessFactInput;
+  deduction: FullBackupBusinessFactInput;
+  performanceConfiguration: FullBackupBusinessFactInput;
+}>;
+export type RawSourcePackageBusinessFact = Readonly<{
+  tableNumber: BusinessFactTableNumber;
+  file: RawSourcePackageFile;
+  schemaVersion: string;
+  gaps: readonly string[];
+  sources: readonly Readonly<{
+    sourceTable: string;
+    columns: readonly string[];
+    rowCount: string;
+    logicalDigest: string;
+  }>[];
+}>;
 export type FullBackupLocalPackage = Readonly<{
   mode: "RAW_SOURCE_PACKAGE";
   complete: false;
@@ -50,6 +101,8 @@ export type FullBackupLocalPackage = Readonly<{
   unreadyAttachmentCount: string;
   coverageGaps: readonly string[];
   incompleteReasons: readonly string[];
+  /** Present only when all six fixed stored-fact business workbooks were verified and copied. */
+  businessFacts?: readonly RawSourcePackageBusinessFact[];
 }>;
 export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   spoolDirectory: string;
@@ -59,6 +112,8 @@ export type FullBackupLocalPackageAssemblerOptions = Readonly<{
   attachmentDirectory: string;
   attachments: BackupAttachmentFiles;
   outputRoot: string;
+  /** All-or-nothing fixed stored-fact bundle. Omission preserves the legacy RAW-only package. */
+  businessFacts?: FullBackupBusinessFactsBundle;
 }>;
 
 function fail(code: string): never { throw new Error(code); }
@@ -128,6 +183,81 @@ function assertSnapshots(options: FullBackupLocalPackageAssemblerOptions): void 
         typeof item.sizeBytes !== "string" || !/^[1-9]\d*$/.test(item.sizeBytes) || typeof item.sha256 !== "string" || !SHA256.test(item.sha256))) fail("EXPORT_PACKAGE_WORKBOOKS_INVALID");
 }
 
+type VerifiedBusinessFactComponent = Readonly<{
+  key: typeof FIXED_BUSINESS_FACTS[number]["key"];
+  tableNumber: BusinessFactTableNumber;
+  file: string;
+  directory: string;
+  schemaVersion: string;
+  gaps: readonly string[];
+  sources: RawSourcePackageBusinessFact["sources"];
+  expectedBytes: bigint;
+  expectedSha256: string;
+}>;
+
+const exactKeys = (value: JsonRecord, expected: readonly string[]): boolean =>
+  same(Object.keys(value).sort(), [...expected].sort());
+
+/**
+ * Reconstructs the allowed fact metadata from the same validated spool instead
+ * of serializing producer-supplied nested values.  The producer receipt is
+ * still checked against that reconstruction before any output directory opens.
+ */
+function verifyBusinessFacts(options: FullBackupLocalPackageAssemblerOptions): readonly VerifiedBusinessFactComponent[] {
+  const bundle = options.businessFacts;
+  if (bundle === undefined) return [];
+  const bundleRecord = own(bundle);
+  if (!exactKeys(bundleRecord, FIXED_BUSINESS_FACTS.map((item) => item.key))) fail("EXPORT_PACKAGE_BUSINESS_FACTS_INVALID");
+  const view = new FullBackupBusinessFactsView({ spoolDirectory: options.spoolDirectory, spool: options.spool });
+  return Object.freeze(FIXED_BUSINESS_FACTS.map((fixed) => {
+    const input = own(bundleRecord[fixed.key]);
+    if (!exactKeys(input, ["directory", "result"]) || typeof input.directory !== "string" || input.directory.length === 0)
+      fail("EXPORT_PACKAGE_BUSINESS_FACTS_INVALID");
+    const result = own(input.result);
+    const sourceRows = result.sourceRows;
+    if (result.mode !== "BUSINESS_FACTS_WORKBOOK" || result.complete !== false || result.spoolId !== options.spool.spoolId ||
+        result.snapshotId !== options.spool.snapshotId || result.asOf !== options.spool.asOf || result.file !== fixed.file ||
+        !Array.isArray(result.coveredTables) || result.coveredTables.length !== 1 || result.coveredTables[0] !== fixed.tableNumber ||
+        typeof result.sizeBytes !== "string" || !/^[1-9]\d*$/.test(result.sizeBytes) || typeof result.sha256 !== "string" || !SHA256.test(result.sha256) ||
+        !Array.isArray(sourceRows) || !Array.isArray(result.gaps))
+      fail("EXPORT_PACKAGE_BUSINESS_FACTS_INVALID");
+    const description = view.describe(fixed.tableNumber);
+    if (result.schemaVersion !== description.schemaVersion) fail("EXPORT_PACKAGE_BUSINESS_FACT_SCHEMA_MISMATCH");
+    if (sourceRows.length !== description.sources.length) fail("EXPORT_PACKAGE_BUSINESS_FACT_SOURCE_MISMATCH");
+    const sources = Object.freeze(description.sources.map((source, index) => {
+      const receipt = own(sourceRows[index]);
+      if (!exactKeys(receipt, ["sourceTable", "rowCount", "logicalDigest"]) || receipt.sourceTable !== source.sourceTable ||
+          typeof receipt.rowCount !== "string" || typeof receipt.logicalDigest !== "string")
+        fail("EXPORT_PACKAGE_BUSINESS_FACT_SOURCE_MISMATCH");
+      const dataset = options.spool.datasets.find((item) => item.tableName === source.sourceTable);
+      if (dataset === undefined || dataset.excluded || receipt.rowCount !== dataset.rowCount || receipt.logicalDigest !== dataset.logicalDigest)
+        fail("EXPORT_PACKAGE_BUSINESS_FACT_SOURCE_MISMATCH");
+      return Object.freeze({
+        sourceTable: source.sourceTable,
+        columns: Object.freeze(source.columns.map((column) => column.sourceColumn)),
+        rowCount: dataset.rowCount,
+        logicalDigest: dataset.logicalDigest,
+      });
+    }));
+    return Object.freeze({
+      key: fixed.key,
+      tableNumber: fixed.tableNumber,
+      file: fixed.file,
+      directory: input.directory,
+      schemaVersion: description.schemaVersion,
+      gaps: Object.freeze([
+        BUSINESS_FACT_TABLE_SCOPE_GAPS[fixed.tableNumber],
+        DERIVED_SCOPE_GAP,
+        ...options.spool.coverageGaps,
+        ...BUSINESS_BACKUP_COVERAGE_GAPS.filter((gap) => gap.tableNumbers.includes(fixed.tableNumber)).map((gap) => gap.code),
+      ]),
+      sources,
+      expectedBytes: BigInt(result.sizeBytes),
+      expectedSha256: result.sha256,
+    });
+  }));
+}
+
 function attachmentDataset(spool: FullBackupSpoolResult) {
   const dataset = spool.datasets.find((item) => item.tableName === "finance_attachment_version");
   if (dataset === undefined || dataset.excluded) fail("EXPORT_PACKAGE_ATTACHMENT_DATASET_INVALID");
@@ -166,9 +296,11 @@ export class FullBackupLocalPackageAssembler {
 
   public async assemble(): Promise<FullBackupLocalPackage> {
     assertSnapshots(this.options);
+    const businessFactComponents = verifyBusinessFacts(this.options);
     const workbookRoot = await assertPrivateBackupDirectory(this.options.workbookDirectory);
     const attachmentRoot = await assertPrivateBackupDirectory(this.options.attachmentDirectory);
     const spoolRoot = await assertPrivateBackupDirectory(this.options.spoolDirectory);
+    const businessFactRoots = await Promise.all(businessFactComponents.map((component) => assertPrivateBackupDirectory(component.directory)));
     await mkdir(this.options.outputRoot, { recursive: true, mode: 0o700 });
     const outputRoot = await assertPrivateBackupDirectory(this.options.outputRoot);
     const stageName = `.raw-source-package-stage-${crypto.randomUUID()}`;
@@ -206,6 +338,34 @@ export class FullBackupLocalPackageAssembler {
         await addPayload(copied);
       }
       await syncBackupDirectory(destinationWorkbooks);
+
+      const businessFacts: RawSourcePackageBusinessFact[] = [];
+      if (businessFactComponents.length > 0) {
+        const destinationBusinessFacts = await createPrivateDirectory(join(stage, "business-facts"));
+        for (const [index, component] of businessFactComponents.entries()) {
+          const sourceRoot = businessFactRoots[index]!;
+          if (await countDirectory(sourceRoot, (name, entry) => entry.isFile() && name === component.file) !== 1)
+            fail("EXPORT_PACKAGE_BUSINESS_FACT_FILE_INVALID");
+          const destinationPath = `business-facts/${component.file}`;
+          const copied = await copyVerifiedBackupFile({
+            sourceRoot,
+            sourcePath: component.file,
+            destinationRoot: stage,
+            destinationPath,
+            expectedBytes: component.expectedBytes,
+            expectedSha256: component.expectedSha256,
+          });
+          await addPayload(copied);
+          businessFacts.push(Object.freeze({
+            tableNumber: component.tableNumber,
+            file: copied,
+            schemaVersion: component.schemaVersion,
+            gaps: component.gaps,
+            sources: component.sources,
+          }));
+        }
+        await syncBackupDirectory(destinationBusinessFacts);
+      }
 
       if (await countDirectory(attachmentRoot, (name, entry) => (name === this.options.attachments.indexFile && entry.isFile()) || (name === "attachments" && entry.isDirectory())) !== 2)
         fail("EXPORT_PACKAGE_EXTRA_FILE");
@@ -289,7 +449,9 @@ export class FullBackupLocalPackageAssembler {
       const finalIndex = await openOutput(stage, "raw-source-package-index.json");
       try {
         const datasetSummary = this.options.spool.datasets.map((item) => ({ tableName: item.tableName, rowCount: item.rowCount, logicalDigest: item.logicalDigest, excluded: item.excluded }));
-        const prefix = `{"mode":"RAW_SOURCE_PACKAGE","complete":false,"snapshotId":${JSON.stringify(this.options.spool.snapshotId)},"asOf":${JSON.stringify(this.options.spool.asOf)},"sourceIds":${JSON.stringify({ spoolId: this.options.spool.spoolId, workbookOutputId: this.options.workbooks.outputId, attachmentOutputId: this.options.attachments.outputId })},"layoutVersion":${JSON.stringify(FULL_BACKUP_LAYOUT_VERSION)},"datasets":${JSON.stringify(datasetSummary)},"attachmentIndex":${JSON.stringify(attachmentIndex)},"readyAttachmentCount":${JSON.stringify(ready.toString())},"unreadyAttachmentCount":${JSON.stringify(unready.toString())},"anomalyCount":${JSON.stringify(anomalyCount.toString())},"coverageGaps":${JSON.stringify(this.options.spool.coverageGaps)},"incompleteReasons":${JSON.stringify(INCOMPLETE_REASONS)},"files":[`;
+        const incompleteReasons = businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS;
+        const businessFactsSection = businessFacts.length === 0 ? "" : `,"businessFacts":${JSON.stringify(businessFacts)}`;
+        const prefix = `{"mode":"RAW_SOURCE_PACKAGE","complete":false,"snapshotId":${JSON.stringify(this.options.spool.snapshotId)},"asOf":${JSON.stringify(this.options.spool.asOf)},"sourceIds":${JSON.stringify({ spoolId: this.options.spool.spoolId, workbookOutputId: this.options.workbooks.outputId, attachmentOutputId: this.options.attachments.outputId })},"layoutVersion":${JSON.stringify(FULL_BACKUP_LAYOUT_VERSION)},"datasets":${JSON.stringify(datasetSummary)},"attachmentIndex":${JSON.stringify(attachmentIndex)},"readyAttachmentCount":${JSON.stringify(ready.toString())},"unreadyAttachmentCount":${JSON.stringify(unready.toString())},"anomalyCount":${JSON.stringify(anomalyCount.toString())},"coverageGaps":${JSON.stringify(this.options.spool.coverageGaps)},"incompleteReasons":${JSON.stringify(incompleteReasons)}${businessFactsSection},"files":[`;
         await writeBackupBytes(finalIndex, Buffer.from(prefix));
         let first = true;
         for await (const line of lines(stage, payloadIndexPath)) {
@@ -313,7 +475,8 @@ export class FullBackupLocalPackageAssembler {
       return { mode: "RAW_SOURCE_PACKAGE", complete: false, outputId: finalName, snapshotId: this.options.spool.snapshotId, asOf: this.options.spool.asOf,
         workbooks: workbookResults, attachmentIndex, anomalies, indexFile: "raw-source-package-index.json", indexSha256: packageIndexHash.sha256,
         payloadFileCount: payloadFileCount.toString(), totalBytes: totalBytes.toString(), readyAttachmentCount: ready.toString(), unreadyAttachmentCount: unready.toString(),
-        coverageGaps: [...this.options.spool.coverageGaps], incompleteReasons: [...INCOMPLETE_REASONS] };
+        coverageGaps: [...this.options.spool.coverageGaps], incompleteReasons: [...(businessFacts.length === 0 ? INCOMPLETE_REASONS : BUSINESS_FACTS_INCOMPLETE_REASONS)],
+        ...(businessFacts.length === 0 ? {} : { businessFacts: Object.freeze(businessFacts) }) };
     } catch (error) {
       primaryError = error;
       throw error;

@@ -24,7 +24,7 @@ type TextValue = string | null;
 type TextRow = readonly TextValue[];
 type WorkbookWriter = (options: XlsxOptions) => Promise<void>;
 
-export type BusinessFactsWorkbookProfile = "TEACHER" | "STUDENT" | "PAYROLL" | "FINANCE";
+export type BusinessFactsWorkbookProfile = "TEACHER" | "STUDENT" | "FINANCE" | "PAYROLL" | "DEDUCTION" | "PERFORMANCE_CONFIGURATION";
 
 export type FullBackupBusinessFactsWorkbookExportResult = Readonly<{
   mode: "BUSINESS_FACTS_WORKBOOK";
@@ -36,7 +36,7 @@ export type FullBackupBusinessFactsWorkbookExportResult = Readonly<{
   file: string;
   sizeBytes: string;
   sha256: string;
-  coveredTables: readonly [1] | readonly [2] | readonly [4] | readonly [5];
+  coveredTables: readonly [1] | readonly [2] | readonly [4] | readonly [5] | readonly [6] | readonly [8];
   /** Explicit known omissions; a caller must not infer a complete business backup. */
   gaps: readonly string[];
   schemaVersion: string;
@@ -63,11 +63,11 @@ const NULL_COORDINATE_COLUMNS = ["source_table", "source_record_key", "source_ro
 const DERIVED_SCOPE_GAP = "DERIVED_TABLES_3_AND_7_NOT_GENERATED";
 
 type FixedProfile = Readonly<{
-  tableNumber: 1 | 2 | 4 | 5;
+  tableNumber: 1 | 2 | 4 | 5 | 6 | 8;
   file: string;
   attemptPrefix: string;
   temporaryIndexPrefix: string;
-  sheetPrefix: "T1" | "T2" | "T4" | "T5";
+  sheetPrefix: "T1" | "T2" | "T4" | "T5" | "T6" | "T8";
   coveredTableLabel: string;
   tableScopeGap: string;
   completeSourceBoundary: string;
@@ -103,6 +103,32 @@ const FIXED_PROFILES: Readonly<Record<BusinessFactsWorkbookProfile, FixedProfile
       teacher_student_record: "教师学生记录", referral_case: "推荐流水", referral_acceptance_snapshot: "推荐接收快照",
       weekly_fee_entry: "周费用", weekly_fee_entry_version: "周费用版本", weekly_fee_event: "周费用事件",
       weekly_fee_refund_effect: "周费用退款影响", teaching_week: "教学周", academic_period: "学期期间",
+    }),
+  }),
+  DEDUCTION: Object.freeze({
+    tableNumber: 6,
+    file: "business-table-6-deduction-facts.xlsx",
+    attemptPrefix: "full-backup-deduction-facts-",
+    temporaryIndexPrefix: ".deduction",
+    sheetPrefix: "T6",
+    coveredTableLabel: "6（扣费事实）",
+    tableScopeGap: "BUSINESS_TABLES_1_TO_5_7_TO_8_NOT_INCLUDED",
+    completeSourceBoundary: "仅导出当前已声明字段；福利计划、待办与执行均为独立事实行，不关联、汇总或将计划待办当作已执行扣费；项目1至10扣费未建模",
+    sourceTitles: Object.freeze({
+      finance_benefit_plan_version: "福利计划版本", finance_benefit_todo: "福利扣费待办", finance_benefit_execution: "福利扣费执行",
+    }),
+  }),
+  PERFORMANCE_CONFIGURATION: Object.freeze({
+    tableNumber: 8,
+    file: "business-table-8-performance-configuration-facts.xlsx",
+    attemptPrefix: "full-backup-performance-configuration-facts-",
+    temporaryIndexPrefix: ".performance-configuration",
+    sheetPrefix: "T8",
+    coveredTableLabel: "8（绩效配置事实）",
+    tableScopeGap: "BUSINESS_TABLES_1_TO_7_NOT_INCLUDED",
+    completeSourceBoundary: "仅导出当前已声明字段；全局策略版本与逐笔分配快照均为独立事实行，不按办理人或岗位比例裁剪，不把全局策略或实际快照冒充个人覆盖或班型配置",
+    sourceTitles: Object.freeze({
+      rate_policy_version: "费率策略版本", weekly_fee_allocation_snapshot: "逐笔分配快照",
     }),
   }),
   PAYROLL: Object.freeze({
@@ -246,7 +272,7 @@ class SourcePager {
 
   constructor(
     private readonly view: FullBackupBusinessFactsView,
-    private readonly tableNumber: 1 | 2 | 4 | 5,
+    private readonly tableNumber: 1 | 2 | 4 | 5 | 6 | 8,
     private readonly source: BusinessFactsViewSource,
     private readonly count: bigint,
     private readonly maxDataRows: number,
@@ -378,7 +404,7 @@ export class FullBackupBusinessFactsWorkbookExporter {
   private readonly profile: FixedProfile;
 
   public constructor(private readonly options: FullBackupBusinessFactsWorkbookExporterOptions) {
-    if (options.profile !== "TEACHER" && options.profile !== "STUDENT" && options.profile !== "PAYROLL" && options.profile !== "FINANCE")
+    if (options.profile !== "TEACHER" && options.profile !== "STUDENT" && options.profile !== "FINANCE" && options.profile !== "PAYROLL" && options.profile !== "DEDUCTION" && options.profile !== "PERFORMANCE_CONFIGURATION")
       fail("EXPORT_BUSINESS_FACTS_WORKBOOK_PROFILE_INVALID");
     this.profile = FIXED_PROFILES[options.profile];
     this.maxDataRows = options.maxDataRows ?? BACKUP_MAX_DATA_ROWS;
@@ -475,7 +501,7 @@ export class FullBackupBusinessFactsWorkbookExporter {
         mode: "BUSINESS_FACTS_WORKBOOK", complete: false, outputId: outputDirectory.split("/").at(-1)!,
         spoolId: this.options.spool.spoolId, snapshotId: description.snapshotId, asOf: description.asOf,
         file: this.profile.file, sizeBytes: integrity.sizeBytes, sha256: integrity.sha256,
-        coveredTables: [this.profile.tableNumber] as readonly [1] | readonly [2] | readonly [4] | readonly [5],
+        coveredTables: [this.profile.tableNumber] as readonly [1] | readonly [2] | readonly [4] | readonly [5] | readonly [6] | readonly [8],
         gaps, schemaVersion: description.schemaVersion, sourceRows: Object.freeze(sourceRows.map((source) => Object.freeze(source))),
       });
     } catch (error) {
