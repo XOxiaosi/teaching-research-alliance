@@ -83,13 +83,14 @@ const feeInput = (container) => {
   return field;
 };
 
-const mountIndex = async ({ initiallyRefunded, refundOnSave, roleContext = session.currentRoleContext }) => {
+const mountIndex = async ({ initiallyRefunded, refundOnSave, roleContext = session.currentRoleContext, venueList = venues, feeVenueId = "venue-1" }) => {
   const bundled = await bundleIndex();
   let refunded = initiallyRefunded;
   let saves = 0;
+  const submissions = [];
   const activeSession = { ...session, roleContexts: [roleContext], currentRoleContext: roleContext };
   const referrals = () => [
-    { referralId: "referral-refunded", studentDisplayName: "退款学生", courseContextId: "数学", referralStatus: "ACCEPTED", version: 1, initialVenueId: "venue-1", weeklyFees: [{ teachingWeekId: "week-1", grossAmountCents: "123400", version: 7, venueId: "venue-1", ...(refunded ? { refundStatus: "REFUNDED" } : {}) }] },
+    { referralId: "referral-refunded", studentDisplayName: "退款学生", courseContextId: "数学", referralStatus: "ACCEPTED", version: 1, initialVenueId: feeVenueId, weeklyFees: [{ teachingWeekId: "week-1", grossAmountCents: "123400", version: 7, venueId: feeVenueId, ...(refunded ? { refundStatus: "REFUNDED" } : {}) }] },
     { referralId: "referral-other", studentDisplayName: "另一学生", courseContextId: "英语", referralStatus: "ACCEPTED", version: 1, initialVenueId: "venue-1", weeklyFees: [] }
   ];
   globalThis.__refundTaro = {
@@ -101,12 +102,13 @@ const mountIndex = async ({ initiallyRefunded, refundOnSave, roleContext = sessi
       if (path === "/v1/me") return response({ nickname: "退款测试老师", balanceCents: "10000", currentYearIncomeByCategory: {} });
       if (path === "/v1/teaching/referrals") return response(referrals());
       if (path === "/v1/teaching/weeks") return response(weeks);
-      if (path === "/v1/venues/available") return response(venues);
-      if (path === "/v1/venues/visible") return response(venues);
+      if (path === "/v1/venues/available") return response(venueList);
+      if (path === "/v1/venues/visible") return response(venueList);
       if (path === "/v1/finance/withdrawals/sources" || path === "/v1/finance/withdrawals/mine" || path === "/v1/finance/drafts/mine") return response([]);
       if (path === "/v1/finance/reimbursements/mine" || path === "/v1/finance/reimbursements/managed") return response({ documents: [] });
       if (path === "/v1/referrals/referral-refunded/weekly-fees" && request.method === "POST") {
         saves += 1;
+        submissions.push(request.data);
         if (refundOnSave) {
           refunded = true;
           return { statusCode: 409, data: { version: "test", error: { code: "WEEKLY_FEE_REFUNDED", message: "WEEKLY_FEE_REFUNDED" } } };
@@ -117,7 +119,7 @@ const mountIndex = async ({ initiallyRefunded, refundOnSave, roleContext = sessi
     showActionSheet: async () => ({ tapIndex: 0 }), chooseImage: async () => ({ tempFilePaths: [] }), chooseMessageFile: async () => ({ tempFiles: [] }),
     getFileSystemManager: () => ({ readFile: () => {} }), downloadFile: async () => ({ statusCode: 500 })
   };
-  return { bundled, saves: () => saves };
+  return { bundled, saves: () => saves, submissions };
 };
 
 const loginAndChooseRefundedFee = async (container) => {
@@ -148,6 +150,29 @@ test("小程序退款周费用保留原金额，金额和场地锁定但学生�
       await act(async () => root.unmount());
     });
   } finally { await rm(fixture.bundled.directory, { recursive: true, force: true }); }
+});
+
+test("小程序历史场地更正提交与正常场地、占位选项切换", async () => {
+  const activeFixture = await mountIndex({ initiallyRefunded: false, refundOnSave: false, venueList: [{ id: "venue-active", name: "新场地", isOwn: false }], feeVenueId: "venue-retired" });
+  try {
+    await withDom(async (container) => {
+      const root = createRoot(container);
+      await act(async () => { root.render(React.createElement(activeFixture.bundled.module.default)); });
+      await flush(); await loginAndChooseRefundedFee(container);
+      const venuePicker = [...container.querySelectorAll("select")].find((element) => element.textContent.includes("原登记场地"));
+      assert.ok(venuePicker); assert.equal(venuePicker.value, "1");
+      await click(button(container, "保存周累计费用"));
+      assert.equal(activeFixture.submissions.at(-1).venueId, "venue-retired");
+      await act(async () => { venuePicker.value = "2"; venuePicker.dispatchEvent(new window.Event("change", { bubbles: true })); });
+      await flush(); assert.equal(venuePicker.value, "2"); assert.ok(container.textContent.includes("新场地"));
+      await act(async () => { venuePicker.value = "0"; venuePicker.dispatchEvent(new window.Event("change", { bubbles: true })); });
+      await flush(); assert.equal(venuePicker.value, "0");
+      const savedCount = activeFixture.submissions.length;
+      await click(button(container, "保存周累计费用"));
+      assert.equal(activeFixture.submissions.length, savedCount, "选择占位符不能保存历史场地");
+      await act(async () => root.unmount());
+    });
+  } finally { await rm(activeFixture.bundled.directory, { recursive: true, force: true }); }
 });
 
 test("小程序保存遇合成 WEEKLY_FEE_REFUNDED 后刷新退款状态并禁编辑", async () => {
@@ -202,4 +227,32 @@ test("小程序报销管理入口只对严格 GLOBAL 总部财务、管理员和
       });
     } finally { await rm(fixture.bundled.directory, { recursive: true, force: true }); }
   }
+});
+
+
+test("小程序已有周费用可保留历史停用场地用于本笔更正", async () => {
+  const fixture = await mountIndex({ initiallyRefunded: false, refundOnSave: false, venueList: [], feeVenueId: "venue-retired" });
+  try {
+    await withDom(async (container) => {
+      const root = createRoot(container);
+      await act(async () => { root.render(React.createElement(fixture.bundled.module.default)); });
+      await flush();
+      await loginAndChooseRefundedFee(container);
+      const venuePicker = [...container.querySelectorAll("select")].find((element) => element.textContent.includes("原登记场地"));
+      assert.ok(venuePicker);
+      assert.match(venuePicker.textContent, /原登记场地（仅更正本笔）/);
+      assert.equal(venuePicker.value, "1");
+      assert.ok(container.textContent.includes("原登记场地（仅更正本笔）"));
+      const weekPicker = [...container.querySelectorAll("select")].find((element) => element.textContent.includes("2026-09-08 至 2026-09-14"));
+      assert.ok(weekPicker);
+      await act(async () => { weekPicker.value = "1"; weekPicker.dispatchEvent(new window.Event("change", { bubbles: true })); });
+      await flush();
+      assert.equal(container.textContent.includes("原登记场地（仅更正本笔）"), false, "切换教学周清除历史场地选项");
+      assert.equal(venuePicker.value, "0");
+      await input(container.querySelector('input[placeholder="例如 1000.00"]'), "1500");
+      await click(button(container, "保存周累计费用"));
+      assert.equal(fixture.submissions.length, 0, "切换到无历史费用的新周并点击保存也不得带旧停用场地提交");
+      await act(async () => root.unmount());
+    });
+  } finally { await rm(fixture.bundled.directory, { recursive: true, force: true }); }
 });

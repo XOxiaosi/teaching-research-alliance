@@ -97,7 +97,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
   const recorded = week === undefined ? [] : relevant.flatMap((item) => item.weeklyFees.filter((fee) => fee.teachingWeekId === weekId));
   const total = recorded.reduce((sum, fee) => sum + BigInt(fee.grossAmountCents), 0n);
   const locked = busy || uncertainSubmission !== null || refreshRequired;
-  const hasInputs = referrals.length > 0 && weeks.length > 0 && venues.length > 0;
+  const hasInputs = referrals.length > 0 && weeks.length > 0;
 
   const clearFeedback = (): void => { setErrors({}); setNotice(""); setReceipt(""); setReceiptDetails(null); };
 
@@ -108,7 +108,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
     const fee = nextReferral?.weeklyFees.find((item) => item.teachingWeekId === nextWeekId);
     setExpectedVersion(fee?.version ?? 0);
     const candidate = fee?.venueId ?? nextReferral?.initialVenueId ?? "";
-    setVenueId(venues.some((item) => item.id === candidate) ? candidate : "");
+    setVenueId(fee !== undefined ? candidate : (venues.some((item) => item.id === candidate) ? candidate : ""));
     setAmount(fee === undefined ? "" : formatCentsAsBeans(fee.grossAmountCents));
     clearFeedback();
   };
@@ -179,7 +179,8 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
     if (week === undefined) nextErrors.week = "请选择要录入的教学期间。";
     if (referral === undefined) nextErrors.referral = "请选择学生及对应课程。";
     else if (referral.referralStatus === "ARCHIVED" && previous === undefined) nextErrors.referral = "该记录已归档，不能新增费用。";
-    if (!venues.some((item) => item.id === venueId)) nextErrors.venue = "请选择正常使用中的实际授课场地。";
+    const historicalVenueAllowed = previous !== undefined && previous.venueId === venueId;
+    if (!venues.some((item) => item.id === venueId) && !historicalVenueAllowed) nextErrors.venue = "请选择正常使用中的实际授课场地。";
     let cents = "";
     try { cents = parseBeanAmountToCents(amount); }
     catch { nextErrors.amount = amount === "" ? "请填写本期间累计金额；没有费用可明确填写 0。" : "请输入非负金额，最多保留两位小数。"; }
@@ -221,7 +222,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
       </>}
       <div className="fee-fields">
         <div className="fee-field"><label htmlFor="fee-venue">实际授课场地</label><select id="fee-venue" disabled={locked || refunded || referral === undefined} value={venueId} aria-invalid={errors.venue !== undefined} aria-describedby={errors.venue === undefined ? undefined : "fee-venue-error"} onChange={(event) => { setVenueId(event.target.value); clearFeedback(); }}>
-          <option value="">请选择实际授课场地</option>{venues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isOwn ? "（自有场地，场地费为 0）" : ""}</option>)}
+          <option value="">请选择实际授课场地</option>{venues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isOwn ? "（自有场地，场地费为 0）" : ""}</option>)}{previous !== undefined && !venues.some((item) => item.id === previous.venueId) && <option value={previous.venueId}>原登记场地（仅更正本笔）</option>}
         </select>{fieldError("venue")}</div>
         <div className="fee-field"><label htmlFor="fee-amount">本期间累计金额</label><input id="fee-amount" disabled={locked || refunded || referral === undefined} value={amount} inputMode="decimal" placeholder="例如 1500.00" aria-invalid={errors.amount !== undefined} aria-describedby={errors.amount === undefined ? "fee-amount-help" : "fee-amount-error"} onChange={(event) => { setAmount(event.target.value); clearFeedback(); }} />{fieldError("amount")}</div>
       </div>

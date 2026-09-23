@@ -244,7 +244,8 @@ export default function IndexPage(): ReactNode {
     setAmount(existingFee === undefined ? "" : formatCentsAsBeans(existingFee.grossAmountCents));
     const ownVenues=venues.filter(venue=>venue.isOwn);
     const referral=referrals.find(item=>item.referralId===referralId);
-    setSelectedVenueId(existingFee?.venueId ?? referral?.initialVenueId ?? (ownVenues.length===1 ? ownVenues[0]?.id ?? "" : ""));
+    const initialVenueId = referral?.initialVenueId ?? "";
+    setSelectedVenueId(existingFee?.venueId ?? (venues.some((venue) => venue.id === initialVenueId) ? initialVenueId : (ownVenues.length===1 ? ownVenues[0]?.id ?? "" : "")));
   };
 
   const acceptSelectedReferral = async (): Promise<void> => {
@@ -274,6 +275,10 @@ export default function IndexPage(): ReactNode {
     }
     if (referral?.referralStatus === "ARCHIVED" && fee === undefined) {
       throw new Error("ARCHIVED_NEW_FEE");
+    }
+    if (!venues.some((venue) => venue.id === selectedVenueId) && fee?.venueId !== selectedVenueId) {
+      setNotice("请选择正常使用中的授课场地。");
+      return;
     }
     let grossAmountCents: string;
     try {
@@ -309,6 +314,8 @@ export default function IndexPage(): ReactNode {
   const selectedReferral = referrals.find((referral) => referral.referralId === selectedReferralId);
   const selectedFee = selectedReferral?.weeklyFees.find((fee) => fee.teachingWeekId === selectedWeekId);
   const feeRefunded = selectedFee?.refundStatus === "REFUNDED";
+  const historicalVenue = selectedFee !== undefined && !venues.some((venue) => venue.id === selectedFee.venueId) ? selectedFee.venueId : "";
+  const venuePickerIndex = selectedVenueId === "" ? 0 : historicalVenue !== "" && selectedVenueId === historicalVenue ? 1 : venues.findIndex((venue) => venue.id === selectedVenueId) + 1 + (historicalVenue !== "" ? 1 : 0);
   const currentContext = session?.currentRoleContext;
   const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER"].includes(currentContext?.subject ?? "");
   const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"].includes(currentContext?.subject ?? "");
@@ -520,15 +527,17 @@ export default function IndexPage(): ReactNode {
                   <Text className="field-label">授课场地</Text>
                   <Picker
                     mode="selector"
-                    range={["请选择场地",...venues.map((venue) => `${venue.name}${venue.isOwn ? "（本人场地，免费）" : ""}`)]}
-                    value={venues.findIndex((venue) => venue.id === selectedVenueId)+1}
+                    range={["请选择场地",...(selectedFee !== undefined && !venues.some((venue) => venue.id === selectedFee.venueId) ? ["原登记场地（仅更正本笔）"] : []),...venues.map((venue) => `${venue.name}${venue.isOwn ? "（本人场地，免费）" : ""}`)]}
+                    value={venuePickerIndex}
                     disabled={busy || feeRefunded || venues.length === 0}
                     onChange={(event) => {
-                      const venue = venues[Number(event.detail.value)-1];
+                      const offset = historicalVenue !== "" ? 1 : 0;
+                      if (offset === 1 && Number(event.detail.value) === 1) { setSelectedVenueId(historicalVenue); return; }
+                      const venue = venues[Number(event.detail.value)-1-offset];
                       setSelectedVenueId(venue?.id ?? "");
                     }}
                   >
-                    <View className="picker-value"><Text>{venues.find((venue) => venue.id === selectedVenueId)?.name ?? "请选择场地"}</Text><Text>⌄</Text></View>
+                    <View className="picker-value"><Text>{historicalVenue !== "" && selectedVenueId === historicalVenue ? "原登记场地（仅更正本笔）" : venues.find((venue) => venue.id === selectedVenueId)?.name ?? "请选择场地"}</Text><Text>⌄</Text></View>
                   </Picker>
                   {["PENDING","REACTIVATED"].includes(selectedReferral.referralStatus)&&<Button className="quiet-button" disabled={busy||feeRefunded||!selectedVenueId} onClick={()=>void run(acceptSelectedReferral)}>接收并使用此场地</Button>}
                   <Text className="field-label">本周累计 / 欢乐豆</Text>

@@ -82,3 +82,31 @@ test("保存返回 WEEKLY_FEE_REFUNDED 后重读合成记录，禁止覆盖退�
   await expect(page.getByLabel("实际授课场地", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "已退款，不可修改", exact: true })).toBeDisabled();
 });
+
+test("已有周费用的停用场地只保留本笔更正选项", async ({ page }) => {
+  await login(page);
+  const ids = await selectedIds(page);
+  await page.route("**/v1/venues/available", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: "synthetic", data: [] }) }));
+  await page.route(referralPath, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: withSyntheticRefund(await response.json(), ids, false) });
+  });
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await selectFee(page, ids);
+  const venue = page.getByLabel("实际授课场地", { exact: true });
+  await expect(venue.locator("option")).toHaveCount(2);
+  await expect(venue.locator("option").nth(1)).toHaveText("原登记场地（仅更正本笔）");
+  await expect(venue).toHaveValue(ids.venueId);
+  await page.getByLabel("本期间累计金额", { exact: true }).fill("1500");
+  let submitted;
+  await page.route(feePath, async (route) => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: "synthetic", data: { status: "NO_BALANCE_CHANGE", replay: false, fee: { version: 8 }, runId: "run-retired-venue" } }) });
+  });
+  await page.getByRole("button", { name: "更新累计费用", exact: true }).click();
+  await expect.poll(() => submitted).toBeTruthy();
+  await expect(page.locator(".fee-receipt")).toContainText("服务器已确认保存");
+  await page.unrouteAll({ behavior: "wait" });
+  expect(submitted.venueId).toBe(ids.venueId);
+  expect(submitted.grossAmountCents).toBe("150000");
+});
