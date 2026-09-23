@@ -1,7 +1,12 @@
 export type ExportColumnDisposition = "EXPORT" | "TRANSFORM" | "SECRET_EXCLUDED";
 
 export type ExportColumn = Readonly<{ name: string; disposition: ExportColumnDisposition }>;
-export type ExportTable = Readonly<{ name: string; columns: readonly ExportColumn[] }>;
+export type ExportTable = Readonly<{
+  name: string;
+  columns: readonly ExportColumn[];
+  /** Fixed primary-key order; never derive this from the live catalog. */
+  orderBy: readonly string[];
+}>;
 
 const columns = (value: string): readonly string[] => value.split(",");
 
@@ -87,6 +92,29 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   weekly_fee_refund_effect: columns("weekly_fee_entry_id,finance_document_id,allocation_snapshot_id,source_weekly_fee_version,gross_amount_cents,snapshot_json,created_at")
 };
 
+// These are primary keys from migrations 0001–0025. Keeping them alongside the
+// fixed column allow-list makes the stream order deterministic without trusting
+// a possibly changed live index definition.
+const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
+  academic_period: ["id"], academic_year_plan: ["id"], account_balance_projection: ["account_id"], audit_event: ["id"],
+  bonus_project_catalog_command_idempotency: ["actor_person_id", "idempotency_key"], bonus_project_name_version: ["id"], bonus_project_slot: ["project_no"], campus_region_assignment: ["id"],
+  cash_wage_confirmation: ["finance_document_id"], cash_wage_plan_version: ["id"], cash_wage_todo: ["id"], company_finance_fund: ["id"],
+  company_finance_fund_assignment: ["id"], company_finance_fund_command_idempotency: ["actor_person_id", "idempotency_key"], finance_attachment: ["id"], finance_attachment_event: ["id"],
+  finance_attachment_reservation_idempotency: ["actor_person_id", "idempotency_key"], finance_attachment_version: ["id"], finance_benefit_execution: ["finance_document_id"], finance_benefit_plan_version: ["id"],
+  finance_benefit_todo: ["id"], finance_document: ["id"], finance_document_event: ["id"], finance_draft_idempotency: ["actor_person_id", "idempotency_key"],
+  finance_refund_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_refund_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_refund_decision: ["finance_document_id"], finance_refund_submission: ["finance_document_id"],
+  finance_refund_submission_item: ["finance_document_id", "weekly_fee_entry_id"], finance_reimbursement_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_reimbursement_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_reimbursement_decision: ["finance_document_id"],
+  finance_reimbursement_submission: ["finance_document_id"], finance_self_purchase_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_self_purchase_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_self_purchase_reversal: ["finance_document_id"],
+  finance_self_purchase_transfer: ["finance_document_id"], finance_withdrawal_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_withdrawal_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_withdrawal_reversal: ["finance_document_id"],
+  finance_withdrawal_submission: ["finance_document_id"], finance_withdrawal_transfer: ["finance_document_id"], ledger_entry: ["id"], ledger_event: ["id"], organization_unit: ["id"], person: ["id"],
+  person_campus_assignment: ["id"], person_relationship: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
+  referral_acceptance_snapshot: ["referral_case_id", "accepted_referral_version"], referral_case: ["id"], referral_case_event: ["id"], referral_creation_idempotency: ["actor_person_id", "idempotency_key"], referral_creation_snapshot: ["referral_case_id"],
+  referral_lifecycle_idempotency: ["actor_person_id", "idempotency_key"], role_assignment: ["id"], salary_benefit_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], salary_benefit_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], salary_benefit_reversal: ["reversal_finance_document_id"],
+  settlement_account: ["id"], settlement_calculation_run: ["id"], teacher_profile: ["person_id"], teacher_student_record: ["id"], teaching_week: ["id"], user_account: ["id"],
+  user_session: ["id"], venue: ["id"], venue_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], venue_permission_grant: ["id"], weekly_fee_allocation_snapshot: ["id"],
+  weekly_fee_entry: ["id"], weekly_fee_entry_version: ["id"], weekly_fee_event: ["id"], weekly_fee_idempotency: ["id"], weekly_fee_refund_effect: ["weekly_fee_entry_id"]
+};
+
 const SECRET_COLUMNS = new Set([
   "user_account.password_hash", "user_account.auth_version", "user_session.id", "user_session.token_hash", "user_session.account_id",
   "user_session.auth_version", "user_session.current_subject", "user_session.expires_at", "user_session.created_at",
@@ -99,7 +127,7 @@ const TRANSFORM_COLUMNS = new Set([
   "finance_self_purchase_reversal.authorization_snapshot", "finance_self_purchase_transfer.authorization_snapshot",
   "finance_withdrawal_submission.authorization_snapshot", "weekly_fee_allocation_snapshot.snapshot_json", "weekly_fee_allocation_snapshot.context_json",
   "weekly_fee_refund_effect.snapshot_json", "rate_policy_version.policy_json",
-  "settlement_calculation_run.request_key",
+  "settlement_calculation_run.request_key", "ledger_event.event_key",
   "finance_withdrawal_submission.recipient_key_id", "finance_withdrawal_submission.recipient_nonce",
   "finance_withdrawal_submission.recipient_ciphertext", "finance_withdrawal_submission.recipient_auth_tag",
   "bonus_project_catalog_command_idempotency.idempotency_key", "bonus_project_catalog_command_idempotency.result_json",
@@ -129,6 +157,15 @@ const assertSecurityPolicyKeysAreRegistered = (): void => {
       throw new Error("EXPORT_SCHEMA_REGISTRY_INVALID");
     }
   }
+  for (const [tableName, columnNames] of Object.entries(TABLE_COLUMNS)) {
+    const orderBy = TABLE_ORDER_KEYS[tableName];
+    if (orderBy === undefined || orderBy.length === 0 || orderBy.some((columnName) => !columnNames.includes(columnName))) {
+      throw new Error("EXPORT_SCHEMA_REGISTRY_INVALID");
+    }
+  }
+  if (Object.keys(TABLE_ORDER_KEYS).length !== Object.keys(TABLE_COLUMNS).length) {
+    throw new Error("EXPORT_SCHEMA_REGISTRY_INVALID");
+  }
 };
 
 assertSecurityPolicyKeysAreRegistered();
@@ -139,10 +176,14 @@ export const EXPORT_SCHEMA_REGISTRY: readonly ExportTable[] = Object.entries(TAB
     columns: columnNames.map((columnName) => ({
       name: columnName,
       disposition: dispositionFor(tableName, columnName)
-    }))
+    })),
+    orderBy: TABLE_ORDER_KEYS[tableName]!
   }))
   .sort((left, right) => left.name.localeCompare(right.name));
 
 // Kept separate from the registry so an accidental policy rule cannot make the source
 // table or column names dynamic.
 export const exportColumnsFor = (table: ExportTable): readonly string[] => table.columns.filter((column) => column.disposition === "EXPORT").map((column) => column.name);
+
+export const readableColumnsFor = (table: ExportTable): readonly ExportColumn[] =>
+  table.columns.filter((column) => column.disposition !== "SECRET_EXCLUDED");

@@ -2,5 +2,8 @@
   "name": "@teaching-research-alliance/worker",
   "private": true,
   "version": "0.1.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@teaching-research-alliance/domain": "0.1.0"
+  }
 }

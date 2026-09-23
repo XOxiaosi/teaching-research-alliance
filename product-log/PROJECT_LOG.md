@@ -16,12 +16,12 @@
 | 当前任务状态 | 周费用与分润账本、退款/报销/采买/提现已有合成环境闭环；组织营收、工资读取及计划维护、医社保公积金读取已通过两端验证。继续完整关系重算、其余财务写页面和备份；注册/重置/登录限流、全产品验收、真机及生产尚未完成 |
 | 已有实现 | TypeScript monorepo、权限/接口契约、最大余数分币基础库、15档动态费率与九项分配纯函数、费率档位和总比例校验、管理员费率预览/发布/历史及岗位比例过滤、周费用输入校验与版本历史、登录/职责切换内存服务、推荐接收与周费用幂等内存服务、HTTP请求处理边界、账本差额与事件幂等基础、账本事务接口及内存回滚适配器、参数化PostgreSQL账本/身份/推荐与周费用仓储、不可变账本和周费用历史迁移、API/worker/两端入口、本地 Docker 合成数据库门禁、本地检查入口 |
 | 技术状态 | 依赖锁定于package-lock；默认测试、迁移静态检查和本地 PostgreSQL 合成库集成检查可运行；真实业务数据、生产凭据和设备验收未接入 |
-| 验证概况 | 最新统一检查234/234、迁移25项；福利后端PG3/3，福利/原件及工资回归24/24、浏览器3/3；工资计划两端12/12、浏览器3/3，两端构建通过。此前API全量PG100/100、工资关联修复11/11、备份数据源与预检PG14/14；备份转换仍按P23修复，真机、用户和生产未验收 |
+| 验证概况 | 最新统一检查288/288、迁移25项；奖金组件25/25/Chrome2，Web工资确认组件7/7/Chrome1；备份单元30/30、预检及增强源PG15/15、真实转换PG1/1，P23已闭合。此前福利后端PG3、福利/原件及工资回归24、工资计划两端12/Chrome3及API全量PG100通过；真机、用户和生产未验收 |
 | 当前检查入口 | `npm run check`、`npm run db:check`、`git diff --check`；网页另执行 `npm run build:web` 与本地合成环境中的 `ALLIANCE_SYNTHETIC_E2E=1 npm run test:browser --workspace @teaching-research-alliance/web` |
 | 长任务目标及结束条件 | 持续完成开发计划F01–F14；当前工作包以基础契约可复用、空库迁移可执行和首个闭环可验证为阶段目标 |
 | 当前可执行任务 | DEV-009小程序工资确认与福利扣费账户目录；DEV-011备份数据源/安全转换及本地文件组引擎；随后继续其余财务写页、完整关系重算与职责看板 |
 | 被阻塞任务及解除条件 | 小程序真机需要AppID与设备环境；P09普通报销跨财年收入归属待用户决定，不阻塞其他工作；生产门禁需处理P07及部署授权。普通付款、人工调账等仍有未实现分支，不能把已验证单据当作全部财务完成 |
-| 下一步 | 已推送650c1f2；继续工资确认、奖金名称维护的独立复核和页面接线；修复P23嵌套JSON与真实场地结构覆盖后提交备份数据源/转换，再推进一致快照计数、长文本、附件与文件组生成。源码未提交修改不视为已验收 |
+| 下一步 | 奖金两端与Web工资确认已推送7c43a85；备份基础包已收口门禁，继续流式spool/工作簿与附件文件组；小程序工资确认按独审缺陷返修，福利扣费资金目录待整合。源码未提交修改不视为已验收 |
 
 
 ### 当前授权和运行边界
@@ -1054,3 +1054,13 @@
 - 真实API/Chrome：奖金2/2（8.1秒，`/tmp/alliance-bonus-browser3.log`），管理员真实改名后响应丢失同key重试仅一版本，HQ只读、个人无入口；工资1/1（9.7秒，`/tmp/alliance-cash-confirm-browser3.log`），真实PNG双用途原件、首次上传已存响应丢失可读回重试、确认已入账响应丢失同key重试返回replay=true、余额精确−400分且个人收入不变。最初工资测试误要求replay不变，已按真实接口语义修正，未改服务来迎合断言。
 - 统一门禁：`npm run check` 280/280（26.42秒，`/tmp/alliance-finance-ui-unified.log`），迁移静态25项；根Web最终构建584ms（`/tmp/alliance-cash-final-web.log`），小程序奖金接线构建19.50秒（`/tmp/alliance-bonus-root-mini.log`）。并行备份未完成部分不由本次组件成绩覆盖。
 - 运行边界：仅本地隔离合成数据库、Chrome及开发构建；不含真实工资、银行、微信设备、生产部署或用户最终验收。后续继续小程序工资确认、福利写入口前置目录和F14备份。
+
+### DEV-011｜2026-09-23｜一致快照数据源、安全转换、长文本与原始表布局
+
+- B2：固定77表与列、稳定主键排序、REPEATABLE READ READ ONLY单连接，串行游标/关闭，countRows和流读取同快照；秘密列不SELECT，user_session无可读列则不允许count或stream。提现以LEFT JOIN同快照取得申请人编号，仅送transformContext作AAD，不写业务输出列；缺关联不静默丢行。
+- B3：逐列EXPORT/TRANSFORM/SECRET_EXCLUDED；原始幂等键及可含原键的ledger_event.event_key用域隔离HMAC指纹。JSON按真实writer判别和递归形状检查；未知嵌套、未知判别配null、误传秘密字段或指纹回显拒绝；已知缺字段、null和错误标量保留原文并标异常。实际场地DEFAULT/PERMISSION/权限审计结构与snake/camel字段类型分别校验，不能用自造空对象测试替代。
+- 原FinanceSensitiveFieldCrypto原样迁入domain，API薄re-export兼容，worker显式声明domain依赖；运行时注入解密/指纹适配器，转换器不读取环境密钥。真实加密测试包含前导零、错误AAD/密文和密钥轮换；当前客户端不依赖domain。
+- 新长文本helper以32000 UTF-16分片，不切代理对，SHA/长度/reference重组校验；实际XLSX写入后Python读取CRC/XML并逐字符恢复。非法XML字符失败，不能删字符后成功。固定原始表布局77/77无重复，排除user_session工作表，分片名<=31字符；明确月度已发布汇总、人工调账流程、备份任务/调度历史、昵称更正历史四项现有数据模型缺口。
+- 独立复核：B2、增强source、B3、加密迁移、长文本与布局均无剩余P1/P2。P23经过两轮失败复现修复后关闭；关闭范围为源读取与安全转换，不含全产品异常检测、完整F14数据覆盖或导出引擎。
+- 根Agent验证：统一`npm run check` 288/288（25.81秒，`/tmp/alliance-backup-final-check.log`）；迁移25项及diff-check通过；worker单元30/30（1.12秒，`/tmp/alliance-backup-root-unit-final3.log`）；本地55432合成库预检/增强源PG15/15（39.20秒，`/tmp/alliance-backup-enhanced-source-root-pg.log`）；真实Venue writer→source→transform PG1/1（3.89秒，`/tmp/alliance-backup-root-transform-pg-final3.log`）。所有PG采用随机schema清理，未接真实数据。
+- 交付边界：当前是source-only/raw-source转换和文件基础模块，尚无完整Excel文件组、READY原件全包校验、manifest、原子发布、任务调度、受控下载；不能把这些模块标成完整备份成功。下一包先做有界内存spool，再接工作簿与附件。
