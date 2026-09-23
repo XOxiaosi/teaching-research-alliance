@@ -2,7 +2,7 @@ export const serviceName = "teaching-research-alliance-api";
 
 export const health = (): Readonly<{ service: string; status: "ok" }> => ({
   service: serviceName,
-  status: "ok"
+  status: "ok",
 });
 
 export { SessionService } from "./session-service.js";
@@ -35,6 +35,7 @@ export { FinanceSensitiveFieldCrypto } from "./finance-sensitive-field-crypto.js
 export { PostgresWithdrawalService } from "./postgres-withdrawal-service.js";
 export { PostgresWithdrawalReadService } from "./postgres-withdrawal-read-service.js";
 export { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
+export { PostgresBonusProjectCatalogService } from "./postgres-bonus-project-catalog-service.js";
 export { PostgresSelfPurchaseService } from "./postgres-self-purchase-service.js";
 export { PostgresSelfPurchaseReversalService } from "./postgres-self-purchase-reversal-service.js";
 export { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-service.js";
@@ -49,3 +50,7 @@ export { PostgresVenueService } from "./postgres-venue-service.js";
 export { PostgresVenueReadService } from "./postgres-venue-read-service.js";
 export { PostgresVenueBoardReadService } from "./postgres-venue-board-read-service.js";
 export { PostgresSalaryBenefitsService } from "./postgres-salary-benefits-service.js";
+export { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.js";
+export { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
+
+export { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";

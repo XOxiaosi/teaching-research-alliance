@@ -1,4 +1,9 @@
-import type { PermissionScope, PermissionSubject, RoleContext, SalaryBenefitDocumentKind } from "@teaching-research-alliance/contracts";
+import type {
+  PermissionScope,
+  PermissionSubject,
+  RoleContext,
+  SalaryBenefitDocumentKind,
+} from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
   version?: string;
@@ -19,7 +24,9 @@ export type TransportResponse<T = unknown> = Readonly<{
 }>;
 
 /** The only environment-specific dependency; web and miniapp adapt their own HTTP stack to it. */
-export type TeacherApiTransport = <T = unknown>(request: TransportRequest) => Promise<TransportResponse<T>>;
+export type TeacherApiTransport = <T = unknown>(
+  request: TransportRequest,
+) => Promise<TransportResponse<T>>;
 
 export type SessionSnapshot = Readonly<{
   sessionId: string;
@@ -153,7 +160,7 @@ export const FINANCE_DRAFT_KINDS = [
   "REIMBURSEMENT",
   "EXTERNAL_PAYMENT",
   "REFUND",
-  "SELF_PURCHASE"
+  "SELF_PURCHASE",
 ] as const;
 
 export type FinanceDraftKind = (typeof FINANCE_DRAFT_KINDS)[number];
@@ -173,19 +180,26 @@ export type FinanceDraftSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
-export type FinanceDraftCreateResult = FinanceDraftMetadata & Readonly<{ replay: boolean }>;
+export type FinanceDraftCreateResult = FinanceDraftMetadata &
+  Readonly<{ replay: boolean }>;
 
 export const FINANCE_ATTACHMENT_PURPOSES = [
   "SUPPORTING_DOCUMENT",
   "APPLICATION_SCREENSHOT",
   "INVOICE",
-  "PAYMENT_RECEIPT"
+  "PAYMENT_RECEIPT",
 ] as const;
 
-export const FINANCE_ATTACHMENT_MEDIA_TYPES = ["application/pdf", "image/png", "image/jpeg"] as const;
+export const FINANCE_ATTACHMENT_MEDIA_TYPES = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+] as const;
 
-export type FinanceAttachmentPurpose = (typeof FINANCE_ATTACHMENT_PURPOSES)[number];
-export type FinanceAttachmentMediaType = (typeof FINANCE_ATTACHMENT_MEDIA_TYPES)[number];
+export type FinanceAttachmentPurpose =
+  (typeof FINANCE_ATTACHMENT_PURPOSES)[number];
+export type FinanceAttachmentMediaType =
+  (typeof FINANCE_ATTACHMENT_MEDIA_TYPES)[number];
 
 /** JSON metadata only. Uploading the original bytes is deliberately a separate transport contract. */
 export type FinanceAttachmentReservationDraft = Readonly<{
@@ -274,7 +288,8 @@ export type FinanceAttachmentVersionSubmission = Readonly<{
   idempotencyKey: string;
 }>;
 
-export type WithdrawalStatus = "PENDING_TRANSFER" | "TRANSFERRED" | "FINANCE_REVOKED";
+export type WithdrawalStatus =
+  "PENDING_TRANSFER" | "TRANSFERRED" | "FINANCE_REVOKED";
 export type WithdrawalSourceType = "PERSON" | "VENUE";
 
 /** A currently withdrawable settlement account; the server remains authoritative for its balance and grant. */
@@ -318,10 +333,11 @@ export type WithdrawalAttachment = Readonly<{
   sha256: string;
 }>;
 
-export type WithdrawalDetail = WithdrawalSummary & Readonly<{
-  recipient: WithdrawalRecipient;
-  attachments: readonly WithdrawalAttachment[];
-}>;
+export type WithdrawalDetail = WithdrawalSummary &
+  Readonly<{
+    recipient: WithdrawalRecipient;
+    attachments: readonly WithdrawalAttachment[];
+  }>;
 
 export type WithdrawalCommandResult = Readonly<{
   id: string;
@@ -431,23 +447,25 @@ export type SelfPurchaseAttachment = Readonly<{
   sha256: string;
 }>;
 
-export type SelfPurchaseDetail = SelfPurchaseSummary & Readonly<{
-  attachments: readonly SelfPurchaseAttachment[];
-  reversal?: Readonly<{
-    reason: string;
-    reversedAt: string;
+export type SelfPurchaseDetail = SelfPurchaseSummary &
+  Readonly<{
+    attachments: readonly SelfPurchaseAttachment[];
+    reversal?: Readonly<{
+      reason: string;
+      reversedAt: string;
+    }>;
+    management?: Readonly<{
+      roleAssignmentId: string;
+      companyFundAssignmentId: string;
+      sourceAccountId: string;
+      destinationAccountId: string;
+      ledgerEventId: string;
+      reversedByPersonId?: string;
+      reversalActorSubject?:
+        "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER";
+      reversalLedgerEventId?: string;
+    }>;
   }>;
-  management?: Readonly<{
-    roleAssignmentId: string;
-    companyFundAssignmentId: string;
-    sourceAccountId: string;
-    destinationAccountId: string;
-    ledgerEventId: string;
-    reversedByPersonId?: string;
-    reversalActorSubject?: "HEADQUARTERS_FINANCE" | "SYSTEM_ADMIN" | "SYSTEM_OWNER";
-    reversalLedgerEventId?: string;
-  }>;
-}>;
 
 /** A normal reimbursement remains a request until a headquarters reviewer decides it. */
 export type ReimbursementSubmissionDraft = Readonly<{
@@ -497,26 +515,28 @@ export type ReimbursementSummary = Readonly<{
 
 export type ReimbursementAttachment = SelfPurchaseAttachment;
 
-export type ReimbursementDetail = ReimbursementSummary & Readonly<{
-  attachments: readonly ReimbursementAttachment[];
-  decision?: Readonly<{
-    decision: "APPROVED" | "REJECTED";
-    reason: string;
-    decidedAt: string;
+export type ReimbursementDetail = ReimbursementSummary &
+  Readonly<{
+    attachments: readonly ReimbursementAttachment[];
+    decision?: Readonly<{
+      decision: "APPROVED" | "REJECTED";
+      reason: string;
+      decidedAt: string;
+    }>;
+    management?: Readonly<{
+      destinationAccountId: string;
+      submittedByPersonId: string;
+      applicantContextSubject:
+        "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
+      applicantContextScope: PermissionScope;
+      applicantContextRegionId?: string;
+      applicantContextCampusId?: string;
+      applicantContextVenueId?: string;
+      decidedByPersonId?: string;
+      decisionActorSubject?: "HEADQUARTERS_FINANCE";
+      decisionActorScope?: "GLOBAL";
+    }>;
   }>;
-  management?: Readonly<{
-    destinationAccountId: string;
-    submittedByPersonId: string;
-    applicantContextSubject: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | "PLANNING_MENTOR";
-    applicantContextScope: PermissionScope;
-    applicantContextRegionId?: string;
-    applicantContextCampusId?: string;
-    applicantContextVenueId?: string;
-    decidedByPersonId?: string;
-    decisionActorSubject?: "HEADQUARTERS_FINANCE";
-    decisionActorScope?: "GLOBAL";
-  }>;
-}>;
 
 export type RefundSummary = Readonly<{
   id: string;
@@ -533,31 +553,32 @@ export type RefundSummary = Readonly<{
   selectedFeeCount: number;
 }>;
 
-export type RefundDetail = RefundSummary & Readonly<{
-  selectedFees: readonly Readonly<{
-    weeklyFeeEntryId: string;
-    submittedFeeVersion: number;
-    submittedGrossAmountCents: string;
-    teachingWeekId: string;
-    settlementMonth: string;
-    refundStatus: "ACTIVE" | "REFUNDED";
-  }>[];
-  attachments: readonly SelfPurchaseAttachment[];
-  decision?: Readonly<{
-    decision: "APPROVED" | "REJECTED";
-    reason: string;
-    decidedAt: string;
-    approvedGrossAmountCents: string;
-    postingStatus: "POSTED" | "NO_BALANCE_CHANGE" | "REJECTED";
+export type RefundDetail = RefundSummary &
+  Readonly<{
+    selectedFees: readonly Readonly<{
+      weeklyFeeEntryId: string;
+      submittedFeeVersion: number;
+      submittedGrossAmountCents: string;
+      teachingWeekId: string;
+      settlementMonth: string;
+      refundStatus: "ACTIVE" | "REFUNDED";
+    }>[];
+    attachments: readonly SelfPurchaseAttachment[];
+    decision?: Readonly<{
+      decision: "APPROVED" | "REJECTED";
+      reason: string;
+      decidedAt: string;
+      approvedGrossAmountCents: string;
+      postingStatus: "POSTED" | "NO_BALANCE_CHANGE" | "REJECTED";
+    }>;
+    management?: Readonly<{
+      submittedByPersonId: string;
+      decidedByPersonId?: string;
+      decisionActorSubject?: "HEADQUARTERS_FINANCE";
+      decisionActorScope?: "GLOBAL";
+      ledgerEventId?: string;
+    }>;
   }>;
-  management?: Readonly<{
-    submittedByPersonId: string;
-    decidedByPersonId?: string;
-    decisionActorSubject?: "HEADQUARTERS_FINANCE";
-    decisionActorScope?: "GLOBAL";
-    ledgerEventId?: string;
-  }>;
-}>;
 
 /** A refund request names immutable weekly-fee entries and evidence; it never carries refund money or bank data. */
 export type RefundSubmissionDraft = Readonly<{
@@ -593,9 +614,19 @@ export type RefundCommandResult = Readonly<{
 }>;
 
 /** F09/F10 commands are financial-management writes only; this client deliberately exposes no salary reads. */
-export type SalaryBenefitDocumentDraft = Readonly<{ kind: SalaryBenefitDocumentKind }>;
-export type SalaryBenefitDocumentSubmission = Readonly<{ draft: SalaryBenefitDocumentDraft; idempotencyKey: string }>;
-export type SalaryBenefitDocument = Readonly<{ id: string; kind: SalaryBenefitDocumentKind; version: number; replay: boolean }>;
+export type SalaryBenefitDocumentDraft = Readonly<{
+  kind: SalaryBenefitDocumentKind;
+}>;
+export type SalaryBenefitDocumentSubmission = Readonly<{
+  draft: SalaryBenefitDocumentDraft;
+  idempotencyKey: string;
+}>;
+export type SalaryBenefitDocument = Readonly<{
+  id: string;
+  kind: SalaryBenefitDocumentKind;
+  version: number;
+  replay: boolean;
+}>;
 
 export type CashWagePlanDraft = Readonly<{
   teacherPersonId: string;
@@ -607,7 +638,121 @@ export type CashWagePlanDraft = Readonly<{
   /** When selected, this version remains the default for later months until a newer rule or one-month override applies. */
   applyToFutureMonths?: boolean;
 }>;
-export type CashWagePlanSubmission = Readonly<{ draft: CashWagePlanDraft; idempotencyKey: string }>;
+export type CashWagePlanSubmission = Readonly<{
+  draft: CashWagePlanDraft;
+  idempotencyKey: string;
+}>;
+
+export type CashWagePlanSnapshot = Readonly<{
+  id: string;
+  sourceMonth: string;
+  version: number;
+  plannedCashCents: string;
+  plannedDeductionCents: string;
+  active: boolean;
+  appliesToFutureMonths: boolean;
+  reason: string;
+  changedAt: string;
+  changedByPersonId: string;
+}>;
+
+export type CashWageTodoSnapshot = Readonly<{
+  id: string;
+  generatedAt: string;
+  planVersionId: string;
+}>;
+
+export type CashWageRosterItem = Readonly<{
+  teacherPersonId: string;
+  teacherDisplayName: string;
+  salaryMonth: string;
+  plan: CashWagePlanSnapshot;
+  todo: CashWageTodoSnapshot | null;
+  confirmedCashCents: string;
+  confirmedDeductionCents: string;
+  remainingCashCents: string;
+  remainingDeductionCents: string;
+  overageCashCents: string;
+  overageDeductionCents: string;
+  status:
+    | "INACTIVE"
+    | "NOT_GENERATED"
+    | "PENDING"
+    | "PARTIALLY_CONFIRMED"
+    | "CONFIRMED"
+    | "OVER_CONFIRMED";
+}>;
+
+export type OrganizationRevenueFilter = Readonly<{ fromMonth: string; toMonth: string }>;
+export type OrganizationRevenueAmounts = Readonly<{
+  recordedGrossRevenueCents: string;
+  refundedGrossRevenueCents: string;
+  effectiveGrossRevenueCents: string;
+  campusManagementFeeCents: string;
+}>;
+export type OrganizationRevenue = Readonly<{
+  scope: Readonly<{ scope: "GLOBAL" | "REGION" | "CAMPUS"; regionId?: string; campusId?: string }>;
+  period: Readonly<{ fromMonth: string; toMonth: string; asOf: string; mode: "LATEST_EFFECTIVE_SNAPSHOT" }>;
+  campuses: readonly Readonly<OrganizationRevenueAmounts & {campusId: string; campusName: string; attributedRegionId: string; attributedRegionName: string}>[];
+  regions: readonly Readonly<OrganizationRevenueAmounts & {regionId: string; regionName: string; regionFinanceIncomeCents?: string}>[];
+  total: Readonly<OrganizationRevenueAmounts & {regionFinanceIncomeCents?: string}>;
+}>;
+
+export type ManagedCashWageTeacherDirectory = Readonly<{
+  items: readonly Readonly<{ id: string; nickname: string }>[];
+}>;
+
+export type ManagedCashWageRoster = Readonly<{
+  salaryMonth: string;
+  items: readonly CashWageRosterItem[];
+}>;
+
+export type CashWageConfirmation = Readonly<{
+  documentId: string;
+  status: "COMPLETED" | "REVERSED";
+  version: number;
+  teacherPersonId: string;
+  teacherDisplayName: string;
+  todoId: string | null;
+  salaryMonth: string;
+  cashPaidCents: string;
+  deductionCents: string;
+  balanceBeforeCents: string | null;
+  balanceAfterCents: string | null;
+  paidAt: string;
+  reason: string;
+  confirmedByPersonId: string;
+  confirmedByDisplayName: string;
+  createdAt: string;
+  attachmentCount: number;
+  reversal: Readonly<{
+    documentId: string;
+    reason: string;
+    reversedAt: string;
+    reversedByPersonId: string;
+  }> | null;
+  correctionOfDocumentId: string | null;
+  correctionDocumentId: string | null;
+}>;
+
+export type ManagedCashWageConfirmationPage = Readonly<{
+  items: readonly CashWageConfirmation[];
+  nextCursor: string | null;
+}>;
+
+export type ManagedCashWageDetail = CashWageConfirmation &
+  Readonly<{
+    plan: CashWagePlanSnapshot | null;
+    todo: CashWageTodoSnapshot | null;
+    attachments: readonly Readonly<{
+      versionId: string;
+      purpose: "SUPPORTING_DOCUMENT" | "APPLICATION_SCREENSHOT";
+      originalFilename: string;
+      mediaType: "application/pdf" | "image/png" | "image/jpeg";
+      sizeBytes: number;
+      sha256: string;
+    }>[];
+  }>;
 
 export type SalaryBenefitTodo = Readonly<{
   id: string;
@@ -617,7 +762,9 @@ export type SalaryBenefitTodo = Readonly<{
   kind: string;
   replay?: boolean;
 }>;
-export type SalaryBenefitTodoGenerationSubmission = Readonly<{ idempotencyKey: string }>;
+export type SalaryBenefitTodoGenerationSubmission = Readonly<{
+  idempotencyKey: string;
+}>;
 
 export type CashWageConfirmationDraft = Readonly<{
   documentId: string;
@@ -630,20 +777,28 @@ export type CashWageConfirmationDraft = Readonly<{
   /** Required only when this re-records a wage confirmation that has been reversed. */
   correctionOfDocumentId?: string;
 }>;
-export type CashWageConfirmationSubmission = Readonly<{ draft: CashWageConfirmationDraft; idempotencyKey: string }>;
+export type CashWageConfirmationSubmission = Readonly<{
+  draft: CashWageConfirmationDraft;
+  idempotencyKey: string;
+}>;
 
 export type BonusGrantDraft = Readonly<{
   documentId: string;
   expectedVersion: number;
   projectNo: number;
   projectName: string;
+  /** Immutable catalog version returned by listBonusProjects; free-text names are never authoritative. */
+  projectNameVersionId: string;
   recipientPersonId: string;
   sourceFundId: string;
   amountCents: string;
   reason: string;
   attachmentVersionIds: readonly string[];
 }>;
-export type BonusGrantSubmission = Readonly<{ draft: BonusGrantDraft; idempotencyKey: string }>;
+export type BonusGrantSubmission = Readonly<{
+  draft: BonusGrantDraft;
+  idempotencyKey: string;
+}>;
 
 export type BenefitPlanDraft = Readonly<{
   benefitKind: "SOCIAL_INSURANCE" | "HOUSING_FUND";
@@ -655,7 +810,10 @@ export type BenefitPlanDraft = Readonly<{
   active: boolean;
   reason: string;
 }>;
-export type BenefitPlanSubmission = Readonly<{ draft: BenefitPlanDraft; idempotencyKey: string }>;
+export type BenefitPlanSubmission = Readonly<{
+  draft: BenefitPlanDraft;
+  idempotencyKey: string;
+}>;
 
 export type BenefitConfirmationDraft = Readonly<{
   documentId: string;
@@ -664,7 +822,10 @@ export type BenefitConfirmationDraft = Readonly<{
   reason: string;
   attachmentVersionIds: readonly string[];
 }>;
-export type BenefitConfirmationSubmission = Readonly<{ draft: BenefitConfirmationDraft; idempotencyKey: string }>;
+export type BenefitConfirmationSubmission = Readonly<{
+  draft: BenefitConfirmationDraft;
+  idempotencyKey: string;
+}>;
 
 export type SalaryBenefitReversalDraft = Readonly<{
   originalDocumentId: string;
@@ -674,8 +835,47 @@ export type SalaryBenefitReversalDraft = Readonly<{
   reason: string;
   attachmentVersionIds: readonly string[];
 }>;
-export type SalaryBenefitReversalSubmission = Readonly<{ draft: SalaryBenefitReversalDraft; idempotencyKey: string }>;
-export type SalaryBenefitPosting = Readonly<{ id: string; status: "COMPLETED"; version: number; replay: boolean }>;
+export type SalaryBenefitReversalSubmission = Readonly<{
+  draft: SalaryBenefitReversalDraft;
+  idempotencyKey: string;
+}>;
+export type SalaryBenefitPosting = Readonly<{
+  id: string;
+  status: "COMPLETED";
+  version: number;
+  replay: boolean;
+}>;
+
+export type BonusProjectNameSource = "MIGRATION_DEFAULT" | "ADMIN";
+
+export type BonusProjectSummary = Readonly<{
+  projectNo: number;
+  nameVersionId: string;
+  nameVersion: number;
+  displayName: string;
+  changedByPersonId: string | null;
+  changeSource: BonusProjectNameSource;
+  changedAt: string;
+}>;
+
+export type BonusProjectCatalog = Readonly<{
+  projects: readonly BonusProjectSummary[];
+}>;
+
+export type BonusProjectRenameDraft = Readonly<{
+  projectNo: number;
+  expectedVersion: number;
+  displayName: string;
+  reason: string;
+}>;
+
+export type BonusProjectRenameSubmission = Readonly<{
+  draft: BonusProjectRenameDraft;
+  idempotencyKey: string;
+}>;
+
+export type BonusProjectRenameResult = BonusProjectSummary &
+  Readonly<{ replay: boolean }>;
 
 export type CompanyFundStatus = "ACTIVE" | "INACTIVE";
 
@@ -690,7 +890,8 @@ export type CompanyFundSummary = Readonly<{
   version: number;
 }>;
 
-export type CompanyFundCommandResult = CompanyFundSummary & Readonly<{ replay: boolean }>;
+export type CompanyFundCommandResult = CompanyFundSummary &
+  Readonly<{ replay: boolean }>;
 
 export type CompanyFundAssignment = Readonly<{
   id: string;
@@ -698,10 +899,11 @@ export type CompanyFundAssignment = Readonly<{
   validFrom: string;
 }>;
 
-export type CompanyFundAssignmentResult = CompanyFundAssignment & Readonly<{
-  previousAssignmentId: string | null;
-  replay: boolean;
-}>;
+export type CompanyFundAssignmentResult = CompanyFundAssignment &
+  Readonly<{
+    previousAssignmentId: string | null;
+    replay: boolean;
+  }>;
 
 export type CompanyFundList = Readonly<{
   funds: readonly CompanyFundSummary[];
@@ -776,7 +978,7 @@ export class ApiClientError extends Error {
   public constructor(
     public readonly status: number,
     public readonly code: string,
-    message = code
+    message = code,
   ) {
     super(message);
     this.name = "ApiClientError";
@@ -811,7 +1013,36 @@ type Authentication = Readonly<{
   epoch: number;
 }>;
 
-type Submission = WeeklyFeeSubmission | ReferralCreationSubmission | ReferralCopySubmission | ReferralAcceptanceSubmission | ReferralLifecycleSubmission | FinanceDraftSubmission | FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission | WithdrawalSubmitSubmission | WithdrawalRevokeSubmission | WithdrawalMarkTransferredSubmission | SelfPurchaseSubmission | SelfPurchaseReversalSubmission | ReimbursementSubmission | ReimbursementReviewSubmission | RefundSubmission | RefundReviewSubmission | CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission | SalaryBenefitDocumentSubmission | CashWagePlanSubmission | SalaryBenefitTodoGenerationSubmission | CashWageConfirmationSubmission | BonusGrantSubmission | BenefitPlanSubmission | BenefitConfirmationSubmission | SalaryBenefitReversalSubmission;
+type Submission =
+  | WeeklyFeeSubmission
+  | ReferralCreationSubmission
+  | ReferralCopySubmission
+  | ReferralAcceptanceSubmission
+  | ReferralLifecycleSubmission
+  | FinanceDraftSubmission
+  | FinanceAttachmentReservationSubmission
+  | FinanceAttachmentVersionSubmission
+  | WithdrawalSubmitSubmission
+  | WithdrawalRevokeSubmission
+  | WithdrawalMarkTransferredSubmission
+  | SelfPurchaseSubmission
+  | SelfPurchaseReversalSubmission
+  | ReimbursementSubmission
+  | ReimbursementReviewSubmission
+  | RefundSubmission
+  | RefundReviewSubmission
+  | CompanyFundCreateSubmission
+  | CompanyFundAssignmentSubmission
+  | CompanyFundStatusSubmission
+  | BonusProjectRenameSubmission
+  | SalaryBenefitDocumentSubmission
+  | CashWagePlanSubmission
+  | SalaryBenefitTodoGenerationSubmission
+  | CashWageConfirmationSubmission
+  | BonusGrantSubmission
+  | BenefitPlanSubmission
+  | BenefitConfirmationSubmission
+  | SalaryBenefitReversalSubmission;
 
 /**
  * Submission ownership deliberately excludes the response generation. A successful
@@ -834,7 +1065,8 @@ type SubmissionScope = Readonly<{
 const isSuccess = (status: number): boolean => status >= 200 && status < 300;
 
 const requireNonBlank = (value: string, field: string): void => {
-  if (value.trim() === "") throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
+  if (value.trim() === "")
+    throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
 };
 
 const invalidBeanAmount = (): never => {
@@ -872,13 +1104,28 @@ const validateWeeklyFeeDraft = (draft: WeeklyFeeDraftInput): void => {
   requireNonBlank(draft.teachingWeekId, "teachingWeekId");
   requireNonBlank(draft.venueId, "venueId");
   if (!/^\d{4}-\d{2}-01$/.test(draft.settlementMonth)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:settlementMonth");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:settlementMonth",
+    );
   }
   if (!/^\d+$/.test(draft.grossAmountCents)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:grossAmountCents");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:grossAmountCents",
+    );
   }
-  if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 0) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  if (
+    !Number.isSafeInteger(draft.expectedVersion) ||
+    draft.expectedVersion < 0
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedVersion",
+    );
   }
 };
 
@@ -894,24 +1141,47 @@ const validateReferralCreationDraft = (draft: ReferralCreationDraft): void => {
 const validateReferralCopyDraft = (draft: ReferralCopyDraft): void => {
   requireNonBlank(draft.sourceReferralId, "sourceReferralId");
   requireNonBlank(draft.receiverPersonId, "receiverPersonId");
-  if (draft.courseContextId !== undefined) requireNonBlank(draft.courseContextId, "courseContextId");
-  if (draft.classType !== undefined && draft.classType !== "ONE_TO_ONE" && draft.classType !== "SMALL_GROUP") {
+  if (draft.courseContextId !== undefined)
+    requireNonBlank(draft.courseContextId, "courseContextId");
+  if (
+    draft.classType !== undefined &&
+    draft.classType !== "ONE_TO_ONE" &&
+    draft.classType !== "SMALL_GROUP"
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:classType");
   }
 };
 
-const validateReferralAcceptanceDraft = (draft: ReferralAcceptanceDraft): void => {
+const validateReferralAcceptanceDraft = (
+  draft: ReferralAcceptanceDraft,
+): void => {
   requireNonBlank(draft.referralId, "referralId");
   if (draft.venueId !== undefined) requireNonBlank(draft.venueId, "venueId");
-  if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 1) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  if (
+    !Number.isSafeInteger(draft.expectedVersion) ||
+    draft.expectedVersion < 1
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedVersion",
+    );
   }
 };
 
-const validateReferralLifecycleDraft = (draft: ReferralLifecycleDraft): void => {
+const validateReferralLifecycleDraft = (
+  draft: ReferralLifecycleDraft,
+): void => {
   requireNonBlank(draft.referralId, "referralId");
-  if (!Number.isSafeInteger(draft.expectedVersion) || draft.expectedVersion < 1) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+  if (
+    !Number.isSafeInteger(draft.expectedVersion) ||
+    draft.expectedVersion < 1
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedVersion",
+    );
   }
   if (draft.command !== "ARCHIVE" && draft.command !== "REACTIVATE") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:command");
@@ -932,7 +1202,11 @@ const utf8ByteLength = (value: string): number => {
     const codeUnit = value.charCodeAt(index);
     if (codeUnit < 0x80) length += 1;
     else if (codeUnit < 0x800) length += 2;
-    else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < value.length) {
+    else if (
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      index + 1 < value.length
+    ) {
       const next = value.charCodeAt(index + 1);
       if (next >= 0xdc00 && next <= 0xdfff) {
         length += 4;
@@ -943,36 +1217,74 @@ const utf8ByteLength = (value: string): number => {
   return length;
 };
 
-const validateFinanceAttachmentVersionFields = (draft: Readonly<{
-  originalFilename: string;
-  declaredMediaType: FinanceAttachmentMediaType;
-  declaredSizeBytes: number;
-  expectedSha256?: string;
-}>): void => {
+const validateFinanceAttachmentVersionFields = (
+  draft: Readonly<{
+    originalFilename: string;
+    declaredMediaType: FinanceAttachmentMediaType;
+    declaredSizeBytes: number;
+    expectedSha256?: string;
+  }>,
+): void => {
   requireNonBlank(draft.originalFilename, "originalFilename");
-  if (utf8ByteLength(draft.originalFilename) > 255 || /[\x00-\x1f\x7f/\\]/.test(draft.originalFilename)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:originalFilename");
+  if (
+    utf8ByteLength(draft.originalFilename) > 255 ||
+    /[\x00-\x1f\x7f/\\]/.test(draft.originalFilename)
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:originalFilename",
+    );
   }
-  if (!(FINANCE_ATTACHMENT_MEDIA_TYPES as readonly string[]).includes(draft.declaredMediaType)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:declaredMediaType");
+  if (
+    !(FINANCE_ATTACHMENT_MEDIA_TYPES as readonly string[]).includes(
+      draft.declaredMediaType,
+    )
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:declaredMediaType",
+    );
   }
-  if (!Number.isSafeInteger(draft.declaredSizeBytes) || draft.declaredSizeBytes < 1 || draft.declaredSizeBytes > 20 * 1024 * 1024) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:declaredSizeBytes");
+  if (
+    !Number.isSafeInteger(draft.declaredSizeBytes) ||
+    draft.declaredSizeBytes < 1 ||
+    draft.declaredSizeBytes > 20 * 1024 * 1024
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:declaredSizeBytes",
+    );
   }
-  if (draft.expectedSha256 !== undefined && !/^[0-9a-f]{64}$/.test(draft.expectedSha256)) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedSha256");
+  if (
+    draft.expectedSha256 !== undefined &&
+    !/^[0-9a-f]{64}$/.test(draft.expectedSha256)
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedSha256",
+    );
   }
 };
 
-const validateFinanceAttachmentDraft = (draft: FinanceAttachmentReservationDraft): void => {
+const validateFinanceAttachmentDraft = (
+  draft: FinanceAttachmentReservationDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
-  if (!(FINANCE_ATTACHMENT_PURPOSES as readonly string[]).includes(draft.purpose)) {
+  if (
+    !(FINANCE_ATTACHMENT_PURPOSES as readonly string[]).includes(draft.purpose)
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:purpose");
   }
   validateFinanceAttachmentVersionFields(draft);
 };
 
-const validateFinanceAttachmentVersionDraft = (draft: FinanceAttachmentVersionDraft): void => {
+const validateFinanceAttachmentVersionDraft = (
+  draft: FinanceAttachmentVersionDraft,
+): void => {
   requireNonBlank(draft.attachmentId, "attachmentId");
   validateFinanceAttachmentVersionFields(draft);
 };
@@ -981,24 +1293,40 @@ const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
 
 const validateExpectedWithdrawalVersion = (value: number): void => {
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:expectedVersion",
+    );
   }
 };
 
 const validateWithdrawalAmount = (value: string): void => {
-  if (!/^\d+$/.test(value) || value.length > 19 || BigInt(value) < 1n || BigInt(value) > MAX_POSTGRES_BIGINT) {
+  if (
+    !/^\d+$/.test(value) ||
+    value.length > 19 ||
+    BigInt(value) < 1n ||
+    BigInt(value) > MAX_POSTGRES_BIGINT
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:amountCents");
   }
 };
 
 const validateNonnegativeCents = (value: string, field: string): void => {
-  if (!/^\d+$/.test(value) || value.length > 19 || BigInt(value) > MAX_POSTGRES_BIGINT) {
+  if (
+    !/^\d+$/.test(value) ||
+    value.length > 19 ||
+    BigInt(value) > MAX_POSTGRES_BIGINT
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
   }
 };
 
 const validateMonth = (value: string, field: string): void => {
-  if (!/^\d{4}-\d{2}-01$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) {
+  if (
+    !/^\d{4}-\d{2}-01$/.test(value) ||
+    Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
   }
 };
@@ -1009,37 +1337,66 @@ const daysInMonth = (value: string): number => {
 };
 
 /** Validate whitespace and control characters without rewriting bank text that must be submitted verbatim. */
-const validateFinancialText = (value: string | undefined, field: string, maximum: number, optional = false): void => {
+const validateFinancialText = (
+  value: string | undefined,
+  field: string,
+  maximum: number,
+  optional = false,
+): void => {
   if (value === undefined && optional) return;
-  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximum || /[\x00-\x1f\x7f]/.test(value)) {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    value.length > maximum ||
+    /[\x00-\x1f\x7f]/.test(value)
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
   }
 };
 
-const freezeAttachmentVersionIds = (ids: readonly string[], minimumCount = 1): readonly string[] => {
+const freezeAttachmentVersionIds = (
+  ids: readonly string[],
+  minimumCount = 1,
+): readonly string[] => {
   if (!Array.isArray(ids) || ids.length < minimumCount || ids.length > 20) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:attachmentVersionIds");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:attachmentVersionIds",
+    );
   }
   const copied = ids.map((id) => {
     requireNonBlank(id, "attachmentVersionIds");
     return id;
   });
   if (new Set(copied).size !== copied.length) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:attachmentVersionIds");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:attachmentVersionIds",
+    );
   }
   return Object.freeze(copied);
 };
 
 const freezeWeeklyFeeEntryIds = (ids: readonly string[]): readonly string[] => {
   if (!Array.isArray(ids) || ids.length < 1) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:weeklyFeeEntryIds");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:weeklyFeeEntryIds",
+    );
   }
   const copied = ids.map((id) => {
     requireNonBlank(id, "weeklyFeeEntryIds");
     return id;
   });
   if (new Set(copied).size !== copied.length) {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:weeklyFeeEntryIds");
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:weeklyFeeEntryIds",
+    );
   }
   return Object.freeze(copied);
 };
@@ -1061,13 +1418,17 @@ const validateWithdrawalRevokeDraft = (draft: WithdrawalRevokeDraft): void => {
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const validateWithdrawalMarkTransferredDraft = (draft: WithdrawalMarkTransferredDraft): void => {
+const validateWithdrawalMarkTransferredDraft = (
+  draft: WithdrawalMarkTransferredDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   freezeAttachmentVersionIds(draft.attachmentVersionIds);
 };
 
-const validateSelfPurchaseDraft = (draft: SelfPurchaseSubmissionDraft): void => {
+const validateSelfPurchaseDraft = (
+  draft: SelfPurchaseSubmissionDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateWithdrawalAmount(draft.amountCents);
@@ -1075,13 +1436,17 @@ const validateSelfPurchaseDraft = (draft: SelfPurchaseSubmissionDraft): void => 
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
-const validateSelfPurchaseReversalDraft = (draft: SelfPurchaseReversalDraft): void => {
+const validateSelfPurchaseReversalDraft = (
+  draft: SelfPurchaseReversalDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const validateReimbursementSubmissionDraft = (draft: ReimbursementSubmissionDraft): void => {
+const validateReimbursementSubmissionDraft = (
+  draft: ReimbursementSubmissionDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateWithdrawalAmount(draft.amountCents);
@@ -1089,7 +1454,9 @@ const validateReimbursementSubmissionDraft = (draft: ReimbursementSubmissionDraf
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
-const validateReimbursementReviewDraft = (draft: ReimbursementReviewDraft): void => {
+const validateReimbursementReviewDraft = (
+  draft: ReimbursementReviewDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateFinancialText(draft.reason, "reason", 1_000);
@@ -1098,8 +1465,14 @@ const validateReimbursementReviewDraft = (draft: ReimbursementReviewDraft): void
   }
 };
 
-const validateSalaryBenefitDocumentDraft = (draft: SalaryBenefitDocumentDraft): void => {
-  if (!(["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"] as const).includes(draft.kind)) {
+const validateSalaryBenefitDocumentDraft = (
+  draft: SalaryBenefitDocumentDraft,
+): void => {
+  if (
+    !(["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"] as const).includes(
+      draft.kind,
+    )
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:kind");
   }
 };
@@ -1108,34 +1481,53 @@ const validateCashWagePlanDraft = (draft: CashWagePlanDraft): void => {
   requireNonBlank(draft.teacherPersonId, "teacherPersonId");
   validateMonth(draft.salaryMonth, "salaryMonth");
   validateNonnegativeCents(draft.plannedCashCents, "plannedCashCents");
-  validateNonnegativeCents(draft.plannedDeductionCents, "plannedDeductionCents");
+  validateNonnegativeCents(
+    draft.plannedDeductionCents,
+    "plannedDeductionCents",
+  );
   if (BigInt(draft.plannedCashCents) !== BigInt(draft.plannedDeductionCents)) {
-    throw new ApiClientError(400, "CASH_WAGE_AMOUNT_MISMATCH", "CASH_WAGE_AMOUNT_MISMATCH");
+    throw new ApiClientError(
+      400,
+      "CASH_WAGE_AMOUNT_MISMATCH",
+      "CASH_WAGE_AMOUNT_MISMATCH",
+    );
   }
-  if (typeof draft.active !== "boolean" || (draft.applyToFutureMonths !== undefined && typeof draft.applyToFutureMonths !== "boolean")) {
+  if (
+    typeof draft.active !== "boolean" ||
+    (draft.applyToFutureMonths !== undefined &&
+      typeof draft.applyToFutureMonths !== "boolean")
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:active");
   }
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const validateCashWageConfirmationDraft = (draft: CashWageConfirmationDraft): void => {
+const validateCashWageConfirmationDraft = (
+  draft: CashWageConfirmationDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   requireNonBlank(draft.todoId, "todoId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateWithdrawalAmount(draft.cashPaidCents);
   validateWithdrawalAmount(draft.deductionCents);
   validateFinancialText(draft.reason, "reason", 1_000);
-  if (draft.correctionOfDocumentId !== undefined) requireNonBlank(draft.correctionOfDocumentId, "correctionOfDocumentId");
+  if (draft.correctionOfDocumentId !== undefined)
+    requireNonBlank(draft.correctionOfDocumentId, "correctionOfDocumentId");
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
 const validateBonusGrantDraft = (draft: BonusGrantDraft): void => {
   requireNonBlank(draft.documentId, "documentId");
   requireNonBlank(draft.projectName, "projectName");
+  validateFinancialText(draft.projectNameVersionId, "projectNameVersionId", 200);
   requireNonBlank(draft.recipientPersonId, "recipientPersonId");
   requireNonBlank(draft.sourceFundId, "sourceFundId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
-  if (!Number.isSafeInteger(draft.projectNo) || draft.projectNo < 1 || draft.projectNo > 10) {
+  if (
+    !Number.isSafeInteger(draft.projectNo) ||
+    draft.projectNo < 1 ||
+    draft.projectNo > 10
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:projectNo");
   }
   validateWithdrawalAmount(draft.amountCents);
@@ -1143,21 +1535,50 @@ const validateBonusGrantDraft = (draft: BonusGrantDraft): void => {
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
+const validateBonusProjectRenameDraft = (
+  draft: BonusProjectRenameDraft,
+): void => {
+  if (
+    !Number.isSafeInteger(draft.projectNo) ||
+    draft.projectNo < 1 ||
+    draft.projectNo > 10
+  ) {
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:projectNo");
+  }
+  validateExpectedWithdrawalVersion(draft.expectedVersion);
+  validateFinancialText(draft.displayName, "displayName", 200);
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
 const validateBenefitPlanDraft = (draft: BenefitPlanDraft): void => {
-  if (draft.benefitKind !== "SOCIAL_INSURANCE" && draft.benefitKind !== "HOUSING_FUND") {
+  if (
+    draft.benefitKind !== "SOCIAL_INSURANCE" &&
+    draft.benefitKind !== "HOUSING_FUND"
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:benefitKind");
   }
   requireNonBlank(draft.beneficiaryPersonId, "beneficiaryPersonId");
   validateMonth(draft.benefitMonth, "benefitMonth");
-  if (!Number.isSafeInteger(draft.executionDay) || draft.executionDay < 1 || draft.executionDay > daysInMonth(draft.benefitMonth) || typeof draft.active !== "boolean") {
-    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:executionDay");
+  if (
+    !Number.isSafeInteger(draft.executionDay) ||
+    draft.executionDay < 1 ||
+    draft.executionDay > daysInMonth(draft.benefitMonth) ||
+    typeof draft.active !== "boolean"
+  ) {
+    throw new ApiClientError(
+      400,
+      "INVALID_INPUT",
+      "INVALID_INPUT:executionDay",
+    );
   }
   validateWithdrawalAmount(draft.amountCents);
   requireNonBlank(draft.sourceFundId, "sourceFundId");
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const validateBenefitConfirmationDraft = (draft: BenefitConfirmationDraft): void => {
+const validateBenefitConfirmationDraft = (
+  draft: BenefitConfirmationDraft,
+): void => {
   requireNonBlank(draft.documentId, "documentId");
   requireNonBlank(draft.todoId, "todoId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
@@ -1165,7 +1586,9 @@ const validateBenefitConfirmationDraft = (draft: BenefitConfirmationDraft): void
   freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
 };
 
-const validateSalaryBenefitReversalDraft = (draft: SalaryBenefitReversalDraft): void => {
+const validateSalaryBenefitReversalDraft = (
+  draft: SalaryBenefitReversalDraft,
+): void => {
   requireNonBlank(draft.originalDocumentId, "originalDocumentId");
   requireNonBlank(draft.reversalDocumentId, "reversalDocumentId");
   validateExpectedWithdrawalVersion(draft.expectedOriginalVersion);
@@ -1191,21 +1614,29 @@ const validateRefundReviewDraft = (draft: RefundReviewDraft): void => {
   }
 };
 
-const validateCompanyFundCreateDraft = (draft: CompanyFundCreateDraft): void => {
+const validateCompanyFundCreateDraft = (
+  draft: CompanyFundCreateDraft,
+): void => {
   if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(draft.fundCode)) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:fundCode");
   }
   validateFinancialText(draft.displayName, "displayName", 200);
-  if (draft.organizationUnitId !== undefined) requireNonBlank(draft.organizationUnitId, "organizationUnitId");
+  if (draft.organizationUnitId !== undefined)
+    requireNonBlank(draft.organizationUnitId, "organizationUnitId");
 };
 
-const validateCompanyFundAssignmentDraft = (draft: CompanyFundAssignmentDraft): void => {
+const validateCompanyFundAssignmentDraft = (
+  draft: CompanyFundAssignmentDraft,
+): void => {
   requireNonBlank(draft.fundId, "fundId");
-  if (draft.expectedAssignmentId !== null) requireNonBlank(draft.expectedAssignmentId, "expectedAssignmentId");
+  if (draft.expectedAssignmentId !== null)
+    requireNonBlank(draft.expectedAssignmentId, "expectedAssignmentId");
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const validateCompanyFundStatusDraft = (draft: CompanyFundStatusDraft): void => {
+const validateCompanyFundStatusDraft = (
+  draft: CompanyFundStatusDraft,
+): void => {
   requireNonBlank(draft.fundId, "fundId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   if (draft.status !== "ACTIVE" && draft.status !== "INACTIVE") {
@@ -1214,25 +1645,32 @@ const validateCompanyFundStatusDraft = (draft: CompanyFundStatusDraft): void => 
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
-const sameRoleContext = (left: RoleContext | null, right: RoleContext | null): boolean =>
-  left?.subject === right?.subject
-  && left?.personId === right?.personId
-  && left?.scope === right?.scope
-  && left?.regionId === right?.regionId
-  && left?.campusId === right?.campusId
-  && left?.venueId === right?.venueId;
+const sameRoleContext = (
+  left: RoleContext | null,
+  right: RoleContext | null,
+): boolean =>
+  left?.subject === right?.subject &&
+  left?.personId === right?.personId &&
+  left?.scope === right?.scope &&
+  left?.regionId === right?.regionId &&
+  left?.campusId === right?.campusId &&
+  left?.venueId === right?.venueId;
 
-const sameSubmissionScope = (left: SessionSnapshot | null, right: SessionSnapshot): boolean =>
-  left !== null
-  && left.sessionId === right.sessionId
-  && left.accountId === right.accountId
-  && left.personId === right.personId
-  && sameRoleContext(left.currentRoleContext, right.currentRoleContext);
+const sameSubmissionScope = (
+  left: SessionSnapshot | null,
+  right: SessionSnapshot,
+): boolean =>
+  left !== null &&
+  left.sessionId === right.sessionId &&
+  left.accountId === right.accountId &&
+  left.personId === right.personId &&
+  sameRoleContext(left.currentRoleContext, right.currentRoleContext);
 
 let fallbackIdSequence = 0;
 
 const defaultIdempotencyKeyFactory = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  if (typeof globalThis.crypto?.randomUUID === "function")
+    return globalThis.crypto.randomUUID();
   fallbackIdSequence += 1;
   // This identifies a retry, not an authentication secret. Entropy avoids collisions
   // between devices that start their local sequence during the same millisecond.
@@ -1244,8 +1682,14 @@ const defaultIdempotencyKeyFactory = (): string => {
  * session is the only authority for requests; callers may inspect, never mutate it.
  */
 export class TeacherApiClient {
-  private readonly submissionStatuses = new WeakMap<Submission, SubmissionStatus>();
-  private readonly submissionScopes = new WeakMap<Submission, SubmissionScope>();
+  private readonly submissionStatuses = new WeakMap<
+    Submission,
+    SubmissionStatus
+  >();
+  private readonly submissionScopes = new WeakMap<
+    Submission,
+    SubmissionScope
+  >();
   private session: SessionSnapshot | null = null;
   private epoch = 0;
   private submissionScopeEpoch = 0;
@@ -1270,7 +1714,7 @@ export class TeacherApiClient {
       method: "POST",
       path: "/v1/session",
       headers: { "content-type": "application/json" },
-      body: input
+      body: input,
     });
     if (epoch !== this.epoch) throw new StaleResponseError();
     const session = this.readResponse(response);
@@ -1280,13 +1724,22 @@ export class TeacherApiClient {
 
   /** Restores the server's current role context. It never trusts a locally cached role. */
   public async refreshSession(): Promise<SessionSnapshot> {
-    const next = await this.authenticatedRequest<SessionSnapshot>("GET", "/v1/session");
+    const next = await this.authenticatedRequest<SessionSnapshot>(
+      "GET",
+      "/v1/session",
+    );
     this.installSession(next);
     return next;
   }
 
-  public async switchRole(subject: PermissionSubject): Promise<SessionSnapshot> {
-    const next = await this.authenticatedRequest<SessionSnapshot>("POST", "/v1/role-contexts/switch", { subject });
+  public async switchRole(
+    subject: PermissionSubject,
+  ): Promise<SessionSnapshot> {
+    const next = await this.authenticatedRequest<SessionSnapshot>(
+      "POST",
+      "/v1/role-contexts/switch",
+      { subject },
+    );
     this.installSession(next);
     return next;
   }
@@ -1296,7 +1749,11 @@ export class TeacherApiClient {
     const token = this.session?.sessionId;
     this.clearSessionState();
     if (!token) return;
-    const response = await this.options.transport({method:"POST",path:"/v1/session/logout",headers:{authorization:`Bearer ${token}`}});
+    const response = await this.options.transport({
+      method: "POST",
+      path: "/v1/session/logout",
+      headers: { authorization: `Bearer ${token}` },
+    });
     this.readResponse(response);
   }
 
@@ -1326,14 +1783,25 @@ export class TeacherApiClient {
     return this.authenticatedRequest<T>("GET", "/v1/venues/visible");
   }
 
-  public async getVenueBoard<T = unknown>(venueId: string, filter: Readonly<{ teachingWeekId?: string; startsOn?: string; endsOn?: string }> = {}): Promise<T> {
+  public async getVenueBoard<T = unknown>(
+    venueId: string,
+    filter: Readonly<{
+      teachingWeekId?: string;
+      startsOn?: string;
+      endsOn?: string;
+    }> = {},
+  ): Promise<T> {
     requireNonBlank(venueId, "venueId");
-    const query = filter.teachingWeekId !== undefined
-      ? `?weekId=${encodeURIComponent(filter.teachingWeekId)}`
-      : filter.startsOn !== undefined && filter.endsOn !== undefined
-        ? `?startsOn=${encodeURIComponent(filter.startsOn)}&endsOn=${encodeURIComponent(filter.endsOn)}`
-        : "";
-    return this.authenticatedRequest<T>("GET", `/v1/venues/${encodeURIComponent(venueId)}/board${query}`);
+    const query =
+      filter.teachingWeekId !== undefined
+        ? `?weekId=${encodeURIComponent(filter.teachingWeekId)}`
+        : filter.startsOn !== undefined && filter.endsOn !== undefined
+          ? `?startsOn=${encodeURIComponent(filter.startsOn)}&endsOn=${encodeURIComponent(filter.endsOn)}`
+          : "";
+    return this.authenticatedRequest<T>(
+      "GET",
+      `/v1/venues/${encodeURIComponent(venueId)}/board${query}`,
+    );
   }
 
   public async listReceivedReferrals<T = unknown>(): Promise<T> {
@@ -1345,125 +1813,277 @@ export class TeacherApiClient {
   }
 
   public async listReceivingTeachers(): Promise<readonly ReceivingTeacher[]> {
-    return this.authenticatedRequest<readonly ReceivingTeacher[]>("GET", "/v1/referrals/receiving-teachers");
-  }
-
-  public async listSentReferrals(): Promise<readonly SentReferral[]> {
-    return this.authenticatedRequest<readonly SentReferral[]>("GET", "/v1/referrals/sent");
-  }
-
-  public async listOwnFinanceDrafts(): Promise<readonly FinanceDraftMetadata[]> {
-    return this.authenticatedRequest<readonly FinanceDraftMetadata[]>("GET", "/v1/finance/drafts/mine");
-  }
-
-  public async getOwnFinanceDraft(documentId: string): Promise<FinanceDraftMetadata> {
-    requireNonBlank(documentId, "documentId");
-    return this.authenticatedRequest<FinanceDraftMetadata>("GET", `/v1/finance/drafts/${encodeURIComponent(documentId)}`);
-  }
-
-  public async getOwnFinanceAttachmentVersion(versionId: string): Promise<FinanceAttachmentVersionMetadata> {
-    requireNonBlank(versionId, "versionId");
-    return this.authenticatedRequest<FinanceAttachmentVersionMetadata>(
+    return this.authenticatedRequest<readonly ReceivingTeacher[]>(
       "GET",
-      `/v1/finance/attachment-uploads/${encodeURIComponent(versionId)}`
+      "/v1/referrals/receiving-teachers",
     );
   }
 
-  public async listFinanceDocumentAttachments(documentId: string): Promise<FinanceDocumentAttachments> {
+  public async listSentReferrals(): Promise<readonly SentReferral[]> {
+    return this.authenticatedRequest<readonly SentReferral[]>(
+      "GET",
+      "/v1/referrals/sent",
+    );
+  }
+
+  public async listOwnFinanceDrafts(): Promise<
+    readonly FinanceDraftMetadata[]
+  > {
+    return this.authenticatedRequest<readonly FinanceDraftMetadata[]>(
+      "GET",
+      "/v1/finance/drafts/mine",
+    );
+  }
+
+  public async getOwnFinanceDraft(
+    documentId: string,
+  ): Promise<FinanceDraftMetadata> {
+    requireNonBlank(documentId, "documentId");
+    return this.authenticatedRequest<FinanceDraftMetadata>(
+      "GET",
+      `/v1/finance/drafts/${encodeURIComponent(documentId)}`,
+    );
+  }
+
+  public async getOwnFinanceAttachmentVersion(
+    versionId: string,
+  ): Promise<FinanceAttachmentVersionMetadata> {
+    requireNonBlank(versionId, "versionId");
+    return this.authenticatedRequest<FinanceAttachmentVersionMetadata>(
+      "GET",
+      `/v1/finance/attachment-uploads/${encodeURIComponent(versionId)}`,
+    );
+  }
+
+  public async listFinanceDocumentAttachments(
+    documentId: string,
+  ): Promise<FinanceDocumentAttachments> {
     requireNonBlank(documentId, "documentId");
     return this.authenticatedRequest<FinanceDocumentAttachments>(
       "GET",
-      `/v1/finance/documents/${encodeURIComponent(documentId)}/attachments`
+      `/v1/finance/documents/${encodeURIComponent(documentId)}/attachments`,
     );
   }
 
   public async listWithdrawalSources(): Promise<readonly WithdrawalSource[]> {
-    return this.authenticatedRequest<readonly WithdrawalSource[]>("GET", "/v1/finance/withdrawals/sources");
+    return this.authenticatedRequest<readonly WithdrawalSource[]>(
+      "GET",
+      "/v1/finance/withdrawals/sources",
+    );
   }
 
   public async listOwnWithdrawals(): Promise<readonly WithdrawalSummary[]> {
-    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/mine");
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>(
+      "GET",
+      "/v1/finance/withdrawals/mine",
+    );
   }
 
-  public async listPendingTransferWithdrawals(): Promise<readonly WithdrawalSummary[]> {
-    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/pending-transfer");
+  public async listPendingTransferWithdrawals(): Promise<
+    readonly WithdrawalSummary[]
+  > {
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>(
+      "GET",
+      "/v1/finance/withdrawals/pending-transfer",
+    );
   }
 
   public async listManagedWithdrawals(): Promise<readonly WithdrawalSummary[]> {
-    return this.authenticatedRequest<readonly WithdrawalSummary[]>("GET", "/v1/finance/withdrawals/managed");
+    return this.authenticatedRequest<readonly WithdrawalSummary[]>(
+      "GET",
+      "/v1/finance/withdrawals/managed",
+    );
   }
 
-  public async getWithdrawalDetail(documentId: string): Promise<WithdrawalDetail> {
+  public async getWithdrawalDetail(
+    documentId: string,
+  ): Promise<WithdrawalDetail> {
     requireNonBlank(documentId, "documentId");
-    return this.authenticatedRequest<WithdrawalDetail>("GET", `/v1/finance/withdrawals/${encodeURIComponent(documentId)}`);
-  }
-
-  public async listOwnSelfPurchases(): Promise<Readonly<{ documents: readonly SelfPurchaseSummary[] }>> {
-    return this.authenticatedRequest<Readonly<{ documents: readonly SelfPurchaseSummary[] }>>(
-      "GET", "/v1/finance/self-purchases/mine"
+    return this.authenticatedRequest<WithdrawalDetail>(
+      "GET",
+      `/v1/finance/withdrawals/${encodeURIComponent(documentId)}`,
     );
   }
 
-  public async listManagedSelfPurchases(): Promise<Readonly<{ documents: readonly SelfPurchaseSummary[] }>> {
-    return this.authenticatedRequest<Readonly<{ documents: readonly SelfPurchaseSummary[] }>>(
-      "GET", "/v1/finance/self-purchases/managed"
-    );
+  public async listOwnSelfPurchases(): Promise<
+    Readonly<{ documents: readonly SelfPurchaseSummary[] }>
+  > {
+    return this.authenticatedRequest<
+      Readonly<{ documents: readonly SelfPurchaseSummary[] }>
+    >("GET", "/v1/finance/self-purchases/mine");
   }
 
-  public async getSelfPurchaseDetail(documentId: string): Promise<SelfPurchaseDetail> {
+  public async listManagedSelfPurchases(): Promise<
+    Readonly<{ documents: readonly SelfPurchaseSummary[] }>
+  > {
+    return this.authenticatedRequest<
+      Readonly<{ documents: readonly SelfPurchaseSummary[] }>
+    >("GET", "/v1/finance/self-purchases/managed");
+  }
+
+  public async getSelfPurchaseDetail(
+    documentId: string,
+  ): Promise<SelfPurchaseDetail> {
     requireNonBlank(documentId, "documentId");
     return this.authenticatedRequest<SelfPurchaseDetail>(
-      "GET", `/v1/finance/self-purchases/${encodeURIComponent(documentId)}`
+      "GET",
+      `/v1/finance/self-purchases/${encodeURIComponent(documentId)}`,
     );
   }
 
   /** Refund reads use server-authorized personal or management scope. */
-  public async listOwnRefunds(): Promise<Readonly<{ documents: readonly RefundSummary[] }>> {
+  public async listOwnRefunds(): Promise<
+    Readonly<{ documents: readonly RefundSummary[] }>
+  > {
     return this.authenticatedRequest("GET", "/v1/finance/refunds/mine");
   }
 
-  public async listManagedRefunds(): Promise<Readonly<{ documents: readonly RefundSummary[] }>> {
+  public async listManagedRefunds(): Promise<
+    Readonly<{ documents: readonly RefundSummary[] }>
+  > {
     return this.authenticatedRequest("GET", "/v1/finance/refunds/managed");
   }
 
   public async getRefundDetail(documentId: string): Promise<RefundDetail> {
     requireNonBlank(documentId, "documentId");
-    return this.authenticatedRequest("GET", `/v1/finance/refunds/${encodeURIComponent(documentId)}`);
+    return this.authenticatedRequest(
+      "GET",
+      `/v1/finance/refunds/${encodeURIComponent(documentId)}`,
+    );
   }
 
-  public async listOwnReimbursements(): Promise<Readonly<{ documents: readonly ReimbursementSummary[] }>> {
-    return this.authenticatedRequest<Readonly<{ documents: readonly ReimbursementSummary[] }>>(
-      "GET", "/v1/finance/reimbursements/mine"
-    );
+  public async listOwnReimbursements(): Promise<
+    Readonly<{ documents: readonly ReimbursementSummary[] }>
+  > {
+    return this.authenticatedRequest<
+      Readonly<{ documents: readonly ReimbursementSummary[] }>
+    >("GET", "/v1/finance/reimbursements/mine");
   }
 
   /** The API authorizes managed reimbursement reads for HQ, administrators, and owners. */
-  public async listManagedReimbursements(): Promise<Readonly<{ documents: readonly ReimbursementSummary[] }>> {
-    return this.authenticatedRequest<Readonly<{ documents: readonly ReimbursementSummary[] }>>(
-      "GET", "/v1/finance/reimbursements/managed"
-    );
+  public async listManagedReimbursements(): Promise<
+    Readonly<{ documents: readonly ReimbursementSummary[] }>
+  > {
+    return this.authenticatedRequest<
+      Readonly<{ documents: readonly ReimbursementSummary[] }>
+    >("GET", "/v1/finance/reimbursements/managed");
   }
 
-  public async getReimbursementDetail(documentId: string): Promise<ReimbursementDetail> {
+  public async getReimbursementDetail(
+    documentId: string,
+  ): Promise<ReimbursementDetail> {
     requireNonBlank(documentId, "documentId");
     return this.authenticatedRequest<ReimbursementDetail>(
-      "GET", `/v1/finance/reimbursements/${encodeURIComponent(documentId)}`
+      "GET",
+      `/v1/finance/reimbursements/${encodeURIComponent(documentId)}`,
     );
   }
 
   public async listCompanyFunds(): Promise<CompanyFundList> {
     this.requireCompanyFundAdministrator();
-    return this.authenticatedRequest<CompanyFundList>("GET", "/v1/admin/company-funds");
+    return this.authenticatedRequest<CompanyFundList>(
+      "GET",
+      "/v1/admin/company-funds",
+    );
+  }
+
+  /** Current immutable-name versions used by finance when creating a project bonus. */
+  public async listBonusProjects(): Promise<BonusProjectCatalog> {
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<BonusProjectCatalog>(
+      "GET",
+      "/v1/finance/bonus-projects",
+    );
+  }
+
+  public async getOrganizationRevenue(filter: OrganizationRevenueFilter): Promise<OrganizationRevenue> {
+    validateMonth(filter.fromMonth, "fromMonth");
+    validateMonth(filter.toMonth, "toMonth");
+    if (filter.fromMonth > filter.toMonth) throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:period");
+    return this.authenticatedRequest<OrganizationRevenue>(
+      "GET", `/v1/organizations/revenue?fromMonth=${encodeURIComponent(filter.fromMonth)}&toMonth=${encodeURIComponent(filter.toMonth)}`
+    );
+  }
+
+  public async listManagedCashWageTeachers(): Promise<ManagedCashWageTeacherDirectory> {
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<ManagedCashWageTeacherDirectory>(
+      "GET",
+      "/v1/finance/cash-wage-teachers",
+    );
+  }
+
+  public async listManagedCashWageRoster(
+    month: string,
+  ): Promise<ManagedCashWageRoster> {
+    validateMonth(month, "month");
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<ManagedCashWageRoster>(
+      "GET",
+      `/v1/finance/cash-wage-roster?month=${encodeURIComponent(month)}`,
+    );
+  }
+
+  public async listManagedCashWageConfirmations(
+    input: Readonly<{
+      month: string;
+      teacherPersonId?: string;
+      cursor?: string;
+      limit?: number;
+    }>,
+  ): Promise<ManagedCashWageConfirmationPage> {
+    validateMonth(input.month, "month");
+    if (input.teacherPersonId !== undefined)
+      requireNonBlank(input.teacherPersonId, "teacherPersonId");
+    if (input.cursor !== undefined) requireNonBlank(input.cursor, "cursor");
+    if (
+      input.limit !== undefined &&
+      (!Number.isSafeInteger(input.limit) ||
+        input.limit < 1 ||
+        input.limit > 100)
+    ) {
+      throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:limit");
+    }
+    this.requireSalaryBenefitsManager();
+    const query = [
+      `month=${encodeURIComponent(input.month)}`,
+      ...(input.teacherPersonId === undefined
+        ? []
+        : [`teacherPersonId=${encodeURIComponent(input.teacherPersonId)}`]),
+      ...(input.cursor === undefined
+        ? []
+        : [`cursor=${encodeURIComponent(input.cursor)}`]),
+      ...(input.limit === undefined ? [] : [`limit=${input.limit}`]),
+    ].join("&");
+    return this.authenticatedRequest<ManagedCashWageConfirmationPage>(
+      "GET",
+      `/v1/finance/cash-wage-confirmations?${query}`,
+    );
+  }
+
+  public async getManagedCashWageDetail(
+    documentId: string,
+  ): Promise<ManagedCashWageDetail> {
+    requireNonBlank(documentId, "documentId");
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<ManagedCashWageDetail>(
+      "GET",
+      `/v1/finance/cash-wages/${encodeURIComponent(documentId)}`,
+    );
   }
 
   /**
    * A submission is immutable. Retry the same object after an uncertain network failure;
    * create a new object after editing any field so the old idempotency key is never reused.
    */
-  public createWeeklyFeeSubmission(draft: WeeklyFeeDraftInput): WeeklyFeeSubmission {
+  public createWeeklyFeeSubmission(
+    draft: WeeklyFeeDraftInput,
+  ): WeeklyFeeSubmission {
     validateWeeklyFeeDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1476,10 +2096,14 @@ export class TeacherApiClient {
    * The submission excludes referrer fields by design. Retry this same object after
    * an uncertain network result; change any form field to create a new request key.
    */
-  public createReferralSubmission(draft: ReferralCreationDraft): ReferralCreationSubmission {
+  public createReferralSubmission(
+    draft: ReferralCreationDraft,
+  ): ReferralCreationSubmission {
     validateReferralCreationDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1489,10 +2113,14 @@ export class TeacherApiClient {
   }
 
   /** Omitted course or class fields keep the source recommendation's server-side values. */
-  public createReferralCopySubmission(draft: ReferralCopyDraft): ReferralCopySubmission {
+  public createReferralCopySubmission(
+    draft: ReferralCopyDraft,
+  ): ReferralCopySubmission {
     validateReferralCopyDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1505,10 +2133,14 @@ export class TeacherApiClient {
    * Capture the active authentication generation with this immutable submission.
    * A retry is safe only while the same person and role generation remain active.
    */
-  public createReferralAcceptanceSubmission(draft: ReferralAcceptanceDraft): ReferralAcceptanceSubmission {
+  public createReferralAcceptanceSubmission(
+    draft: ReferralAcceptanceDraft,
+  ): ReferralAcceptanceSubmission {
     validateReferralAcceptanceDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1521,10 +2153,14 @@ export class TeacherApiClient {
    * Lifecycle changes are immutable commands. An uncertain result must retry this
    * object, not create a fresh command or idempotency key.
    */
-  public createReferralLifecycleSubmission(draft: ReferralLifecycleDraft): ReferralLifecycleSubmission {
+  public createReferralLifecycleSubmission(
+    draft: ReferralLifecycleDraft,
+  ): ReferralLifecycleSubmission {
     validateReferralLifecycleDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ ...draft });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1534,10 +2170,14 @@ export class TeacherApiClient {
   }
 
   /** A financial draft starts as metadata only; later financial details require a separate contract. */
-  public createFinanceDraftSubmission(draft: Readonly<{ kind: FinanceDraftKind }>): FinanceDraftSubmission {
+  public createFinanceDraftSubmission(
+    draft: Readonly<{ kind: FinanceDraftKind }>,
+  ): FinanceDraftSubmission {
     validateFinanceDraftKind(draft.kind);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({ kind: draft.kind });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
@@ -1548,11 +2188,13 @@ export class TeacherApiClient {
 
   /** Reserve immutable attachment metadata before starting the separate binary upload flow. */
   public createFinanceAttachmentReservationSubmission(
-    draft: FinanceAttachmentReservationDraft
+    draft: FinanceAttachmentReservationDraft,
   ): FinanceAttachmentReservationSubmission {
     validateFinanceAttachmentDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({
       documentId: draft.documentId,
@@ -1560,7 +2202,9 @@ export class TeacherApiClient {
       originalFilename: draft.originalFilename,
       declaredMediaType: draft.declaredMediaType,
       declaredSizeBytes: draft.declaredSizeBytes,
-      ...(draft.expectedSha256 === undefined ? {} : { expectedSha256: draft.expectedSha256 })
+      ...(draft.expectedSha256 === undefined
+        ? {}
+        : { expectedSha256: draft.expectedSha256 }),
     });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
@@ -1570,18 +2214,22 @@ export class TeacherApiClient {
 
   /** Keep the slot identity and immutable file metadata together for an uncertain version-reservation retry. */
   public createFinanceAttachmentVersionSubmission(
-    draft: FinanceAttachmentVersionDraft
+    draft: FinanceAttachmentVersionDraft,
   ): FinanceAttachmentVersionSubmission {
     validateFinanceAttachmentVersionDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const frozenDraft = Object.freeze({
       attachmentId: draft.attachmentId,
       originalFilename: draft.originalFilename,
       declaredMediaType: draft.declaredMediaType,
       declaredSizeBytes: draft.declaredSizeBytes,
-      ...(draft.expectedSha256 === undefined ? {} : { expectedSha256: draft.expectedSha256 })
+      ...(draft.expectedSha256 === undefined
+        ? {}
+        : { expectedSha256: draft.expectedSha256 }),
     });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
@@ -1590,12 +2238,19 @@ export class TeacherApiClient {
   }
 
   /** Freeze all sensitive form text and attachment IDs so uncertain retries reproduce the original request exactly. */
-  public createWithdrawalSubmitSubmission(draft: WithdrawalSubmitDraft): WithdrawalSubmitSubmission {
+  public createWithdrawalSubmitSubmission(
+    draft: WithdrawalSubmitDraft,
+  ): WithdrawalSubmitSubmission {
     validateWithdrawalSubmitDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
-    const attachmentVersionIds = freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+    const attachmentVersionIds = freezeAttachmentVersionIds(
+      draft.attachmentVersionIds,
+      2,
+    );
     const frozenDraft = Object.freeze({
       documentId: draft.documentId,
       expectedVersion: draft.expectedVersion,
@@ -1604,7 +2259,7 @@ export class TeacherApiClient {
       recipientName: draft.recipientName,
       bankAccount: draft.bankAccount,
       ...(draft.bankName === undefined ? {} : { bankName: draft.bankName }),
-      attachmentVersionIds
+      attachmentVersionIds,
     });
     const submission = Object.freeze({ draft: frozenDraft, idempotencyKey });
     this.submissionStatuses.set(submission, "READY");
@@ -1612,14 +2267,22 @@ export class TeacherApiClient {
     return submission;
   }
 
-  public createWithdrawalRevokeSubmission(draft: WithdrawalRevokeDraft): WithdrawalRevokeSubmission {
+  public createWithdrawalRevokeSubmission(
+    draft: WithdrawalRevokeDraft,
+  ): WithdrawalRevokeSubmission {
     validateWithdrawalRevokeDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
-      draft: Object.freeze({ documentId: draft.documentId, expectedVersion: draft.expectedVersion, reason: draft.reason }),
-      idempotencyKey
+      draft: Object.freeze({
+        documentId: draft.documentId,
+        expectedVersion: draft.expectedVersion,
+        reason: draft.reason,
+      }),
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1627,19 +2290,23 @@ export class TeacherApiClient {
   }
 
   public createWithdrawalMarkTransferredSubmission(
-    draft: WithdrawalMarkTransferredDraft
+    draft: WithdrawalMarkTransferredDraft,
   ): WithdrawalMarkTransferredSubmission {
     validateWithdrawalMarkTransferredDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
-        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds)
+        attachmentVersionIds: freezeAttachmentVersionIds(
+          draft.attachmentVersionIds,
+        ),
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1647,10 +2314,14 @@ export class TeacherApiClient {
   }
 
   /** An automatic own-procurement transfer may only retry this exact frozen command. */
-  public createSelfPurchaseSubmission(draft: SelfPurchaseSubmissionDraft): SelfPurchaseSubmission {
+  public createSelfPurchaseSubmission(
+    draft: SelfPurchaseSubmissionDraft,
+  ): SelfPurchaseSubmission {
     validateSelfPurchaseDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
@@ -1658,9 +2329,12 @@ export class TeacherApiClient {
         expectedVersion: draft.expectedVersion,
         amountCents: draft.amountCents,
         reason: draft.reason,
-        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+        attachmentVersionIds: freezeAttachmentVersionIds(
+          draft.attachmentVersionIds,
+          2,
+        ),
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1669,20 +2343,22 @@ export class TeacherApiClient {
 
   /** A completed automatic procurement transfer may only be reversed by a strict GLOBAL finance context. */
   public createSelfPurchaseReversalSubmission(
-    draft: SelfPurchaseReversalDraft
+    draft: SelfPurchaseReversalDraft,
   ): SelfPurchaseReversalSubmission {
     validateSelfPurchaseReversalDraft(draft);
     this.requireSelfPurchaseReversalManager();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
-        reason: draft.reason
+        reason: draft.reason,
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1690,10 +2366,14 @@ export class TeacherApiClient {
   }
 
   /** The exact evidence set, amount, and reason are frozen so a failed request can safely retry. */
-  public createReimbursementSubmission(draft: ReimbursementSubmissionDraft): ReimbursementSubmission {
+  public createReimbursementSubmission(
+    draft: ReimbursementSubmissionDraft,
+  ): ReimbursementSubmission {
     validateReimbursementSubmissionDraft(draft);
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
@@ -1701,9 +2381,12 @@ export class TeacherApiClient {
         expectedVersion: draft.expectedVersion,
         amountCents: draft.amountCents,
         reason: draft.reason,
-        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+        attachmentVersionIds: freezeAttachmentVersionIds(
+          draft.attachmentVersionIds,
+          2,
+        ),
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1712,21 +2395,23 @@ export class TeacherApiClient {
 
   /** Only the strict GLOBAL headquarters-finance context may create a review command. */
   public createReimbursementReviewSubmission(
-    draft: ReimbursementReviewDraft
+    draft: ReimbursementReviewDraft,
   ): ReimbursementReviewSubmission {
     validateReimbursementReviewDraft(draft);
     this.requireReimbursementReviewer();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
         reason: draft.reason,
-        decision: draft.decision
+        decision: draft.decision,
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1734,11 +2419,15 @@ export class TeacherApiClient {
   }
 
   /** Refunds can only originate from the current teaching teacher's own role context. */
-  public createRefundSubmission(draft: RefundSubmissionDraft): RefundSubmission {
+  public createRefundSubmission(
+    draft: RefundSubmissionDraft,
+  ): RefundSubmission {
     validateRefundSubmissionDraft(draft);
     this.requireRefundSubmitter();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
@@ -1746,9 +2435,12 @@ export class TeacherApiClient {
         expectedVersion: draft.expectedVersion,
         reason: draft.reason,
         weeklyFeeEntryIds: freezeWeeklyFeeEntryIds(draft.weeklyFeeEntryIds),
-        attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2)
+        attachmentVersionIds: freezeAttachmentVersionIds(
+          draft.attachmentVersionIds,
+          2,
+        ),
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1756,39 +2448,49 @@ export class TeacherApiClient {
   }
 
   /** Refund approval or rejection is fixed at creation; callers cannot switch its action during a retry. */
-  public createRefundReviewSubmission(draft: RefundReviewDraft): RefundReviewSubmission {
+  public createRefundReviewSubmission(
+    draft: RefundReviewDraft,
+  ): RefundReviewSubmission {
     validateRefundReviewDraft(draft);
     this.requireReimbursementReviewer();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
         documentId: draft.documentId,
         expectedVersion: draft.expectedVersion,
         reason: draft.reason,
-        decision: draft.decision
+        decision: draft.decision,
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
     return submission;
   }
 
-  public createCompanyFundSubmission(draft: CompanyFundCreateDraft): CompanyFundCreateSubmission {
+  public createCompanyFundSubmission(
+    draft: CompanyFundCreateDraft,
+  ): CompanyFundCreateSubmission {
     validateCompanyFundCreateDraft(draft);
     this.requireCompanyFundAdministrator();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
         fundCode: draft.fundCode,
         displayName: draft.displayName,
-        ...(draft.organizationUnitId === undefined ? {} : { organizationUnitId: draft.organizationUnitId })
+        ...(draft.organizationUnitId === undefined
+          ? {}
+          : { organizationUnitId: draft.organizationUnitId }),
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
@@ -1796,90 +2498,184 @@ export class TeacherApiClient {
   }
 
   public createCompanyFundAssignmentSubmission(
-    draft: CompanyFundAssignmentDraft
+    draft: CompanyFundAssignmentDraft,
   ): CompanyFundAssignmentSubmission {
     validateCompanyFundAssignmentDraft(draft);
     this.requireCompanyFundAdministrator();
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
-    requireNonBlank(idempotencyKey, "idempotencyKey");
-    const submission = Object.freeze({
-      draft: Object.freeze({ fundId: draft.fundId, expectedAssignmentId: draft.expectedAssignmentId, reason: draft.reason }),
-      idempotencyKey
-    });
-    this.submissionStatuses.set(submission, "READY");
-    this.submissionScopes.set(submission, scope);
-    return submission;
-  }
-
-  public createCompanyFundStatusSubmission(draft: CompanyFundStatusDraft): CompanyFundStatusSubmission {
-    validateCompanyFundStatusDraft(draft);
-    this.requireCompanyFundAdministrator();
-    const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
     const submission = Object.freeze({
       draft: Object.freeze({
-        fundId: draft.fundId, expectedVersion: draft.expectedVersion, status: draft.status, reason: draft.reason
+        fundId: draft.fundId,
+        expectedAssignmentId: draft.expectedAssignmentId,
+        reason: draft.reason,
       }),
-      idempotencyKey
+      idempotencyKey,
     });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
     return submission;
   }
 
-  public createSalaryBenefitDocumentSubmission(draft: SalaryBenefitDocumentDraft): SalaryBenefitDocumentSubmission {
-    validateSalaryBenefitDocumentDraft(draft); this.requireSalaryBenefitsManager();
-    const submission = this.createSalaryBenefitSubmission({ kind: draft.kind }) as SalaryBenefitDocumentSubmission;
+  public createCompanyFundStatusSubmission(
+    draft: CompanyFundStatusDraft,
+  ): CompanyFundStatusSubmission {
+    validateCompanyFundStatusDraft(draft);
+    this.requireCompanyFundAdministrator();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        fundId: draft.fundId,
+        expectedVersion: draft.expectedVersion,
+        status: draft.status,
+        reason: draft.reason,
+      }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
     return submission;
   }
 
-  public createCashWagePlanSubmission(draft: CashWagePlanDraft): CashWagePlanSubmission {
-    validateCashWagePlanDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft }) as CashWagePlanSubmission;
+  public createBonusProjectRenameSubmission(
+    draft: BonusProjectRenameDraft,
+  ): BonusProjectRenameSubmission {
+    validateBonusProjectRenameDraft(draft);
+    this.requireCompanyFundAdministrator();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({
+        projectNo: draft.projectNo,
+        expectedVersion: draft.expectedVersion,
+        displayName: draft.displayName,
+        reason: draft.reason,
+      }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createSalaryBenefitDocumentSubmission(
+    draft: SalaryBenefitDocumentDraft,
+  ): SalaryBenefitDocumentSubmission {
+    validateSalaryBenefitDocumentDraft(draft);
+    this.requireSalaryBenefitsManager();
+    const submission = this.createSalaryBenefitSubmission({
+      kind: draft.kind,
+    }) as SalaryBenefitDocumentSubmission;
+    return submission;
+  }
+
+  public createCashWagePlanSubmission(
+    draft: CashWagePlanDraft,
+  ): CashWagePlanSubmission {
+    validateCashWagePlanDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+    }) as CashWagePlanSubmission;
   }
 
   public createCashWageTodoGenerationSubmission(): SalaryBenefitTodoGenerationSubmission {
     this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({}) as SalaryBenefitTodoGenerationSubmission;
+    return this.createSalaryBenefitSubmission(
+      {},
+    ) as SalaryBenefitTodoGenerationSubmission;
   }
 
-  public createCashWageConfirmationSubmission(draft: CashWageConfirmationDraft): CashWageConfirmationSubmission {
-    validateCashWageConfirmationDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as CashWageConfirmationSubmission;
+  public createCashWageConfirmationSubmission(
+    draft: CashWageConfirmationDraft,
+  ): CashWageConfirmationSubmission {
+    validateCashWageConfirmationDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+      attachmentVersionIds: freezeAttachmentVersionIds(
+        draft.attachmentVersionIds,
+        2,
+      ),
+    }) as CashWageConfirmationSubmission;
   }
 
-  public createBonusGrantSubmission(draft: BonusGrantDraft): BonusGrantSubmission {
-    validateBonusGrantDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as BonusGrantSubmission;
+  public createBonusGrantSubmission(
+    draft: BonusGrantDraft,
+  ): BonusGrantSubmission {
+    validateBonusGrantDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+      attachmentVersionIds: freezeAttachmentVersionIds(
+        draft.attachmentVersionIds,
+        2,
+      ),
+    }) as BonusGrantSubmission;
   }
 
-  public createBenefitPlanSubmission(draft: BenefitPlanDraft): BenefitPlanSubmission {
-    validateBenefitPlanDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft }) as BenefitPlanSubmission;
+  public createBenefitPlanSubmission(
+    draft: BenefitPlanDraft,
+  ): BenefitPlanSubmission {
+    validateBenefitPlanDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+    }) as BenefitPlanSubmission;
   }
 
   public createBenefitTodoGenerationSubmission(): SalaryBenefitTodoGenerationSubmission {
     this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({}) as SalaryBenefitTodoGenerationSubmission;
+    return this.createSalaryBenefitSubmission(
+      {},
+    ) as SalaryBenefitTodoGenerationSubmission;
   }
 
-  public createBenefitConfirmationSubmission(draft: BenefitConfirmationDraft): BenefitConfirmationSubmission {
-    validateBenefitConfirmationDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as BenefitConfirmationSubmission;
+  public createBenefitConfirmationSubmission(
+    draft: BenefitConfirmationDraft,
+  ): BenefitConfirmationSubmission {
+    validateBenefitConfirmationDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+      attachmentVersionIds: freezeAttachmentVersionIds(
+        draft.attachmentVersionIds,
+        2,
+      ),
+    }) as BenefitConfirmationSubmission;
   }
 
-  public createSalaryBenefitReversalSubmission(draft: SalaryBenefitReversalDraft): SalaryBenefitReversalSubmission {
-    validateSalaryBenefitReversalDraft(draft); this.requireSalaryBenefitsManager();
-    return this.createSalaryBenefitSubmission({ ...draft, attachmentVersionIds: freezeAttachmentVersionIds(draft.attachmentVersionIds, 2) }) as SalaryBenefitReversalSubmission;
+  public createSalaryBenefitReversalSubmission(
+    draft: SalaryBenefitReversalDraft,
+  ): SalaryBenefitReversalSubmission {
+    validateSalaryBenefitReversalDraft(draft);
+    this.requireSalaryBenefitsManager();
+    return this.createSalaryBenefitSubmission({
+      ...draft,
+      attachmentVersionIds: freezeAttachmentVersionIds(
+        draft.attachmentVersionIds,
+        2,
+      ),
+    }) as SalaryBenefitReversalSubmission;
   }
 
   public submissionStatus(submission: Submission): SubmissionStatus {
     return this.submissionStatuses.get(submission) ?? "READY";
   }
 
-  public async recordWeeklyFee<T = unknown>(submission: WeeklyFeeSubmission): Promise<T> {
+  public async recordWeeklyFee<T = unknown>(
+    submission: WeeklyFeeSubmission,
+  ): Promise<T> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -1888,7 +2684,7 @@ export class TeacherApiClient {
       const result = await this.authenticatedRequest<T>(
         "POST",
         `/v1/referrals/${encodeURIComponent(submission.draft.referralCaseId)}/weekly-fees`,
-        { ...submission.draft, idempotencyKey: submission.idempotencyKey }
+        { ...submission.draft, idempotencyKey: submission.idempotencyKey },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -1899,16 +2695,22 @@ export class TeacherApiClient {
     }
   }
 
-  public async createReferral(submission: ReferralCreationSubmission): Promise<ReferralCreationResult> {
+  public async createReferral(
+    submission: ReferralCreationSubmission,
+  ): Promise<ReferralCreationResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<ReferralCreationResult>("POST", "/v1/referrals", {
-        ...submission.draft,
-        idempotencyKey: submission.idempotencyKey
-      });
+      const result = await this.authenticatedRequest<ReferralCreationResult>(
+        "POST",
+        "/v1/referrals",
+        {
+          ...submission.draft,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -1918,7 +2720,9 @@ export class TeacherApiClient {
     }
   }
 
-  public async copyReferral(submission: ReferralCopySubmission): Promise<ReferralCopyResult> {
+  public async copyReferral(
+    submission: ReferralCopySubmission,
+  ): Promise<ReferralCopyResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -1929,10 +2733,14 @@ export class TeacherApiClient {
         `/v1/referrals/${encodeURIComponent(submission.draft.sourceReferralId)}/copy`,
         {
           receiverPersonId: submission.draft.receiverPersonId,
-          ...(submission.draft.courseContextId === undefined ? {} : { courseContextId: submission.draft.courseContextId }),
-          ...(submission.draft.classType === undefined ? {} : { classType: submission.draft.classType }),
-          idempotencyKey: submission.idempotencyKey
-        }
+          ...(submission.draft.courseContextId === undefined
+            ? {}
+            : { courseContextId: submission.draft.courseContextId }),
+          ...(submission.draft.classType === undefined
+            ? {}
+            : { classType: submission.draft.classType }),
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -1943,21 +2751,25 @@ export class TeacherApiClient {
     }
   }
 
-  public async acceptReferral(submission: ReferralAcceptanceSubmission): Promise<ReferralAcceptanceResult> {
+  public async acceptReferral(
+    submission: ReferralAcceptanceSubmission,
+  ): Promise<ReferralAcceptanceResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
       const body = {
-        ...(submission.draft.venueId === undefined ? {} : { venueId: submission.draft.venueId }),
+        ...(submission.draft.venueId === undefined
+          ? {}
+          : { venueId: submission.draft.venueId }),
         expectedVersion: submission.draft.expectedVersion,
-        idempotencyKey: submission.idempotencyKey
+        idempotencyKey: submission.idempotencyKey,
       };
       const result = await this.authenticatedRequest<ReferralAcceptanceResult>(
         "POST",
         `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/accept`,
-        body
+        body,
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -1968,20 +2780,23 @@ export class TeacherApiClient {
     }
   }
 
-  public async changeReferralLifecycle(submission: ReferralLifecycleSubmission): Promise<ReferralLifecycleResult> {
+  public async changeReferralLifecycle(
+    submission: ReferralLifecycleSubmission,
+  ): Promise<ReferralLifecycleResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const operation = submission.draft.command === "ARCHIVE" ? "archive" : "reactivate";
+      const operation =
+        submission.draft.command === "ARCHIVE" ? "archive" : "reactivate";
       const result = await this.authenticatedRequest<ReferralLifecycleResult>(
         "POST",
         `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/${operation}`,
         {
           expectedVersion: submission.draft.expectedVersion,
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -1992,16 +2807,22 @@ export class TeacherApiClient {
     }
   }
 
-  public async createFinanceDraft(submission: FinanceDraftSubmission): Promise<FinanceDraftCreateResult> {
+  public async createFinanceDraft(
+    submission: FinanceDraftSubmission,
+  ): Promise<FinanceDraftCreateResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<FinanceDraftCreateResult>("POST", "/v1/finance/drafts", {
-        kind: submission.draft.kind,
-        idempotencyKey: submission.idempotencyKey
-      });
+      const result = await this.authenticatedRequest<FinanceDraftCreateResult>(
+        "POST",
+        "/v1/finance/drafts",
+        {
+          kind: submission.draft.kind,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2012,25 +2833,28 @@ export class TeacherApiClient {
   }
 
   public async reserveFinanceAttachment(
-    submission: FinanceAttachmentReservationSubmission
+    submission: FinanceAttachmentReservationSubmission,
   ): Promise<FinanceAttachmentReservation> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<FinanceAttachmentReservation>(
-        "POST",
-        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/attachment-uploads`,
-        {
-          purpose: submission.draft.purpose,
-          originalFilename: submission.draft.originalFilename,
-          declaredMediaType: submission.draft.declaredMediaType,
-          declaredSizeBytes: submission.draft.declaredSizeBytes,
-          ...(submission.draft.expectedSha256 === undefined ? {} : { expectedSha256: submission.draft.expectedSha256 }),
-          idempotencyKey: submission.idempotencyKey
-        }
-      );
+      const result =
+        await this.authenticatedRequest<FinanceAttachmentReservation>(
+          "POST",
+          `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/attachment-uploads`,
+          {
+            purpose: submission.draft.purpose,
+            originalFilename: submission.draft.originalFilename,
+            declaredMediaType: submission.draft.declaredMediaType,
+            declaredSizeBytes: submission.draft.declaredSizeBytes,
+            ...(submission.draft.expectedSha256 === undefined
+              ? {}
+              : { expectedSha256: submission.draft.expectedSha256 }),
+            idempotencyKey: submission.idempotencyKey,
+          },
+        );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2041,24 +2865,27 @@ export class TeacherApiClient {
   }
 
   public async reserveFinanceAttachmentVersion(
-    submission: FinanceAttachmentVersionSubmission
+    submission: FinanceAttachmentVersionSubmission,
   ): Promise<FinanceAttachmentReservation> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<FinanceAttachmentReservation>(
-        "POST",
-        `/v1/finance/attachments/${encodeURIComponent(submission.draft.attachmentId)}/versions`,
-        {
-          originalFilename: submission.draft.originalFilename,
-          declaredMediaType: submission.draft.declaredMediaType,
-          declaredSizeBytes: submission.draft.declaredSizeBytes,
-          ...(submission.draft.expectedSha256 === undefined ? {} : { expectedSha256: submission.draft.expectedSha256 }),
-          idempotencyKey: submission.idempotencyKey
-        }
-      );
+      const result =
+        await this.authenticatedRequest<FinanceAttachmentReservation>(
+          "POST",
+          `/v1/finance/attachments/${encodeURIComponent(submission.draft.attachmentId)}/versions`,
+          {
+            originalFilename: submission.draft.originalFilename,
+            declaredMediaType: submission.draft.declaredMediaType,
+            declaredSizeBytes: submission.draft.declaredSizeBytes,
+            ...(submission.draft.expectedSha256 === undefined
+              ? {}
+              : { expectedSha256: submission.draft.expectedSha256 }),
+            idempotencyKey: submission.idempotencyKey,
+          },
+        );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2068,7 +2895,9 @@ export class TeacherApiClient {
     }
   }
 
-  public async submitWithdrawal(submission: WithdrawalSubmitSubmission): Promise<WithdrawalCommandResult> {
+  public async submitWithdrawal(
+    submission: WithdrawalSubmitSubmission,
+  ): Promise<WithdrawalCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -2083,10 +2912,12 @@ export class TeacherApiClient {
           amountCents: submission.draft.amountCents,
           recipientName: submission.draft.recipientName,
           bankAccount: submission.draft.bankAccount,
-          ...(submission.draft.bankName === undefined ? {} : { bankName: submission.draft.bankName }),
+          ...(submission.draft.bankName === undefined
+            ? {}
+            : { bankName: submission.draft.bankName }),
           attachmentVersionIds: [...submission.draft.attachmentVersionIds],
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2097,7 +2928,9 @@ export class TeacherApiClient {
     }
   }
 
-  public async revokeWithdrawal(submission: WithdrawalRevokeSubmission): Promise<WithdrawalCommandResult> {
+  public async revokeWithdrawal(
+    submission: WithdrawalRevokeSubmission,
+  ): Promise<WithdrawalCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -2109,8 +2942,8 @@ export class TeacherApiClient {
         {
           expectedVersion: submission.draft.expectedVersion,
           reason: submission.draft.reason,
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2122,7 +2955,7 @@ export class TeacherApiClient {
   }
 
   public async markWithdrawalTransferred(
-    submission: WithdrawalMarkTransferredSubmission
+    submission: WithdrawalMarkTransferredSubmission,
   ): Promise<WithdrawalCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
@@ -2135,8 +2968,8 @@ export class TeacherApiClient {
         {
           expectedVersion: submission.draft.expectedVersion,
           attachmentVersionIds: [...submission.draft.attachmentVersionIds],
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2147,7 +2980,9 @@ export class TeacherApiClient {
     }
   }
 
-  public async submitSelfPurchase(submission: SelfPurchaseSubmission): Promise<SelfPurchaseResult> {
+  public async submitSelfPurchase(
+    submission: SelfPurchaseSubmission,
+  ): Promise<SelfPurchaseResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -2161,8 +2996,8 @@ export class TeacherApiClient {
           amountCents: submission.draft.amountCents,
           reason: submission.draft.reason,
           attachmentVersionIds: [...submission.draft.attachmentVersionIds],
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2174,7 +3009,7 @@ export class TeacherApiClient {
   }
 
   public async reverseSelfPurchase(
-    submission: SelfPurchaseReversalSubmission
+    submission: SelfPurchaseReversalSubmission,
   ): Promise<SelfPurchaseReversalResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
@@ -2182,15 +3017,16 @@ export class TeacherApiClient {
     this.requireSelfPurchaseReversalManager();
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<SelfPurchaseReversalResult>(
-        "POST",
-        `/v1/finance/self-purchases/${encodeURIComponent(submission.draft.documentId)}/reverse`,
-        {
-          expectedVersion: submission.draft.expectedVersion,
-          reason: submission.draft.reason,
-          idempotencyKey: submission.idempotencyKey
-        }
-      );
+      const result =
+        await this.authenticatedRequest<SelfPurchaseReversalResult>(
+          "POST",
+          `/v1/finance/self-purchases/${encodeURIComponent(submission.draft.documentId)}/reverse`,
+          {
+            expectedVersion: submission.draft.expectedVersion,
+            reason: submission.draft.reason,
+            idempotencyKey: submission.idempotencyKey,
+          },
+        );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2201,24 +3037,25 @@ export class TeacherApiClient {
   }
 
   public async submitReimbursement(
-    submission: ReimbursementSubmission
+    submission: ReimbursementSubmission,
   ): Promise<ReimbursementCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const result = await this.authenticatedRequest<ReimbursementCommandResult>(
-        "POST",
-        `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/reimbursement-submit`,
-        {
-          expectedVersion: submission.draft.expectedVersion,
-          amountCents: submission.draft.amountCents,
-          reason: submission.draft.reason,
-          attachmentVersionIds: [...submission.draft.attachmentVersionIds],
-          idempotencyKey: submission.idempotencyKey
-        }
-      );
+      const result =
+        await this.authenticatedRequest<ReimbursementCommandResult>(
+          "POST",
+          `/v1/finance/drafts/${encodeURIComponent(submission.draft.documentId)}/reimbursement-submit`,
+          {
+            expectedVersion: submission.draft.expectedVersion,
+            amountCents: submission.draft.amountCents,
+            reason: submission.draft.reason,
+            attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+            idempotencyKey: submission.idempotencyKey,
+          },
+        );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2229,7 +3066,7 @@ export class TeacherApiClient {
   }
 
   public async reviewReimbursement(
-    submission: ReimbursementReviewSubmission
+    submission: ReimbursementReviewSubmission,
   ): Promise<ReimbursementCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
@@ -2237,16 +3074,18 @@ export class TeacherApiClient {
     this.requireReimbursementReviewer();
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const action = submission.draft.decision === "APPROVE" ? "approve" : "reject";
-      const result = await this.authenticatedRequest<ReimbursementCommandResult>(
-        "POST",
-        `/v1/finance/reimbursements/${encodeURIComponent(submission.draft.documentId)}/${action}`,
-        {
-          expectedVersion: submission.draft.expectedVersion,
-          reason: submission.draft.reason,
-          idempotencyKey: submission.idempotencyKey
-        }
-      );
+      const action =
+        submission.draft.decision === "APPROVE" ? "approve" : "reject";
+      const result =
+        await this.authenticatedRequest<ReimbursementCommandResult>(
+          "POST",
+          `/v1/finance/reimbursements/${encodeURIComponent(submission.draft.documentId)}/${action}`,
+          {
+            expectedVersion: submission.draft.expectedVersion,
+            reason: submission.draft.reason,
+            idempotencyKey: submission.idempotencyKey,
+          },
+        );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
       return result;
@@ -2256,7 +3095,9 @@ export class TeacherApiClient {
     }
   }
 
-  public async submitRefund(submission: RefundSubmission): Promise<RefundCommandResult> {
+  public async submitRefund(
+    submission: RefundSubmission,
+  ): Promise<RefundCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
@@ -2271,8 +3112,8 @@ export class TeacherApiClient {
           reason: submission.draft.reason,
           weeklyFeeEntryIds: [...submission.draft.weeklyFeeEntryIds],
           attachmentVersionIds: [...submission.draft.attachmentVersionIds],
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2283,22 +3124,25 @@ export class TeacherApiClient {
     }
   }
 
-  public async reviewRefund(submission: RefundReviewSubmission): Promise<RefundCommandResult> {
+  public async reviewRefund(
+    submission: RefundReviewSubmission,
+  ): Promise<RefundCommandResult> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission);
     this.requireReimbursementReviewer();
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
-      const action = submission.draft.decision === "APPROVE" ? "approve" : "reject";
+      const action =
+        submission.draft.decision === "APPROVE" ? "approve" : "reject";
       const result = await this.authenticatedRequest<RefundCommandResult>(
         "POST",
         `/v1/finance/refunds/${encodeURIComponent(submission.draft.documentId)}/${action}`,
         {
           expectedVersion: submission.draft.expectedVersion,
           reason: submission.draft.reason,
-          idempotencyKey: submission.idempotencyKey
-        }
+          idempotencyKey: submission.idempotencyKey,
+        },
       );
       this.submissionStatuses.set(submission, "SUCCEEDED");
       this.advanceResponseGeneration();
@@ -2309,84 +3153,202 @@ export class TeacherApiClient {
     }
   }
 
-  public async createSalaryBenefitDocument(submission: SalaryBenefitDocumentSubmission): Promise<SalaryBenefitDocument> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/salary-benefits/documents", () => ({ kind: submission.draft.kind, idempotencyKey: submission.idempotencyKey }));
+  public async createSalaryBenefitDocument(
+    submission: SalaryBenefitDocumentSubmission,
+  ): Promise<SalaryBenefitDocument> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/salary-benefits/documents",
+      () => ({
+        kind: submission.draft.kind,
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async setCashWagePlan(submission: CashWagePlanSubmission): Promise<SalaryBenefitTodo> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wage-plans", () => ({
-      ...submission.draft, idempotencyKey: submission.idempotencyKey
-    }));
+  public async setCashWagePlan(
+    submission: CashWagePlanSubmission,
+  ): Promise<SalaryBenefitTodo> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/cash-wage-plans",
+      () => ({
+        ...submission.draft,
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async generateCashWageTodos(submission: SalaryBenefitTodoGenerationSubmission): Promise<readonly SalaryBenefitTodo[]> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wage-todos/generate", () => ({ idempotencyKey: submission.idempotencyKey }));
+  public async generateCashWageTodos(
+    submission: SalaryBenefitTodoGenerationSubmission,
+  ): Promise<readonly SalaryBenefitTodo[]> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/cash-wage-todos/generate",
+      () => ({ idempotencyKey: submission.idempotencyKey }),
+    );
   }
 
-  public async confirmCashWage(submission: CashWageConfirmationSubmission): Promise<SalaryBenefitPosting> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/cash-wages/confirm", () => ({
-      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
-    }));
+  public async confirmCashWage(
+    submission: CashWageConfirmationSubmission,
+  ): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/cash-wages/confirm",
+      () => ({
+        ...submission.draft,
+        attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async grantProjectBonus(submission: BonusGrantSubmission): Promise<SalaryBenefitPosting> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/project-bonuses/grant", () => ({
-      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
-    }));
+  public async grantProjectBonus(
+    submission: BonusGrantSubmission,
+  ): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/project-bonuses/grant",
+      () => ({
+        ...submission.draft,
+        attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async setBenefitPlan(submission: BenefitPlanSubmission): Promise<SalaryBenefitTodo> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefit-plans", () => ({ ...submission.draft, idempotencyKey: submission.idempotencyKey }));
+  public async setBenefitPlan(
+    submission: BenefitPlanSubmission,
+  ): Promise<SalaryBenefitTodo> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/benefit-plans",
+      () => ({
+        ...submission.draft,
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async generateBenefitTodos(submission: SalaryBenefitTodoGenerationSubmission): Promise<readonly SalaryBenefitTodo[]> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefit-todos/generate", () => ({ idempotencyKey: submission.idempotencyKey }));
+  public async generateBenefitTodos(
+    submission: SalaryBenefitTodoGenerationSubmission,
+  ): Promise<readonly SalaryBenefitTodo[]> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/benefit-todos/generate",
+      () => ({ idempotencyKey: submission.idempotencyKey }),
+    );
   }
 
-  public async confirmBenefit(submission: BenefitConfirmationSubmission): Promise<SalaryBenefitPosting> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/benefits/confirm", () => ({
-      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
-    }));
+  public async confirmBenefit(
+    submission: BenefitConfirmationSubmission,
+  ): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/benefits/confirm",
+      () => ({
+        ...submission.draft,
+        attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async reverseSalaryBenefitPosting(submission: SalaryBenefitReversalSubmission): Promise<SalaryBenefitPosting> {
-    return this.runSalaryBenefitCommand(submission, "/v1/finance/salary-benefits/reverse", () => ({
-      ...submission.draft, attachmentVersionIds: [...submission.draft.attachmentVersionIds], idempotencyKey: submission.idempotencyKey
-    }));
+  public async reverseSalaryBenefitPosting(
+    submission: SalaryBenefitReversalSubmission,
+  ): Promise<SalaryBenefitPosting> {
+    return this.runSalaryBenefitCommand(
+      submission,
+      "/v1/finance/salary-benefits/reverse",
+      () => ({
+        ...submission.draft,
+        attachmentVersionIds: [...submission.draft.attachmentVersionIds],
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async createCompanyFund(submission: CompanyFundCreateSubmission): Promise<CompanyFundCommandResult> {
-    return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, "/v1/admin/company-funds", () => ({
-      fundCode: submission.draft.fundCode,
-      displayName: submission.draft.displayName,
-      ...(submission.draft.organizationUnitId === undefined ? {} : { organizationUnitId: submission.draft.organizationUnitId }),
-      idempotencyKey: submission.idempotencyKey
-    }));
+  public async createCompanyFund(
+    submission: CompanyFundCreateSubmission,
+  ): Promise<CompanyFundCommandResult> {
+    return this.runCompanyFundCommand<CompanyFundCommandResult>(
+      submission,
+      "/v1/admin/company-funds",
+      () => ({
+        fundCode: submission.draft.fundCode,
+        displayName: submission.draft.displayName,
+        ...(submission.draft.organizationUnitId === undefined
+          ? {}
+          : { organizationUnitId: submission.draft.organizationUnitId }),
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
   public async assignCompanyFund(
-    submission: CompanyFundAssignmentSubmission
+    submission: CompanyFundAssignmentSubmission,
   ): Promise<CompanyFundAssignmentResult> {
-    return this.runCompanyFundCommand<CompanyFundAssignmentResult>(submission, `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/assignment`, () => ({
-      expectedAssignmentId: submission.draft.expectedAssignmentId,
-      reason: submission.draft.reason,
-      idempotencyKey: submission.idempotencyKey
-    }));
+    return this.runCompanyFundCommand<CompanyFundAssignmentResult>(
+      submission,
+      `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/assignment`,
+      () => ({
+        expectedAssignmentId: submission.draft.expectedAssignmentId,
+        reason: submission.draft.reason,
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
   }
 
-  public async setCompanyFundStatus(submission: CompanyFundStatusSubmission): Promise<CompanyFundCommandResult> {
-    return this.runCompanyFundCommand<CompanyFundCommandResult>(submission, `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/status`, () => ({
-      expectedVersion: submission.draft.expectedVersion,
-      status: submission.draft.status,
-      reason: submission.draft.reason,
-      idempotencyKey: submission.idempotencyKey
-    }));
+  public async setCompanyFundStatus(
+    submission: CompanyFundStatusSubmission,
+  ): Promise<CompanyFundCommandResult> {
+    return this.runCompanyFundCommand<CompanyFundCommandResult>(
+      submission,
+      `/v1/admin/company-funds/${encodeURIComponent(submission.draft.fundId)}/status`,
+      () => ({
+        expectedVersion: submission.draft.expectedVersion,
+        status: submission.draft.status,
+        reason: submission.draft.reason,
+        idempotencyKey: submission.idempotencyKey,
+      }),
+    );
+  }
+
+  public async renameBonusProject(
+    submission: BonusProjectRenameSubmission,
+  ): Promise<BonusProjectRenameResult> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requireCompanyFundAdministrator();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<BonusProjectRenameResult>(
+        "POST",
+        `/v1/admin/bonus-projects/${submission.draft.projectNo}/name`,
+        {
+          expectedVersion: submission.draft.expectedVersion,
+          displayName: submission.draft.displayName,
+          reason: submission.draft.reason,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
   }
 
   private async runCompanyFundCommand<T>(
-    submission: CompanyFundCreateSubmission | CompanyFundAssignmentSubmission | CompanyFundStatusSubmission,
+    submission:
+      | CompanyFundCreateSubmission
+      | CompanyFundAssignmentSubmission
+      | CompanyFundStatusSubmission,
     path: string,
-    body: () => Record<string, unknown>
+    body: () => Record<string, unknown>,
   ): Promise<T> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
@@ -2404,20 +3366,35 @@ export class TeacherApiClient {
     }
   }
 
-  private createSalaryBenefitSubmission<T extends Record<string, unknown>>(draft: T): Readonly<{ draft: Readonly<T>; idempotencyKey: string }> {
+  private createSalaryBenefitSubmission<T extends Record<string, unknown>>(
+    draft: T,
+  ): Readonly<{ draft: Readonly<T>; idempotencyKey: string }> {
     const scope = this.captureSubmissionScope();
-    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
     requireNonBlank(idempotencyKey, "idempotencyKey");
-    const submission = Object.freeze({ draft: Object.freeze(draft), idempotencyKey });
+    const submission = Object.freeze({
+      draft: Object.freeze(draft),
+      idempotencyKey,
+    });
     this.submissionStatuses.set(submission, "READY");
     this.submissionScopes.set(submission, scope);
     return submission;
   }
 
   private async runSalaryBenefitCommand<T>(
-    submission: SalaryBenefitDocumentSubmission | CashWagePlanSubmission | SalaryBenefitTodoGenerationSubmission | CashWageConfirmationSubmission | BonusGrantSubmission | BenefitPlanSubmission | BenefitConfirmationSubmission | SalaryBenefitReversalSubmission,
+    submission:
+      | SalaryBenefitDocumentSubmission
+      | CashWagePlanSubmission
+      | SalaryBenefitTodoGenerationSubmission
+      | CashWageConfirmationSubmission
+      | BonusGrantSubmission
+      | BenefitPlanSubmission
+      | BenefitConfirmationSubmission
+      | SalaryBenefitReversalSubmission,
     path: string,
-    body: () => Record<string, unknown>
+    body: () => Record<string, unknown>,
   ): Promise<T> {
     const previous = this.submissionStatus(submission);
     if (previous === "SUBMITTING") throw new SubmissionInProgressError();
@@ -2438,11 +3415,14 @@ export class TeacherApiClient {
   /** This is an early UX guard; the server remains authoritative for active assignments. */
   private requireCompanyFundAdministrator(): void {
     const context = this.session?.currentRoleContext;
-    if ((context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
-      || context.scope !== "GLOBAL"
-      || context.regionId !== undefined
-      || context.campusId !== undefined
-      || context.venueId !== undefined) {
+    if (
+      (context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
@@ -2450,11 +3430,15 @@ export class TeacherApiClient {
   /** The API remains authoritative for the active HQ assignment; this only prevents impossible UI commands. */
   private requireSelfPurchaseReversalManager(): void {
     const context = this.session?.currentRoleContext;
-    if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
-      || context.scope !== "GLOBAL"
-      || context.regionId !== undefined
-      || context.campusId !== undefined
-      || context.venueId !== undefined) {
+    if (
+      (context?.subject !== "HEADQUARTERS_FINANCE" &&
+        context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
@@ -2462,11 +3446,15 @@ export class TeacherApiClient {
   /** Salary, bonus, and benefit writes require an explicit strict GLOBAL financial-management context. */
   private requireSalaryBenefitsManager(): void {
     const context = this.session?.currentRoleContext;
-    if ((context?.subject !== "HEADQUARTERS_FINANCE" && context?.subject !== "SYSTEM_ADMIN" && context?.subject !== "SYSTEM_OWNER")
-      || context.scope !== "GLOBAL"
-      || context.regionId !== undefined
-      || context.campusId !== undefined
-      || context.venueId !== undefined) {
+    if (
+      (context?.subject !== "HEADQUARTERS_FINANCE" &&
+        context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
@@ -2474,11 +3462,13 @@ export class TeacherApiClient {
   /** Review authority is intentionally narrower than read authority: administrators remain read-only. */
   private requireReimbursementReviewer(): void {
     const context = this.session?.currentRoleContext;
-    if (context?.subject !== "HEADQUARTERS_FINANCE"
-      || context.scope !== "GLOBAL"
-      || context.regionId !== undefined
-      || context.campusId !== undefined
-      || context.venueId !== undefined) {
+    if (
+      context?.subject !== "HEADQUARTERS_FINANCE" ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
   }
@@ -2508,7 +3498,7 @@ export class TeacherApiClient {
       roleRegionId: session.currentRoleContext?.regionId ?? null,
       roleCampusId: session.currentRoleContext?.campusId ?? null,
       roleVenueId: session.currentRoleContext?.venueId ?? null,
-      epoch: this.submissionScopeEpoch
+      epoch: this.submissionScopeEpoch,
     };
   }
 
@@ -2516,34 +3506,38 @@ export class TeacherApiClient {
     const scope = this.submissionScopes.get(submission);
     const session = this.session;
     if (
-      scope === undefined
-      || session === null
-      || scope.epoch !== this.submissionScopeEpoch
-      || scope.sessionId !== session.sessionId
-      || scope.accountId !== session.accountId
-      || scope.personId !== session.personId
-      || scope.roleSubject !== (session.currentRoleContext?.subject ?? null)
-      || scope.rolePersonId !== (session.currentRoleContext?.personId ?? null)
-      || scope.roleScope !== (session.currentRoleContext?.scope ?? null)
-      || scope.roleRegionId !== (session.currentRoleContext?.regionId ?? null)
-      || scope.roleCampusId !== (session.currentRoleContext?.campusId ?? null)
-      || scope.roleVenueId !== (session.currentRoleContext?.venueId ?? null)
+      scope === undefined ||
+      session === null ||
+      scope.epoch !== this.submissionScopeEpoch ||
+      scope.sessionId !== session.sessionId ||
+      scope.accountId !== session.accountId ||
+      scope.personId !== session.personId ||
+      scope.roleSubject !== (session.currentRoleContext?.subject ?? null) ||
+      scope.rolePersonId !== (session.currentRoleContext?.personId ?? null) ||
+      scope.roleScope !== (session.currentRoleContext?.scope ?? null) ||
+      scope.roleRegionId !== (session.currentRoleContext?.regionId ?? null) ||
+      scope.roleCampusId !== (session.currentRoleContext?.campusId ?? null) ||
+      scope.roleVenueId !== (session.currentRoleContext?.venueId ?? null)
     ) {
       this.submissionStatuses.set(submission, "FAILED");
       throw new StaleResponseError();
     }
   }
 
-  private async authenticatedRequest<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async authenticatedRequest<T>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     const authentication = this.requireAuthentication();
     const response = await this.options.transport<T>({
       method,
       path,
       headers: {
         authorization: `Bearer ${authentication.sessionId}`,
-        ...(body === undefined ? {} : { "content-type": "application/json" })
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
-      ...(body === undefined ? {} : { body })
+      ...(body === undefined ? {} : { body }),
     });
     if (!this.isCurrent(authentication)) throw new StaleResponseError();
     if (response.status === 401) {
@@ -2552,7 +3546,9 @@ export class TeacherApiClient {
     }
     if (response.status === 403) {
       this.clearRoleState();
-      throw new RoleSelectionRequiredError(response.body.error?.code ?? "FORBIDDEN_SCOPE");
+      throw new RoleSelectionRequiredError(
+        response.body.error?.code ?? "FORBIDDEN_SCOPE",
+      );
     }
     return this.readResponse(response);
   }
@@ -2564,15 +3560,23 @@ export class TeacherApiClient {
 
   private responseError(response: TransportResponse<unknown>): ApiClientError {
     const error = response.body.error;
-    return new ApiClientError(response.status, error?.code ?? "INTERNAL_ERROR", error?.message);
+    return new ApiClientError(
+      response.status,
+      error?.code ?? "INTERNAL_ERROR",
+      error?.message,
+    );
   }
 
   private isCurrent(authentication: Authentication): boolean {
-    return this.epoch === authentication.epoch && this.session?.sessionId === authentication.sessionId;
+    return (
+      this.epoch === authentication.epoch &&
+      this.session?.sessionId === authentication.sessionId
+    );
   }
 
   private installSession(session: SessionSnapshot): void {
-    if (!sameSubmissionScope(this.session, session)) this.submissionScopeEpoch += 1;
+    if (!sameSubmissionScope(this.session, session))
+      this.submissionScopeEpoch += 1;
     this.session = session;
     this.epoch += 1;
   }

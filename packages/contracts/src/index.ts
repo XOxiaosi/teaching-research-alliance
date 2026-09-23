@@ -1,7 +1,10 @@
 export const SYSTEM_AUTHORITIES = ["SYSTEM_OWNER", "SYSTEM_ADMIN"] as const;
 export type SystemAuthority = (typeof SYSTEM_AUTHORITIES)[number];
 
-export const BUSINESS_IDENTITIES = ["TEACHING_TEACHER", "ACADEMIC_PLANNER"] as const;
+export const BUSINESS_IDENTITIES = [
+  "TEACHING_TEACHER",
+  "ACADEMIC_PLANNER",
+] as const;
 export type BusinessIdentity = (typeof BUSINESS_IDENTITIES)[number];
 
 export const DUTIES = [
@@ -11,7 +14,7 @@ export const DUTIES = [
   "GROUP_LEADER",
   "TEACHING_MENTOR",
   "PLANNING_MENTOR",
-  "VENUE_OWNER"
+  "VENUE_OWNER",
 ] as const;
 export type Duty = (typeof DUTIES)[number];
 
@@ -38,6 +41,9 @@ export const ACTIONS = [
   "READ_MANAGED_WITHDRAWAL",
   "PROCESS_WITHDRAWAL",
   "MANAGE_CASH_WAGES",
+  "READ_MANAGED_CASH_WAGES",
+  "READ_BONUS_PROJECT_CATALOG",
+  "MANAGE_BONUS_PROJECT_CATALOG",
   "MANAGE_COMPANY_FUNDS",
   "SUBMIT_OWN_SELF_PURCHASE",
   "READ_OWN_SELF_PURCHASE",
@@ -51,6 +57,7 @@ export const ACTIONS = [
   "READ_OWN_REFUND",
   "READ_MANAGED_REFUND",
   "REVIEW_REFUND",
+  "VIEW_ORGANIZATION_REVENUE",
   "VIEW_REGION_PERSONAL_SUMMARY",
   "VIEW_CAMPUS_SCOPE_SETTLEMENT",
   "VIEW_GROUP_SCOPE_SETTLEMENT",
@@ -64,12 +71,19 @@ export const ACTIONS = [
   "CONFIGURE_RATES",
   "MANAGE_PERSON_RELATIONSHIPS",
   "VIEW_ALL_DATA",
-  "EXPORT_FULL_BACKUP"
+  "EXPORT_FULL_BACKUP",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export type PermissionSubject = SystemAuthority | Duty | BusinessIdentity;
-export type PermissionScope = "SELF" | "REGION" | "CAMPUS" | "ASSOCIATED_TEACHERS" | "MENTEES" | "VENUE" | "GLOBAL";
+export type PermissionScope =
+  | "SELF"
+  | "REGION"
+  | "CAMPUS"
+  | "ASSOCIATED_TEACHERS"
+  | "MENTEES"
+  | "VENUE"
+  | "GLOBAL";
 
 export type PermissionRule = Readonly<{
   subject: PermissionSubject;
@@ -77,10 +91,14 @@ export type PermissionRule = Readonly<{
   scope: PermissionScope;
 }>;
 
-const rule = (subject: PermissionSubject, action: Action, scope: PermissionScope): PermissionRule => ({
+const rule = (
+  subject: PermissionSubject,
+  action: Action,
+  scope: PermissionScope,
+): PermissionRule => ({
   subject,
   action,
-  scope
+  scope,
 });
 
 /**
@@ -183,27 +201,50 @@ export const PERMISSION_RULES: readonly PermissionRule[] = [
   rule("SYSTEM_ADMIN", "READ_MANAGED_WITHDRAWAL", "GLOBAL"),
   rule("SYSTEM_ADMIN", "MANAGE_COMPANY_FUNDS", "GLOBAL"),
   rule("SYSTEM_ADMIN", "MANAGE_CASH_WAGES", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "READ_MANAGED_CASH_WAGES", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "READ_BONUS_PROJECT_CATALOG", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "MANAGE_BONUS_PROJECT_CATALOG", "GLOBAL"),
   rule("SYSTEM_OWNER", "READ_MANAGED_FINANCE_ATTACHMENT", "GLOBAL"),
   rule("SYSTEM_OWNER", "READ_MANAGED_WITHDRAWAL", "GLOBAL"),
   rule("SYSTEM_OWNER", "MANAGE_COMPANY_FUNDS", "GLOBAL"),
   rule("SYSTEM_OWNER", "MANAGE_CASH_WAGES", "GLOBAL"),
+  rule("SYSTEM_OWNER", "READ_MANAGED_CASH_WAGES", "GLOBAL"),
+  rule("SYSTEM_OWNER", "READ_BONUS_PROJECT_CATALOG", "GLOBAL"),
+  rule("SYSTEM_OWNER", "MANAGE_BONUS_PROJECT_CATALOG", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "UPLOAD_FINANCE_RECEIPT", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "PROCESS_WITHDRAWAL", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "MANAGE_CASH_WAGES", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "READ_MANAGED_CASH_WAGES", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "READ_BONUS_PROJECT_CATALOG", "GLOBAL"),
   rule("HEADQUARTERS_FINANCE", "VIEW_ALL_DATA", "GLOBAL"),
+  rule("SYSTEM_OWNER", "VIEW_ORGANIZATION_REVENUE", "GLOBAL"),
+  rule("SYSTEM_ADMIN", "VIEW_ORGANIZATION_REVENUE", "GLOBAL"),
+  rule("HEADQUARTERS_FINANCE", "VIEW_ORGANIZATION_REVENUE", "GLOBAL"),
+  rule("REGION_FINANCE", "VIEW_ORGANIZATION_REVENUE", "REGION"),
+  rule("CAMPUS_PRINCIPAL", "VIEW_ORGANIZATION_REVENUE", "CAMPUS"),
   rule("REGION_FINANCE", "VIEW_REGION_PERSONAL_SUMMARY", "REGION"),
   rule("CAMPUS_PRINCIPAL", "VIEW_CAMPUS_SCOPE_SETTLEMENT", "CAMPUS"),
   rule("GROUP_LEADER", "VIEW_GROUP_SCOPE_SETTLEMENT", "ASSOCIATED_TEACHERS"),
   rule("TEACHING_MENTOR", "VIEW_MENTEE_SCOPE_SETTLEMENT", "MENTEES"),
   rule("VENUE_OWNER", "VIEW_SHARED_VENUE_BOARD", "VENUE"),
-  rule("VENUE_OWNER", "WITHDRAW_FROM_SHARED_VENUE", "VENUE")
+  rule("VENUE_OWNER", "WITHDRAW_FROM_SHARED_VENUE", "VENUE"),
 ];
 
-export const hasPermission = (subject: PermissionSubject, action: Action): boolean =>
-  PERMISSION_RULES.some((item) => item.subject === subject && item.action === action);
+export const hasPermission = (
+  subject: PermissionSubject,
+  action: Action,
+): boolean =>
+  PERMISSION_RULES.some(
+    (item) => item.subject === subject && item.action === action,
+  );
 
-export const permissionScope = (subject: PermissionSubject, action: Action): PermissionScope | undefined =>
-  PERMISSION_RULES.find((item) => item.subject === subject && item.action === action)?.scope;
+export const permissionScope = (
+  subject: PermissionSubject,
+  action: Action,
+): PermissionScope | undefined =>
+  PERMISSION_RULES.find(
+    (item) => item.subject === subject && item.action === action,
+  )?.scope;
 
 export type RoleContext = Readonly<{
   subject: PermissionSubject;
@@ -223,10 +264,17 @@ export const assertKnownAction = (value: string): Action => {
 export const API_CONTRACT_VERSION = "2026-09-20.dev-001" as const;
 
 /** Finance-only F09/F10 evidence documents. They are intentionally distinct from member-submitted finance drafts. */
-export const SALARY_BENEFIT_DOCUMENT_KINDS = ["CASH_WAGE", "PROJECT_BONUS", "FINANCE_BENEFIT"] as const;
-export type SalaryBenefitDocumentKind = (typeof SALARY_BENEFIT_DOCUMENT_KINDS)[number];
+export const SALARY_BENEFIT_DOCUMENT_KINDS = [
+  "CASH_WAGE",
+  "PROJECT_BONUS",
+  "FINANCE_BENEFIT",
+] as const;
+export type SalaryBenefitDocumentKind =
+  (typeof SALARY_BENEFIT_DOCUMENT_KINDS)[number];
 
 export const API_ERROR_CODES = [
+  "ORGANIZATION_REVENUE_DATA_UNAVAILABLE",
+  "ORGANIZATION_REVENUE_SERVICE_UNAVAILABLE",
   "UNAUTHENTICATED",
   "PERSON_NOT_FOUND",
   "REFERRAL_NOT_FOUND",
@@ -275,6 +323,9 @@ export const API_ERROR_CODES = [
   "CASH_WAGE_PLAN_INACTIVE",
   "CASH_WAGE_CORRECTION_REQUIRED",
   "CASH_WAGE_CORRECTION_INVALID",
+  "BONUS_PROJECT_CATALOG_DATA_UNAVAILABLE",
+  "BONUS_PROJECT_VERSION_REQUIRED",
+  "BONUS_PROJECT_VERSION_CONFLICT",
   "FINANCE_BENEFIT_TODO_NOT_FOUND",
   "FINANCE_BENEFIT_PLAN_NOT_FOUND",
   "FINANCE_BENEFIT_ALREADY_EXECUTED",
@@ -306,7 +357,7 @@ export const API_ERROR_CODES = [
   "INVALID_RELATIONSHIP_SCOPE",
   "INVALID_ALLOCATION_CONFIG",
   "INSUFFICIENT_BALANCE",
-  "IDEMPOTENCY_REPLAY"
+  "IDEMPOTENCY_REPLAY",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -322,85 +373,611 @@ export type EndpointContract = Readonly<{
 }>;
 
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
-  { method: "POST", path: "/v1/finance/salary-benefits/documents", action: "MANAGE_CASH_WAGES", responseVersion: "salary-benefit-document.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/cash-wage-plans", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-plan.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/cash-wage-todos/generate", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-todos.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/cash-wages/confirm", action: "MANAGE_CASH_WAGES", responseVersion: "cash-wage-confirmation.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/project-bonuses/grant", action: "MANAGE_CASH_WAGES", responseVersion: "project-bonus.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/benefit-plans", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-plan.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/benefit-todos/generate", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-todos.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/benefits/confirm", action: "MANAGE_CASH_WAGES", responseVersion: "benefit-confirmation.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/salary-benefits/reverse", action: "MANAGE_CASH_WAGES", responseVersion: "salary-benefit-reversal.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/reimbursement-submit", action: "SUBMIT_OWN_REIMBURSEMENT", responseVersion: "reimbursement.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/refund-submit", action: "SUBMIT_OWN_REFUND", responseVersion: "refund.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/reimbursements/:documentId/approve", action: "REVIEW_REIMBURSEMENT", responseVersion: "reimbursement.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/refunds/:documentId/approve", action: "REVIEW_REFUND", responseVersion: "refund.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/reimbursements/:documentId/reject", action: "REVIEW_REIMBURSEMENT", responseVersion: "reimbursement.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/refunds/:documentId/reject", action: "REVIEW_REFUND", responseVersion: "refund.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/reimbursements/mine", action: "READ_OWN_REIMBURSEMENT", responseVersion: "reimbursements.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/refunds/mine", action: "READ_OWN_REFUND", responseVersion: "refunds.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/reimbursements/managed", action: "READ_MANAGED_REIMBURSEMENT", responseVersion: "reimbursements.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/refunds/managed", action: "READ_MANAGED_REFUND", responseVersion: "refunds.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/reimbursements/:documentId", action: "READ_OWN_REIMBURSEMENT", alternativeActions: ["READ_MANAGED_REIMBURSEMENT"], responseVersion: "reimbursement-detail.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/refunds/:documentId", action: "READ_OWN_REFUND", alternativeActions: ["READ_MANAGED_REFUND"], responseVersion: "refund-detail.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/self-purchase-submit", action: "SUBMIT_OWN_SELF_PURCHASE", responseVersion: "self-purchase.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/self-purchases/:documentId/reverse", action: "REVERSE_MANAGED_SELF_PURCHASE", responseVersion: "self-purchase.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/self-purchases/mine", action: "READ_OWN_SELF_PURCHASE", responseVersion: "self-purchases.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/self-purchases/managed", action: "READ_MANAGED_SELF_PURCHASE", responseVersion: "self-purchases.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/self-purchases/:documentId", action: "READ_OWN_SELF_PURCHASE", alternativeActions: ["READ_MANAGED_SELF_PURCHASE"], responseVersion: "self-purchase-detail.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/company-funds", action: "MANAGE_COMPANY_FUNDS", responseVersion: "company-fund.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/admin/company-funds", action: "MANAGE_COMPANY_FUNDS", responseVersion: "company-funds.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/company-funds/:fundId/assignment", action: "MANAGE_COMPANY_FUNDS", responseVersion: "company-fund-assignment.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/company-funds/:fundId/status", action: "MANAGE_COMPANY_FUNDS", responseVersion: "company-fund.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/referrals/receiving-teachers", action: "CREATE_REFERRAL", responseVersion: "receiving-teachers.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/referrals/sent", action: "READ_SENT_REFERRALS", responseVersion: "sent-referrals.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/session/logout", action: "VIEW_OWN_PROFILE", responseVersion: "session-logout.v1", requiresRoleContext: false },
-  { method: "GET", path: "/v1/session", action: "VIEW_OWN_PROFILE", responseVersion: "session.v1", requiresRoleContext: false },
-  { method: "GET", path: "/v1/teaching/referrals", action: "READ_RECEIVED_REFERRALS", responseVersion: "received-referrals.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/teaching/weeks", action: "LIST_OPEN_TEACHING_WEEKS", responseVersion: "teaching-weeks.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/session", action: "VIEW_OWN_PROFILE", responseVersion: "session.v1", requiresRoleContext: false },
-  { method: "GET", path: "/v1/me", action: "VIEW_OWN_PROFILE", responseVersion: "me.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/role-contexts/switch", action: "VIEW_OWN_PROFILE", responseVersion: "role-context.v1", requiresRoleContext: false },
-  { method: "POST", path: "/v1/referrals", action: "CREATE_REFERRAL", responseVersion: "referral.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/referrals/:referralId/copy", action: "CREATE_REFERRAL", responseVersion: "referral-copy.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts", action: "CREATE_FINANCE_DOCUMENT", responseVersion: "finance-draft.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/drafts/mine", action: "READ_OWN_FINANCE_DRAFT", responseVersion: "finance-drafts.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/drafts/:documentId", action: "READ_OWN_FINANCE_DRAFT", responseVersion: "finance-draft.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/attachment-uploads", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", alternativeActions: ["UPLOAD_FINANCE_RECEIPT"], responseVersion: "attachment-reservation.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/attachment-uploads/:versionId", action: "READ_OWN_FINANCE_ATTACHMENT", alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"], responseVersion: "attachment-metadata.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/attachments/:attachmentId/versions", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", alternativeActions: ["UPLOAD_FINANCE_RECEIPT"], responseVersion: "attachment-reservation.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/documents/:documentId/attachments", action: "READ_OWN_FINANCE_ATTACHMENT", alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"], responseVersion: "document-attachments.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/attachment-uploads/:versionId/content", action: "UPLOAD_OWN_FINANCE_ATTACHMENT", alternativeActions: ["UPLOAD_FINANCE_RECEIPT"], responseVersion: "attachment-upload.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/attachments/:versionId/content", action: "READ_OWN_FINANCE_ATTACHMENT", alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"], responseVersion: "attachment-binary.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/referrals/:referralId/archive", action: "MANAGE_OWN_REFERRALS", responseVersion: "referral-lifecycle.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/referrals/:referralId/reactivate", action: "MANAGE_OWN_REFERRALS", responseVersion: "referral-lifecycle.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/referrals/:referralId/accept", action: "ACCEPT_REFERRAL", responseVersion: "referral.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/referrals/:referralId/weekly-fees", action: "CREATE_WEEKLY_FEE", responseVersion: "weekly-fee.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/drafts/:documentId/withdrawal-submit", action: "CREATE_PERSONAL_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/withdrawals/:documentId/finance-revoke", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/withdrawals/:documentId/mark-transferred", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawal-command.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/withdrawals/sources", action: "READ_OWN_WITHDRAWAL", responseVersion: "withdrawal-sources.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/withdrawals/mine", action: "READ_OWN_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/withdrawals/pending-transfer", action: "PROCESS_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/withdrawals/managed", action: "READ_MANAGED_WITHDRAWAL", responseVersion: "withdrawals.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/finance/withdrawals/:documentId", action: "READ_OWN_WITHDRAWAL", alternativeActions: ["READ_MANAGED_WITHDRAWAL"], responseVersion: "withdrawal-detail.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/finance/documents", action: "CREATE_FINANCE_DOCUMENT", responseVersion: "finance-document.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/regions/:regionId/person-summaries", action: "VIEW_REGION_PERSONAL_SUMMARY", responseVersion: "region-person-summary.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/rates/preview", action: "CONFIGURE_RATES", responseVersion: "rate-policy-preview.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/rates/publish", action: "CONFIGURE_RATES", responseVersion: "rate-policy.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/person-relationships/preview", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-preview.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/admin/person-relationships", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "relationship-change.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/venues", action: "CREATE_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/mine", action: "READ_OWN_VENUES", responseVersion: "venues.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/visible", action: "READ_OWN_VENUES", responseVersion: "venues.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/:venueId/board", action: "VIEW_SHARED_VENUE_BOARD", responseVersion: "venue-board.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/:venueId", action: "READ_OWN_VENUES", responseVersion: "venue-detail.v1", requiresRoleContext: true },
-  { method: "PATCH", path: "/v1/venues/:venueId", action: "MANAGE_OWN_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/venues/:venueId/default", action: "MANAGE_OWN_VENUE", responseVersion: "venue.v1", requiresRoleContext: true },
-  { method: "POST", path: "/v1/venues/:venueId/permissions", action: "MANAGE_OWN_VENUE", responseVersion: "venue-permission.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/venues/available", action: "LIST_AVAILABLE_VENUES", responseVersion: "venue-directory.v1", requiresRoleContext: true },
-  { method: "GET", path: "/v1/exports/full-backup", action: "EXPORT_FULL_BACKUP", responseVersion: "export-job.v1", requiresRoleContext: true }
+  { method: "GET", path: "/v1/organizations/revenue", action: "VIEW_ORGANIZATION_REVENUE", responseVersion: "organization-revenue.v1", requiresRoleContext: true },
+  {
+    method: "POST",
+    path: "/v1/finance/salary-benefits/documents",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "salary-benefit-document.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/cash-wage-plans",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "cash-wage-plan.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/cash-wage-todos/generate",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "cash-wage-todos.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/cash-wages/confirm",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "cash-wage-confirmation.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/cash-wage-teachers",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "cash-wage-teachers.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/cash-wage-roster",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "cash-wage-roster.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/cash-wage-confirmations",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "cash-wage-confirmations.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/cash-wages/:documentId",
+    action: "READ_MANAGED_CASH_WAGES",
+    responseVersion: "cash-wage-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/project-bonuses/grant",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "project-bonus.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/bonus-projects",
+    action: "READ_BONUS_PROJECT_CATALOG",
+    responseVersion: "bonus-projects.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/bonus-projects/:projectNo/name",
+    action: "MANAGE_BONUS_PROJECT_CATALOG",
+    responseVersion: "bonus-project.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/benefit-plans",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "benefit-plan.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/benefit-todos/generate",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "benefit-todos.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/benefits/confirm",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "benefit-confirmation.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/salary-benefits/reverse",
+    action: "MANAGE_CASH_WAGES",
+    responseVersion: "salary-benefit-reversal.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts/:documentId/reimbursement-submit",
+    action: "SUBMIT_OWN_REIMBURSEMENT",
+    responseVersion: "reimbursement.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts/:documentId/refund-submit",
+    action: "SUBMIT_OWN_REFUND",
+    responseVersion: "refund.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/reimbursements/:documentId/approve",
+    action: "REVIEW_REIMBURSEMENT",
+    responseVersion: "reimbursement.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/refunds/:documentId/approve",
+    action: "REVIEW_REFUND",
+    responseVersion: "refund.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/reimbursements/:documentId/reject",
+    action: "REVIEW_REIMBURSEMENT",
+    responseVersion: "reimbursement.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/refunds/:documentId/reject",
+    action: "REVIEW_REFUND",
+    responseVersion: "refund.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/reimbursements/mine",
+    action: "READ_OWN_REIMBURSEMENT",
+    responseVersion: "reimbursements.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/refunds/mine",
+    action: "READ_OWN_REFUND",
+    responseVersion: "refunds.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/reimbursements/managed",
+    action: "READ_MANAGED_REIMBURSEMENT",
+    responseVersion: "reimbursements.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/refunds/managed",
+    action: "READ_MANAGED_REFUND",
+    responseVersion: "refunds.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/reimbursements/:documentId",
+    action: "READ_OWN_REIMBURSEMENT",
+    alternativeActions: ["READ_MANAGED_REIMBURSEMENT"],
+    responseVersion: "reimbursement-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/refunds/:documentId",
+    action: "READ_OWN_REFUND",
+    alternativeActions: ["READ_MANAGED_REFUND"],
+    responseVersion: "refund-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts/:documentId/self-purchase-submit",
+    action: "SUBMIT_OWN_SELF_PURCHASE",
+    responseVersion: "self-purchase.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/self-purchases/:documentId/reverse",
+    action: "REVERSE_MANAGED_SELF_PURCHASE",
+    responseVersion: "self-purchase.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/self-purchases/mine",
+    action: "READ_OWN_SELF_PURCHASE",
+    responseVersion: "self-purchases.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/self-purchases/managed",
+    action: "READ_MANAGED_SELF_PURCHASE",
+    responseVersion: "self-purchases.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/self-purchases/:documentId",
+    action: "READ_OWN_SELF_PURCHASE",
+    alternativeActions: ["READ_MANAGED_SELF_PURCHASE"],
+    responseVersion: "self-purchase-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/company-funds",
+    action: "MANAGE_COMPANY_FUNDS",
+    responseVersion: "company-fund.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/company-funds",
+    action: "MANAGE_COMPANY_FUNDS",
+    responseVersion: "company-funds.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/company-funds/:fundId/assignment",
+    action: "MANAGE_COMPANY_FUNDS",
+    responseVersion: "company-fund-assignment.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/company-funds/:fundId/status",
+    action: "MANAGE_COMPANY_FUNDS",
+    responseVersion: "company-fund.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/referrals/receiving-teachers",
+    action: "CREATE_REFERRAL",
+    responseVersion: "receiving-teachers.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/referrals/sent",
+    action: "READ_SENT_REFERRALS",
+    responseVersion: "sent-referrals.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/session/logout",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "session-logout.v1",
+    requiresRoleContext: false,
+  },
+  {
+    method: "GET",
+    path: "/v1/session",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "session.v1",
+    requiresRoleContext: false,
+  },
+  {
+    method: "GET",
+    path: "/v1/teaching/referrals",
+    action: "READ_RECEIVED_REFERRALS",
+    responseVersion: "received-referrals.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/teaching/weeks",
+    action: "LIST_OPEN_TEACHING_WEEKS",
+    responseVersion: "teaching-weeks.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/session",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "session.v1",
+    requiresRoleContext: false,
+  },
+  {
+    method: "GET",
+    path: "/v1/me",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "me.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/role-contexts/switch",
+    action: "VIEW_OWN_PROFILE",
+    responseVersion: "role-context.v1",
+    requiresRoleContext: false,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals",
+    action: "CREATE_REFERRAL",
+    responseVersion: "referral.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals/:referralId/copy",
+    action: "CREATE_REFERRAL",
+    responseVersion: "referral-copy.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts",
+    action: "CREATE_FINANCE_DOCUMENT",
+    responseVersion: "finance-draft.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/drafts/mine",
+    action: "READ_OWN_FINANCE_DRAFT",
+    responseVersion: "finance-drafts.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/drafts/:documentId",
+    action: "READ_OWN_FINANCE_DRAFT",
+    responseVersion: "finance-draft.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts/:documentId/attachment-uploads",
+    action: "UPLOAD_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["UPLOAD_FINANCE_RECEIPT"],
+    responseVersion: "attachment-reservation.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/attachment-uploads/:versionId",
+    action: "READ_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"],
+    responseVersion: "attachment-metadata.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/attachments/:attachmentId/versions",
+    action: "UPLOAD_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["UPLOAD_FINANCE_RECEIPT"],
+    responseVersion: "attachment-reservation.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/documents/:documentId/attachments",
+    action: "READ_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"],
+    responseVersion: "document-attachments.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/attachment-uploads/:versionId/content",
+    action: "UPLOAD_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["UPLOAD_FINANCE_RECEIPT"],
+    responseVersion: "attachment-upload.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/attachments/:versionId/content",
+    action: "READ_OWN_FINANCE_ATTACHMENT",
+    alternativeActions: ["READ_MANAGED_FINANCE_ATTACHMENT"],
+    responseVersion: "attachment-binary.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals/:referralId/archive",
+    action: "MANAGE_OWN_REFERRALS",
+    responseVersion: "referral-lifecycle.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals/:referralId/reactivate",
+    action: "MANAGE_OWN_REFERRALS",
+    responseVersion: "referral-lifecycle.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals/:referralId/accept",
+    action: "ACCEPT_REFERRAL",
+    responseVersion: "referral.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/referrals/:referralId/weekly-fees",
+    action: "CREATE_WEEKLY_FEE",
+    responseVersion: "weekly-fee.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/drafts/:documentId/withdrawal-submit",
+    action: "CREATE_PERSONAL_WITHDRAWAL",
+    responseVersion: "withdrawal-command.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/withdrawals/:documentId/finance-revoke",
+    action: "PROCESS_WITHDRAWAL",
+    responseVersion: "withdrawal-command.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/withdrawals/:documentId/mark-transferred",
+    action: "PROCESS_WITHDRAWAL",
+    responseVersion: "withdrawal-command.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/withdrawals/sources",
+    action: "READ_OWN_WITHDRAWAL",
+    responseVersion: "withdrawal-sources.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/withdrawals/mine",
+    action: "READ_OWN_WITHDRAWAL",
+    responseVersion: "withdrawals.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/withdrawals/pending-transfer",
+    action: "PROCESS_WITHDRAWAL",
+    responseVersion: "withdrawals.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/withdrawals/managed",
+    action: "READ_MANAGED_WITHDRAWAL",
+    responseVersion: "withdrawals.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/finance/withdrawals/:documentId",
+    action: "READ_OWN_WITHDRAWAL",
+    alternativeActions: ["READ_MANAGED_WITHDRAWAL"],
+    responseVersion: "withdrawal-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/finance/documents",
+    action: "CREATE_FINANCE_DOCUMENT",
+    responseVersion: "finance-document.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/regions/:regionId/person-summaries",
+    action: "VIEW_REGION_PERSONAL_SUMMARY",
+    responseVersion: "region-person-summary.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/rates/preview",
+    action: "CONFIGURE_RATES",
+    responseVersion: "rate-policy-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/rates/publish",
+    action: "CONFIGURE_RATES",
+    responseVersion: "rate-policy.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/person-relationships/preview",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "relationship-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/person-relationships",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "relationship-change.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/venues",
+    action: "CREATE_VENUE",
+    responseVersion: "venue.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/venues/mine",
+    action: "READ_OWN_VENUES",
+    responseVersion: "venues.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/venues/visible",
+    action: "READ_OWN_VENUES",
+    responseVersion: "venues.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/venues/:venueId/board",
+    action: "VIEW_SHARED_VENUE_BOARD",
+    responseVersion: "venue-board.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/venues/:venueId",
+    action: "READ_OWN_VENUES",
+    responseVersion: "venue-detail.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "PATCH",
+    path: "/v1/venues/:venueId",
+    action: "MANAGE_OWN_VENUE",
+    responseVersion: "venue.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/venues/:venueId/default",
+    action: "MANAGE_OWN_VENUE",
+    responseVersion: "venue.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/venues/:venueId/permissions",
+    action: "MANAGE_OWN_VENUE",
+    responseVersion: "venue-permission.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/venues/available",
+    action: "LIST_AVAILABLE_VENUES",
+    responseVersion: "venue-directory.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/exports/full-backup",
+    action: "EXPORT_FULL_BACKUP",
+    responseVersion: "export-job.v1",
+    requiresRoleContext: true,
+  },
 ];
 
-export const findEndpoint = (method: HttpMethod, path: string): EndpointContract | undefined =>
-  ENDPOINT_CONTRACTS.find((endpoint) => endpoint.method === method && endpoint.path === path);
+export const findEndpoint = (
+  method: HttpMethod,
+  path: string,
+): EndpointContract | undefined =>
+  ENDPOINT_CONTRACTS.find(
+    (endpoint) => endpoint.method === method && endpoint.path === path,
+  );
