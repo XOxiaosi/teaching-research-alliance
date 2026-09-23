@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiClientError, StaleResponseError, type TeacherApiClient, type FinanceAttachmentPurpose, type FinanceAttachmentReservationSubmission, type FinanceAttachmentReservation, type FinanceAttachmentMediaType } from "@teaching-research-alliance/client";
 import { Button } from "./components/ui/button.js";
 
@@ -92,17 +92,21 @@ export function AttachmentPicker({ client, documentId, purpose, label, disabled,
 
 export function AttachmentDownload({ client, versionId, filename, disabled, run }: { client: TeacherApiClient; versionId: string; filename: string; disabled: boolean; run: FinancePanelProps["run"] }): ReactNode {
   const [message, setMessage] = useState("");
+  const generation = useRef(0);
+  useEffect(() => { generation.current += 1; setMessage(""); return () => { generation.current += 1; }; }, [client, versionId, filename]);
   const download = async (): Promise<void> => {
     setMessage("");
+    const current = generation.current;
     try {
       const session = client.currentSession;
       const response = await attachmentFetch(client, `/v1/finance/attachments/${encodeURIComponent(versionId)}/content`);
       const blob = await response.blob();
+      if (generation.current !== current) return;
       if (client.currentSession !== session) throw new StaleResponseError();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) { setMessage(`下载失败。${financeError(error)}`); if (isFinanceAuthError(error)) throw error; }
+    } catch (error) { if (generation.current !== current) return; setMessage(`下载失败。${financeError(error)}`); if (isFinanceAuthError(error)) throw error; }
   };
   return <span className="finance-download"><Button type="button" variant="ghost" disabled={disabled} onClick={() => void run(download)}>下载原件</Button>{message && <span role="alert">{message}</span>}</span>;
 }

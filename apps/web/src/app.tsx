@@ -22,6 +22,7 @@ import { RefundPanel, type RefundFeeCandidate } from "./refund-panel.js";
 import { OrganizationRevenuePanel, canReadOrganizationRevenue } from "./organization-revenue-panel.js";
 import { CashWagePanel } from "./cash-wage-panel.js";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel.js";
+import { BenefitPanel } from "./benefit-panel.js";
 import { Button } from "./components/ui/button.js";
 import "./style.css";
 
@@ -152,7 +153,7 @@ function App(): ReactNode {
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "salary" | "organization-revenue">("fees");
+  const [activePage, setActivePage] = useState<"fees" | "overview" | "referrals" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "salary" | "benefits" | "organization-revenue">("fees");
   const [withdrawalUnconfirmed, setWithdrawalUnconfirmed] = useState(false);
   const [purchaseUnconfirmed, setPurchaseUnconfirmed] = useState(false);
   const [fundUnconfirmed, setFundUnconfirmed] = useState(false);
@@ -318,11 +319,12 @@ function App(): ReactNode {
     : activePage === "reimbursement-history" && canReadReimbursements ? "reimbursement-history"
     : currentRole === "TEACHING_TEACHER" ? (["fees", "overview", "referrals", "withdrawals", "venue-board"].includes(activePage) ? activePage : "fees")
     : activePage === "venue-board" && canReadVenueBoard ? "venue-board"
+    : activePage === "benefits" && canReadSalary ? "benefits"
     : activePage === "salary" && canReadSalary ? "salary"
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals")
     : canReadVenueBoard ? "venue-board"
     : canReadOrg ? "organization-revenue" : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance" : "overview";
-  const pageTitle = { fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
+  const pageTitle = { benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -337,6 +339,7 @@ function App(): ReactNode {
     {canReadVenueBoard && <button disabled={busy} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><span aria-hidden="true" className="nav-icon">▥</span>场地看板</button>}
     {canReadOrg && <button disabled={busy} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><span aria-hidden="true" className="nav-icon">▦</span>组织营收</button>}
     {canReadSalary && <button disabled={busy} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><span aria-hidden="true" className="nav-icon">▣</span>工资管理</button>}
+    {canReadSalary && <button disabled={busy} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><span aria-hidden="true" className="nav-icon">▣</span>医社保与公积金</button>}
     {canProcessWithdrawal && <button disabled={busy} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
     {canSelfPurchase && <button disabled={busy} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
     {canConfigureFunds && <button disabled={busy} aria-current={page === "funds" ? "page" : undefined} onClick={() => goPage("funds")}><span aria-hidden="true" className="nav-icon">▦</span>业务账户配置</button>}
@@ -357,7 +360,7 @@ function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "benefits" ? "查看财务职务账户的计划、待办和实际扣费。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
           {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
@@ -406,6 +409,7 @@ function App(): ReactNode {
             </div>}
             {canReadOrg && <div hidden={page !== "organization-revenue"}><OrganizationRevenuePanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canReadSalary && <div hidden={page !== "benefits"}><BenefitPanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             <div hidden={currentRole === "TEACHING_TEACHER" && page !== "overview" || currentRole !== "TEACHING_TEACHER" && page !== "referrals"}>
             {overview !== null && !overviewFresh && <section className="panel" role="status"><h2>个人余额与收入正在等待更新</h2><p>账户可能已有新收支，最新余额尚未确认。请先确认操作结果，再刷新数据。</p></section>}

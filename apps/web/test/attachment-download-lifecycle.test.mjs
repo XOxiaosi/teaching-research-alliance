@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {build} from 'esbuild';
+import {JSDOM} from 'jsdom';
+import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+let dir,AttachmentDownload;
+test.before(async()=>{dir=await mkdtemp(resolve(import.meta.dirname,'.attachment-lifecycle-'));const out=resolve(dir,'component.mjs');await build({entryPoints:[resolve(import.meta.dirname,'../src/finance-shared.tsx')],bundle:true,platform:'node',format:'esm',outfile:out,external:['react','react-dom','@teaching-research-alliance/client']});AttachmentDownload=(await import(out)).AttachmentDownload;});
+test.after(async()=>{if(dir)await rm(dir,{recursive:true,force:true});});
+for(const mode of ['replace','unmount','current'])test(`原件响应完成时只打开当前挂载版本: ${mode}`,async()=>{const dom=new JSDOM('<div id="host"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});const oldFetch=globalThis.fetch,oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL;const pending=deferred();const downloaded=[],errors=[];globalThis.fetch=()=>pending.promise;URL.createObjectURL=()=> 'blob:test';URL.revokeObjectURL=()=>{};dom.window.HTMLAnchorElement.prototype.click=function(){downloaded.push(this.download);};const root=createRoot(document.querySelector('#host'));let closed=false;const client={currentSession:{sessionId:'s',currentRoleContext:{subject:'HEADQUARTERS_FINANCE'}}};const render=async version=>act(async()=>root.render(React.createElement(AttachmentDownload,{client,versionId:version,filename:`${version}.pdf`,disabled:false,run:async action=>{try{await action();}catch(error){errors.push(error);}}})));try{await render('A');await act(async()=>document.querySelector('button').click());if(mode==='replace')await render('B');if(mode==='unmount'){await act(async()=>root.unmount());closed=true;}await act(async()=>pending.resolve(new Response(new Uint8Array([1,2]),{status:200})));await act(async()=>{await new Promise(r=>setTimeout(r,0));});assert.deepEqual(downloaded,mode==='current'?['A.pdf']:[]);assert.equal(errors.length,0);}finally{if(!closed)await act(async()=>root.unmount());globalThis.fetch=oldFetch;URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;dom.window.close();}});
