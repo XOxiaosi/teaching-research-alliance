@@ -224,6 +224,21 @@ page {
   border-top: 1rpx solid #eef2ed;
 }
 
+.project-bonus-grant-panel text:not(.panel-title) {
+  display: block;
+  margin-top: 16rpx;
+}
+
+.project-bonus-grant-panel input,
+.project-bonus-grant-panel textarea {
+  width: 100%;
+  margin: 10rpx 0 16rpx;
+  padding: 18rpx 22rpx;
+  border: 1rpx solid #cfdad3;
+  border-radius: 12rpx;
+  box-sizing: border-box;
+}
+
 .upload-ready {
   display: block;
   margin-top: 18rpx;

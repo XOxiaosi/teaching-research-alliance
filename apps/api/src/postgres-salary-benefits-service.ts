@@ -788,10 +788,10 @@ export class PostgresSalaryBenefitsService {
         (
           await client.query<BonusProjectRow>(
             `
-        SELECT id::text AS id,version_no::text AS version_no,display_name
-          FROM bonus_project_name_version
-         WHERE project_no=$1
-         ORDER BY version_no DESC
+        SELECT project.id::text AS id,project.version_no::text AS version_no,project.display_name
+          FROM bonus_project_name_version project
+         WHERE project.project_no=$1
+         ORDER BY project.version_no DESC
          LIMIT 1
          FOR SHARE
       `,
@@ -813,6 +813,7 @@ export class PostgresSalaryBenefitsService {
         "PROJECT_BONUS",
         expected,
       );
+      await this.requireActivePerson(client, recipient);
       const source = await this.fundAccount(client, fund, at);
       const destination = await this.account(client, "PERSON", recipient);
       const attachments = await this.readyAttachments(client, doc, files);

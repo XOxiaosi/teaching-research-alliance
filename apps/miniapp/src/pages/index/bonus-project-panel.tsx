@@ -13,6 +13,8 @@ type Props = Readonly<{
   client: TeacherApiClient;
   session: SessionSnapshot;
   sessionKey: string;
+  /** Another bonus command may be awaiting a durable result. This never reflects this panel's own submission. */
+  busy?: boolean;
   onInvalidated?: () => void;
   onSaved?: () => void;
   onUnconfirmedChange?: (pending: boolean) => void;
@@ -33,7 +35,7 @@ const key = (projectNo: number): string => String(projectNo);
 const formatBjt = (value: string): string => new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 const roleSignature = (session: SessionSnapshot): string => { const context = session.currentRoleContext; return context === null ? "none" : [context.personId, context.subject, context.scope, context.regionId ?? "", context.campusId ?? "", context.venueId ?? ""].join("|"); };
 
-export function BonusProjectPanel({ client, session, sessionKey, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
+export function BonusProjectPanel({ client, session, sessionKey, busy = false, onInvalidated, onSaved, onUnconfirmedChange }: Props): ReactNode {
   const [projects, setProjects] = useState<readonly BonusProjectSummary[] | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [submissions, setSubmissions] = useState<Submissions>({});
@@ -87,9 +89,9 @@ export function BonusProjectPanel({ client, session, sessionKey, onInvalidated, 
     setDrafts((current) => ({ ...current, [id]: { displayName: current[id]?.displayName ?? projects?.find((item) => item.projectNo === projectNo)?.displayName ?? "", reason: current[id]?.reason ?? "", ...patch } }));
   };
   const save = async (project: BonusProjectSummary): Promise<void> => {
-    if (!writable) return;
+    if (!writable || busy) return;
     const id = key(project.projectNo);
-    if (activeAttempt.current) return;
+    if (activeAttempt.current || busy) return;
     if (commandLock.current !== null && commandLock.current.draft.projectNo !== project.projectNo) return;
     if (unknown.has(id)) { await retry(project); return; }
     const draft = drafts[id] ?? { displayName: project.displayName, reason: "" };
@@ -150,11 +152,11 @@ export function BonusProjectPanel({ client, session, sessionKey, onInvalidated, 
   return <View className="panel" data-bonus-project-panel="true">
     <Text className="panel-title">奖金项目名称目录</Text>
     {projects.map((project) => {
-      const id = key(project.projectNo); const draft = drafts[id] ?? { displayName: project.displayName, reason: "" }; const pending = submissions[id] !== undefined; const waitingLatest = refreshing.has(id); const locked = Object.keys(submissions).length > 0 || unknown.size > 0 || refreshing.size > 0;
+      const id = key(project.projectNo); const draft = drafts[id] ?? { displayName: project.displayName, reason: "" }; const pending = submissions[id] !== undefined; const waitingLatest = refreshing.has(id); const locked = busy || Object.keys(submissions).length > 0 || unknown.size > 0 || refreshing.size > 0;
       return <View key={id} className="bonus-project-row" data-project-no={id}>
         <Text>项目{project.projectNo}：{project.displayName}（版本 {project.nameVersion}）</Text>
         <Text>最近变更：{formatBjt(project.changedAt)}（北京时间）；办理人：{project.changedByPersonId ?? "迁移默认"}</Text>
-        {writable && <><Input value={draft.displayName} disabled={locked} onInput={(event) => updateDraft(project.projectNo, { displayName: event.detail.value })} /><Textarea value={draft.reason} disabled={locked} onInput={(event) => updateDraft(project.projectNo, { reason: event.detail.value })} /><Button disabled={locked} onClick={(event) => { event.stopPropagation(); void save(project); }}>{pending ? "保存中…" : conflicts.has(id) ? "核对后重新提交" : "保存项目名称"}</Button>{waitingLatest && <Button onClick={(event) => { event.stopPropagation(); reload(); }}>重试读取最新版本</Button>}{unknown.has(id) && <Button onClick={(event) => { event.stopPropagation(); void retry(project); }}>使用原提交重试</Button>}</>}
+        {writable && <><Input value={draft.displayName} disabled={locked} onInput={(event) => updateDraft(project.projectNo, { displayName: event.detail.value })} /><Textarea value={draft.reason} disabled={locked} onInput={(event) => updateDraft(project.projectNo, { reason: event.detail.value })} /><Button disabled={locked} onClick={(event) => { event.stopPropagation(); void save(project); }}>{pending ? "保存中…" : conflicts.has(id) ? "核对后重新提交" : "保存项目名称"}</Button>{waitingLatest && <Button disabled={busy} onClick={(event) => { event.stopPropagation(); reload(); }}>重试读取最新版本</Button>}{unknown.has(id) && <Button disabled={busy} onClick={(event) => { event.stopPropagation(); void retry(project); }}>使用原提交重试</Button>}</>}
         {conflicts.has(id) && <Text>版本冲突：请核对最新名称和版本后再提交。</Text>}
       </View>;
     })}

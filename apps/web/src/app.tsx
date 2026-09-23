@@ -24,6 +24,7 @@ import { CashWagePanel } from "./cash-wage-panel.js";
 import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel.js";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel.js";
 import { BonusProjectPanel } from "./bonus-project-panel.js";
+import { ProjectBonusGrantPanel } from "./project-bonus-grant-panel.js";
 import { BenefitPlanPanel } from "./benefit-plan-panel.js";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
@@ -166,6 +167,7 @@ function App(): ReactNode {
   const [refundUnconfirmed, setRefundUnconfirmed] = useState(false);
   const [wageConfirmationUnconfirmed, setWageConfirmationUnconfirmed] = useState(false);
   const [bonusUnconfirmed, setBonusUnconfirmed] = useState(false);
+  const [grantUnconfirmed, setGrantUnconfirmed] = useState(false);
   const [wagePlanUnconfirmed, setWagePlanUnconfirmed] = useState(false);
   const [wageRevision, setWageRevision] = useState(0);
   const [benefitPlanUnconfirmed, setBenefitPlanUnconfirmed] = useState(false);
@@ -174,7 +176,7 @@ function App(): ReactNode {
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
   const [accountUnconfirmed, setAccountUnconfirmed] = useState(false);
-  const financeUnconfirmed = relationshipUnconfirmed || accountUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const financeUnconfirmed = relationshipUnconfirmed || accountUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || grantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -203,6 +205,8 @@ function App(): ReactNode {
     setReimbursementUnconfirmed(false);
     setRefundUnconfirmed(false);
     setAccountUnconfirmed(false);
+    setBonusUnconfirmed(false);
+    setGrantUnconfirmed(false);
     setActivePage("fees");
     if (discardReferral) {
       setReceiverPersonId("");
@@ -345,7 +349,7 @@ function App(): ReactNode {
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : "referrals")
     : canReadVenueBoard ? "venue-board"
     : canReadOrg ? "organization-revenue" : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance" : "overview";
-  const pageTitle = { accounts: "账号管理", "group-leader-change": "普通周组长变更", "salary-confirmation": "工资发放确认", "bonus-projects": "奖金项目名称", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
+  const pageTitle = { accounts: "账号管理", "group-leader-change": "普通周组长变更", "salary-confirmation": "工资发放确认", "bonus-projects": "项目奖金", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", salary: "工资管理", "organization-revenue": "组织营收" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -362,7 +366,7 @@ function App(): ReactNode {
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "group-leader-change" ? "page" : undefined} onClick={() => goPage("group-leader-change")}><span aria-hidden="true" className="nav-icon">⇄</span>普通周组长变更</button>}
     {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><span aria-hidden="true" className="nav-icon">▣</span>工资管理</button>}
     {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary-confirmation" ? "page" : undefined} onClick={() => goPage("salary-confirmation")}>工资发放确认</button>}
-    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}>奖金项目名称</button>}
+    {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "bonus-projects" ? "page" : undefined} onClick={() => goPage("bonus-projects")}>项目奖金</button>}
     {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "benefits" ? "page" : undefined} onClick={() => goPage("benefits")}><span aria-hidden="true" className="nav-icon">▣</span>医社保与公积金</button>}
     {canProcessWithdrawal && <button disabled={busy || financeUnconfirmed} aria-current={page === "finance" ? "page" : undefined} onClick={() => goPage("finance")}><span aria-hidden="true" className="nav-icon">▣</span>提现办理</button>}
     {canSelfPurchase && <button disabled={busy || financeUnconfirmed} aria-current={page === "purchase" ? "page" : undefined} onClick={() => goPage("purchase")}><span aria-hidden="true" className="nav-icon">▧</span>财务本人采买</button>}
@@ -385,8 +389,8 @@ function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "group-leader-change" ? "预览当前普通周及后续适用费用的组长份额变更，核对后再明确发布。" : page === "bonus-projects" ? "核对奖金项目名称，管理员可以修改。" : page === "benefits" ? "查看财务职务账户的计划、待办和实际扣费。" : page === "salary-confirmation" ? "核对线下已发放工资和原始凭证，确认后记录扣豆。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
-          {session !== null && <Button variant="outline" disabled={busy} onClick={() => {
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "group-leader-change" ? "预览当前普通周及后续适用费用的组长份额变更，核对后再明确发布。" : page === "bonus-projects" ? "从业务账户发放项目奖金，并维护项目名称目录。" : page === "benefits" ? "查看财务职务账户的计划、待办和实际扣费。" : page === "salary-confirmation" ? "核对线下已发放工资和原始凭证，确认后记录扣豆。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
+          {session !== null && <Button variant="outline" disabled={busy || financeUnconfirmed} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
               clear();
@@ -428,7 +432,7 @@ function App(): ReactNode {
             {canReadOrg && <div hidden={page !== "organization-revenue"}><OrganizationRevenuePanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary-confirmation"}><CashWageConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
-            {canReadSalary && <div hidden={page !== "bonus-projects"}><BonusProjectPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canReadSalary && <div hidden={page !== "bonus-projects"}><ProjectBonusGrantPanel client={client} session={session} sessionKey={financeKey} busy={busy || bonusUnconfirmed} onUnconfirmedChange={setGrantUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BonusProjectPanel client={client} session={session} sessionKey={financeKey} externalBusy={busy || grantUnconfirmed} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             <div hidden={(["TEACHING_TEACHER", "TEACHER"].includes(currentRole) && page !== "overview") || (!["TEACHING_TEACHER", "TEACHER"].includes(currentRole) && page !== "referrals")}>
