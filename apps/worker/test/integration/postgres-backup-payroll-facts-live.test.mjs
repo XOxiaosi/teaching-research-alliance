@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createTestDatabase } from '../../../api/test/integration/postgres-test-database.mjs';
@@ -10,6 +12,7 @@ import { FullBackupSpool } from '../../dist/full-backup-spool.js';
 import { FullBackupTransformer } from '../../dist/full-backup-transformer.js';
 import { PostgresFullBackupSource } from '../../dist/postgres-full-backup-source.js';
 import { FullBackupBusinessFactsView } from '../../dist/full-backup-business-facts-view.js';
+import { FullBackupPayrollWorkbookExporter } from '../../dist/full-backup-payroll-workbook-exporter.js';
 
 test('payroll backup preserves plan, cash posting, bonus and reversal relationships at one snapshot', async () => {
   const db = await createTestDatabase(process.env.DATABASE_URL);
@@ -90,6 +93,47 @@ test('payroll backup preserves plan, cash posting, bonus and reversal relationsh
     assert.deepEqual(entries.filter(row => row.event_id === bonuses[0].ledger_event_id).map(row => row.amount_cents).sort(), ['-100', '100']);
     assert.deepEqual(entries.filter(row => row.event_id === reversals[0].reversal_ledger_event_id).map(row => row.amount_cents).sort(), ['-100', '100']);
     assert.equal(entries.filter(row => row.event_id === confirmations[0].ledger_event_id).reduce((sum, row) => sum + BigInt(row.amount_cents), 0n), -4900n);
+    const workbook = await new FullBackupPayrollWorkbookExporter({ spoolDirectory: join(root, 'spool', spool.spoolId), spool, outputRoot: join(root, 'workbooks') }).export();
+    assert.equal(workbook.mode, 'BUSINESS_FACTS_WORKBOOK');
+    assert.equal(workbook.complete, false);
+    assert.deepEqual(workbook.coveredTables, [5]);
+    assert.equal(workbook.snapshotId, spool.snapshotId);
+    assert.equal(workbook.asOf, spool.asOf);
+    assert.equal(workbook.schemaVersion, description.schemaVersion);
+    assert.equal(JSON.stringify(workbook).includes(root), false);
+    const directory = join(root, 'workbooks', workbook.outputId);
+    assert.deepEqual(await readdir(directory), [workbook.file]);
+    const path = join(directory, workbook.file);
+    const bytes = await readFile(path);
+    assert.equal(workbook.sizeBytes, String(bytes.length));
+    assert.equal(workbook.sha256, createHash('sha256').update(bytes).digest('hex'));
+    const { stdout } = await promisify(execFile)('python3', ['-c', `import zipfile,xml.etree.ElementTree as E,json,sys
+z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None
+ns={'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+book=E.fromstring(z.read('xl/workbook.xml')); rels=E.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+targets={r.attrib['Id']:r.attrib['Target'] for r in rels}; out={}
+for s in book.findall('.//m:sheet',ns):
+ root=E.fromstring(z.read('xl/'+targets[s.attrib['{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id']]))
+ assert not root.findall('.//m:f',ns)
+ rows=[]
+ for row in root.findall('.//m:row',ns):
+  cells=row.findall('m:c',ns); assert all(c.attrib.get('t')=='inlineStr' for c in cells)
+  rows.append([c.find('.//m:t',ns).text or '' for c in cells])
+ out[s.attrib['name']]=rows
+print(json.dumps(out,ensure_ascii=False))`, path], { maxBuffer: 8 * 1024 * 1024 });
+    const sheets = JSON.parse(stdout);
+    for (const source of description.sources) {
+      const header = ['源记录键', '源行号', ...source.columns.map(column => `${column.label} [${column.sourceColumn}]`)];
+      const sheet = Object.values(sheets).find(rows => JSON.stringify(rows[0]) === JSON.stringify(header));
+      assert.ok(sheet, source.sourceTable);
+      const expected = [];
+      for await (const row of view.readSourceRows(5, source.sourceTable)) expected.push([row.sourceRecordKey, row.rowNumber, ...row.values.map(value => value ?? '')]);
+      assert.deepEqual(sheet.slice(1), expected, source.sourceTable);
+      assert.equal(workbook.sourceRows.find(row => row.sourceTable === source.sourceTable).rowCount, String(expected.length));
+      assert.equal(workbook.sourceRows.find(row => row.sourceTable === source.sourceTable).logicalDigest, spool.datasets.find(row => row.tableName === source.sourceTable).logicalDigest);
+    }
+    assert.ok(JSON.stringify(sheets['00_说明']).includes('未按工资或奖金筛选'));
+    assert.equal(JSON.stringify(sheets).includes('After snapshot'), false);
   } finally {
     await db.close();
     await rm(root, { recursive: true, force: true });
