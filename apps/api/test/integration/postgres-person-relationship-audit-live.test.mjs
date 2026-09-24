@@ -186,6 +186,8 @@ test("关系审计真实PG：正式周、定向职责、换校区间和关系实
     const planning = (await service.list(adminContext, { personId: planner.session.personId, relationshipType: "PLANNING_MENTOR" }, at)).items.find((item) => item.relationshipId === planningPublished.resultRelationshipId);
     assert.ok(planning);
     assert.deepEqual(planning.referenceCounts, { weeklyFees: 1, allocationSnapshots: 2, referrals: 1 });
+    assert.equal(planning.repairability, "PLANNING_MENTOR_REGULAR_WEEK_PREVIEW");
+    assert.equal(planning.repairBlockedReason, null);
     const plannerCampusMissing = (await service.list(adminContext, { personId: planner.session.personId, relationshipType: "CAMPUS_PRINCIPAL" }, at)).items;
     assert.ok(plannerCampusMissing.some((item) => item.relationshipId === null && item.anomalyCodes.includes("CAMPUS_PRINCIPAL_MISSING") && item.repairability === "REQUIRES_P27"));
     const special = (await service.list(adminContext, { personId: planner.session.personId, anomalyCode: "SPECIAL_PERIOD_SCOPE_REQUIRED" }, at)).items;

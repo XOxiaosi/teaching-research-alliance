@@ -339,3 +339,14 @@ test("普通周教学导师关系链提供管理员目录、预览和发布端�
     ],
   );
 });
+
+test("普通周规划导师管理员纠正使用独立目录、预览和发布端点", () => {
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.filter((item) => item.path.startsWith("/v1/admin/person-relationships/planning-mentor")),
+    [
+      { method: "GET", path: "/v1/admin/person-relationships/planning-mentor-candidates", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "admin-planning-mentor-relationship-candidates.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/person-relationships/planning-mentor/preview", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "admin-planning-mentor-relationship-preview.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/person-relationships/planning-mentor", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "admin-planning-mentor-relationship-change.v1", requiresRoleContext: true },
+    ],
+  );
+});

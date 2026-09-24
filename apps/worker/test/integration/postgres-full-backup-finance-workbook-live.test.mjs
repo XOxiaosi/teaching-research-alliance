@@ -140,7 +140,7 @@ for (const reverseOriginal of [false, true]) test(`real ordinary-reimbursement t
     const description = view.describe(4);
     assert.equal(description.mode, "BUSINESS_FACTS_VIEW");
     assert.equal(description.complete, false);
-    assert.equal(description.schemaVersion, "full-backup-business-schema.v8");
+    assert.equal(description.schemaVersion, "full-backup-business-schema.v9");
     assert.equal(description.rowModel, "SOURCE_ROWS_ONLY");
     assert.equal(JSON.stringify(description).includes(root), false);
     assert.equal(new Set(description.sources.map((source) => source.sourceTable)).size, description.sources.length, "sources are independent, never joined");

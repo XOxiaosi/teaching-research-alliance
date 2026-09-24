@@ -246,7 +246,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v8");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v9");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");
@@ -292,4 +292,22 @@ test("业务身份历史只输出幂等指纹，不输出原始命令键", async
   assert.equal(result.values.idempotency_key, undefined);
   assert.match(result.values.idempotency_key_fingerprint, /^[0-9a-f]{64}$/);
   assert.equal(JSON.stringify(result.values).includes("raw-business-identity-key"), false);
+});
+
+test("管理员规划导师变更只输出幂等指纹，不输出原始命令键", async () => {
+  const result = await row("admin_planning_mentor_relationship_change", {
+    idempotency_key: "raw-admin-planning-mentor-command",
+    before_json: JSON.stringify({ sourceRelationship: null }),
+    after_json: JSON.stringify({ sourceRelationship: null, continuationRelationship: null, resultRelationship: {
+      id: "00000000-0000-4000-8000-000000000001", teacherPersonId: "00000000-0000-4000-8000-000000000002",
+      relationshipType: "PLANNING_MENTOR", relatedPersonId: "00000000-0000-4000-8000-000000000003",
+      validFrom: "2026-09-21T00:00:00.000Z", validTo: null, effectiveScope: "REGULAR_WEEK:week",
+      createdByPersonId: "00000000-0000-4000-8000-000000000004", createdAt: "2026-09-21T00:00:00.000Z",
+      supersededAt: null, supersededByChangeId: null, supersededByPlanningMentorChangeId: null,
+      supersededByAdminPlanningMentorChangeId: null,
+    } }),
+  }, { action: "ADD" });
+  assert.equal(result.values.idempotency_key, undefined);
+  assert.equal(result.values.idempotency_key_fingerprint, hex);
+  assert.equal(JSON.stringify(result.values).includes("raw-admin-planning-mentor-command"), false);
 });

@@ -66,6 +66,7 @@ export { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-te
 export { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
 export { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
 export { PostgresTeachingMentorRelationshipService } from "./postgres-teaching-mentor-relationship-service.js";
+export { PostgresAdminPlanningMentorRelationshipService } from "./postgres-admin-planning-mentor-relationship-service.js";
 export { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
 export { PostgresPersonRelationshipAuditService } from "./postgres-person-relationship-audit-service.js";
 

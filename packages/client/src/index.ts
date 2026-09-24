@@ -1,4 +1,7 @@
 import type {
+  AdminPlanningMentorRelationshipDirectoryDto,
+  AdminPlanningMentorRelationshipPreviewDto,
+  AdminPlanningMentorRelationshipPublishDto,
   GroupLeaderRelationshipCandidatesDto,
   TeachingMentorRelationshipCandidatesDto,
   TeachingMentorRelationshipPreviewDto,
@@ -23,6 +26,7 @@ import type {
   PersonRelationshipAuditType,
 } from "@teaching-research-alliance/contracts";
 export type {
+  AdminPlanningMentorRelationshipAction,
   PersonRelationshipAuditAnomalyCode,
   PersonRelationshipAuditItemDto,
   PersonRelationshipAuditPageDto,
@@ -223,6 +227,16 @@ export type TeachingMentorRelationshipPreviewDraft = Readonly<{
   reason: string;
 }>;
 export type TeachingMentorRelationshipChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
+
+export type AdminPlanningMentorRelationshipPreviewDraft = Readonly<{
+  action: "ADD" | "REPLACE" | "REMOVE";
+  plannerPersonId: string;
+  newMentorPersonId: string | null;
+  effectiveTeachingWeekId: string;
+  effectiveThroughTeachingWeekId?: string | null;
+  reason: string;
+}>;
+export type AdminPlanningMentorRelationshipChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
 
 export type GroupLeaderRelationshipPreviewDraft = Readonly<{
   teacherPersonId: string;
@@ -1446,6 +1460,7 @@ type Submission =
   | WeeklyFeeSubmission
   | GroupLeaderRelationshipChangeSubmission
   | TeachingMentorRelationshipChangeSubmission
+  | AdminPlanningMentorRelationshipChangeSubmission
   | PlanningMentorRelationshipChangeSubmission
   | ReferralCreationSubmission
   | ReferralCopySubmission
@@ -1552,6 +1567,22 @@ const validateTeachingMentorRelationshipPreviewDraft = (
 ): void => {
   requireNonBlank(draft.teacherPersonId, "teacherPersonId");
   requireNonBlank(draft.newRelatedPersonId, "newRelatedPersonId");
+  requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
+  if (draft.effectiveThroughTeachingWeekId !== null && draft.effectiveThroughTeachingWeekId !== undefined) requireNonBlank(draft.effectiveThroughTeachingWeekId, "effectiveThroughTeachingWeekId");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validateAdminPlanningMentorRelationshipPreviewDraft = (
+  draft: AdminPlanningMentorRelationshipPreviewDraft,
+): void => {
+  if (!(["ADD", "REPLACE", "REMOVE"] as const).includes(draft.action)) throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:action");
+  requireNonBlank(draft.plannerPersonId, "plannerPersonId");
+  if (draft.action === "REMOVE") {
+    if (draft.newMentorPersonId !== null) throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:newMentorPersonId");
+  } else {
+    requireNonBlank(draft.newMentorPersonId ?? "", "newMentorPersonId");
+    if (draft.newMentorPersonId === draft.plannerPersonId) throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:newMentorPersonId");
+  }
   requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
   if (draft.effectiveThroughTeachingWeekId !== null && draft.effectiveThroughTeachingWeekId !== undefined) requireNonBlank(draft.effectiveThroughTeachingWeekId, "effectiveThroughTeachingWeekId");
   validateFinancialText(draft.reason, "reason", 1_000);
@@ -2792,6 +2823,31 @@ export class TeacherApiClient {
     );
   }
 
+  public async listAdminPlanningMentorRelationshipCandidates(): Promise<AdminPlanningMentorRelationshipDirectoryDto> {
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<AdminPlanningMentorRelationshipDirectoryDto>(
+      "GET", "/v1/admin/person-relationships/planning-mentor-candidates",
+    );
+  }
+
+  public async previewAdminPlanningMentorRelationshipChange(
+    draft: AdminPlanningMentorRelationshipPreviewDraft,
+  ): Promise<AdminPlanningMentorRelationshipPreviewDto> {
+    validateAdminPlanningMentorRelationshipPreviewDraft(draft);
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<AdminPlanningMentorRelationshipPreviewDto>(
+      "POST", "/v1/admin/person-relationships/planning-mentor/preview",
+      {
+        action: draft.action,
+        plannerPersonId: draft.plannerPersonId,
+        newMentorPersonId: draft.newMentorPersonId,
+        effectiveTeachingWeekId: draft.effectiveTeachingWeekId,
+        effectiveThroughTeachingWeekId: draft.effectiveThroughTeachingWeekId,
+        reason: draft.reason,
+      },
+    );
+  }
+
   /** Reads a privacy-minimized, server-authorized page across all person relationship facts. */
   public async listPersonRelationshipAudit(filter: PersonRelationshipAuditFilter = {}): Promise<PersonRelationshipAuditPageDto> {
     this.requireGroupLeaderRelationshipManager();
@@ -3023,6 +3079,17 @@ export class TeacherApiClient {
   }
 
   public createTeachingMentorRelationshipChangeSubmission(previewId: string): TeachingMentorRelationshipChangeSubmission {
+    requireNonBlank(previewId, "previewId");
+    this.requireGroupLeaderRelationshipManager();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({ draft: Object.freeze({ previewId }), idempotencyKey });
+    this.submissionStatuses.set(submission, "READY"); this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createAdminPlanningMentorRelationshipChangeSubmission(previewId: string): AdminPlanningMentorRelationshipChangeSubmission {
     requireNonBlank(previewId, "previewId");
     this.requireGroupLeaderRelationshipManager();
     const scope = this.captureSubmissionScope();
@@ -3724,6 +3791,16 @@ export class TeacherApiClient {
     this.requireCurrentSubmissionScope(submission); this.requireGroupLeaderRelationshipManager(); this.submissionStatuses.set(submission, "SUBMITTING");
     try {
       const result = await this.authenticatedRequest<TeachingMentorRelationshipPublishDto>("POST", "/v1/admin/person-relationships/teaching-mentor", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey });
+      this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result;
+    } catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
+  }
+
+  public async publishAdminPlanningMentorRelationshipChange(submission: AdminPlanningMentorRelationshipChangeSubmission): Promise<AdminPlanningMentorRelationshipPublishDto> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireGroupLeaderRelationshipManager(); this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<AdminPlanningMentorRelationshipPublishDto>("POST", "/v1/admin/person-relationships/planning-mentor", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey });
       this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result;
     } catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
   }
