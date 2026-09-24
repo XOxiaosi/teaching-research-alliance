@@ -48,6 +48,7 @@ import { PostgresTeachingMentorRelationshipService } from "./postgres-teaching-m
 import { PostgresAdminPlanningMentorRelationshipService } from "./postgres-admin-planning-mentor-relationship-service.js";
 import { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
 import { PostgresPersonRelationshipAuditService } from "./postgres-person-relationship-audit-service.js";
+import { PostgresPersonCampusAssignmentService } from "./postgres-person-campus-assignment-service.js";
 
 const port = Number(process.env.PORT ?? "3100");
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
@@ -79,6 +80,7 @@ const groupLeaderRelationships = new PostgresGroupLeaderRelationshipService(pool
 const teachingMentorRelationships = new PostgresTeachingMentorRelationshipService(pool);
 const adminPlanningMentorRelationships = new PostgresAdminPlanningMentorRelationshipService(pool);
 const planningMentorRelationships = new PostgresPlanningMentorRelationshipService(pool);
+const personCampusAssignments = new PostgresPersonCampusAssignmentService(pool);
 const accountAccess = new PostgresAccountAccessService(pool);
 const server = createApiServer({
   organizationRevenue: new PostgresOrganizationRevenueReadService(pool),
@@ -146,6 +148,7 @@ const server = createApiServer({
   teachingMentorRelationships,
   adminPlanningMentorRelationships,
   planningMentorRelationships,
+  personCampusAssignments,
   personRelationshipAudit: new PostgresPersonRelationshipAuditService(pool),
   financeAttachments: new PostgresFinanceAttachmentService(pool),
   ...(attachmentStore

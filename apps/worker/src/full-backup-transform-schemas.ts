@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v9";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v10";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -173,7 +173,7 @@ const validateSnapshotNested = (input: JsonTransformInput, root: Record<string, 
   return anomalies;
 };
 
-type RelationshipJsonShape = "text" | "nullableText" | "count" | Readonly<{
+type RelationshipJsonShape = "text" | "nullableText" | "count" | "boolean" | Readonly<{
   fields: Readonly<Record<string, RelationshipJsonShape>>;
   nullable?: boolean;
 }> | Readonly<{ items: RelationshipJsonShape }>;
@@ -212,6 +212,35 @@ const adminPlanningMentorRelationshipObjectShape: RelationshipJsonShape = { fiel
   supersededByPlanningMentorChangeId: "nullableText", supersededByAdminPlanningMentorChangeId: "nullableText",
 } };
 const adminPlanningMentorRelationshipShape: RelationshipJsonShape = { ...adminPlanningMentorRelationshipObjectShape, nullable: true };
+const personCampusAssignmentShape: RelationshipJsonShape = { fields: {
+  id: "text", personId: "text", campusId: "text", regionId: "text", validFrom: "text", validTo: "nullableText",
+  createdByPersonId: "text", createdAt: "text",
+} };
+const personCampusPrincipalShape: RelationshipJsonShape = { fields: {
+  id: "text", teacherPersonId: "text", relatedPersonId: "text", relationshipType: "text", validFrom: "text", validTo: "nullableText",
+  effectiveScope: "nullableText", createdByPersonId: "text", createdAt: "text",
+} };
+const personCampusResultAssignmentShape: RelationshipJsonShape = { fields: {
+  id: "text", personId: "text", campusId: "text", regionId: "text", validFrom: "text", validTo: "nullableText",
+} };
+const personCampusResultPrincipalShape: RelationshipJsonShape = { fields: { id: "text", relatedPersonId: "text" } };
+const personCampusAssignmentImpactShape: RelationshipJsonShape = { fields: {
+  schemaVersion: "text", action: "text", personId: "text", sourceAssignment: personCampusAssignmentShape,
+  sourceCampusPrincipalRelationship: { ...personCampusPrincipalShape, nullable: true }, targetCampusId: "text", targetRegionId: "text",
+  targetPrincipal: { fields: { personId: "text", nickname: "text", roleAssignmentId: "text", validFrom: "text", validTo: "nullableText" } },
+  effectiveFrom: "text", effectiveTo: "nullableText",
+  fees: { items: { fields: { feeId: "text", version: "text", teachingWeekId: "text", settlementMonth: "text", refunded: "boolean", snapshotId: "nullableText" } } },
+  reason: "text",
+  financial: { fields: {
+    consideredFeeCount: "count", changedFeeCount: "count", excludedRefundCount: "count",
+    accountDeltas: { items: { fields: { accountCode: "text", categoryKey: "text", amountCents: "text" } } },
+    fees: { items: { fields: { feeId: "text", version: "text", refundId: "nullableText", snapshotHash: "nullableText", disposition: "text", nextContextHash: "nullableText" } } },
+    organizationImpact: { fields: {
+      sourceCampusId: "text", sourceRegionId: "text", targetCampusId: "text", targetRegionId: "text",
+      recordedGrossRevenueCents: "text", refundedGrossRevenueCents: "text", effectiveGrossRevenueCents: "text", campusManagementFeeCents: "text",
+    } },
+  } },
+} };
 const planningMentorImpactShape: RelationshipJsonShape = { fields: {
   schemaVersion: "text", action: "text", mentorPersonId: "text", plannerPersonId: "text",
   sourceRelationship: planningMentorRelationshipShape, resultRelationshipId: "nullableText",
@@ -373,6 +402,41 @@ const validateAdminPlanningMentorImpact = (input: JsonTransformInput, root: Reco
   return anomalies;
 };
 
+const validatePersonCampusAssignment = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.raw === null) gap();
+  const root = parseObject(input);
+  const shape: RelationshipJsonShape = input.columnName === "before_json"
+    ? { fields: { assignment: personCampusAssignmentShape, campusPrincipalRelationship: { ...personCampusPrincipalShape, nullable: true } } }
+    : { fields: { assignment: personCampusResultAssignmentShape, campusPrincipalRelationship: personCampusResultPrincipalShape } };
+  const anomalies = validateRelationshipJson(input, root, shape);
+  const assignment = object(root.assignment);
+  const relationship = object(root.campusPrincipalRelationship);
+  if (assignment === undefined || (input.columnName === "before_json" && relationship !== undefined && relationship.relationshipType !== "CAMPUS_PRINCIPAL")) gap();
+  return anomalies;
+};
+
+const validatePersonCampusAssignmentImpact = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, personCampusAssignmentImpactShape);
+  if (root.schemaVersion !== "person-campus-assignment-preview.v1") anomalies.push(anomaly(input, "schemaVersion"));
+  const source = object(root.sourceCampusPrincipalRelationship);
+  if (source !== undefined && source.relationshipType !== "CAMPUS_PRINCIPAL") gap();
+  return anomalies;
+};
+
+const validatePersonCampusAssignmentDelta = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, planningMentorDeltaShape);
+  const entries = root.entries;
+  if (!Array.isArray(entries)) return anomalies;
+  for (const entry of entries) {
+    const item = object(entry);
+    if (item === undefined) continue;
+    if (typeof item.accountKey !== "string" || item.accountKey.length === 0) anomalies.push(anomaly(input, "accountKey"));
+    if (typeof item.categoryKey !== "string" || !settlementKeys.includes(item.categoryKey)) gap();
+    if (typeof item.amountCents !== "string" || !/^-?\d+$/.test(item.amountCents)) anomalies.push(anomaly(input, "amountCents"));
+  }
+  return anomalies;
+};
+
 const validateTeachingMentorRelationship = (input: JsonTransformInput): TransformAnomaly[] => {
   const action = input.row.action;
   if (action !== "ADD" && action !== "REPLACE") gap();
@@ -445,6 +509,8 @@ const validateRelationshipJson = (input: JsonTransformInput, value: unknown, sha
     if (Array.isArray(value) || object(value) !== undefined) gap();
     const valid = shape === "count"
       ? typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      : shape === "boolean"
+        ? typeof value === "boolean"
       : typeof value === "string" || (shape === "nullableText" && value === null);
     return valid ? [] : [anomaly(input, field)];
   }
@@ -462,6 +528,12 @@ const validateRelationshipJson = (input: JsonTransformInput, value: unknown, sha
 };
 
 const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.tableName === "person_campus_assignment_change_preview" && input.columnName === "impact_json")
+    return validatePersonCampusAssignmentImpact(input, parseObject(input));
+  if (input.tableName === "person_campus_assignment_change" && (input.columnName === "before_json" || input.columnName === "after_json"))
+    return validatePersonCampusAssignment(input);
+  if (input.tableName === "person_campus_assignment_change_effect" && input.columnName === "delta_json")
+    return validatePersonCampusAssignmentDelta(input, parseObject(input));
   const key = `${input.tableName}.${input.columnName}`;
   if (key === "admin_planning_mentor_relationship_change.before_json" || key === "admin_planning_mentor_relationship_change.after_json")
     return validateAdminPlanningMentorRelationship(input);
@@ -571,6 +643,11 @@ const auditExact = (input: JsonTransformInput, value: Record<string, unknown>, a
 };
 
 const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.row.action_code === "PERSON_CAMPUS_ASSIGNMENT_CHANGED"
+    && (input.row.subject_type === "PERSON_CAMPUS_ASSIGNMENT_CHANGE" || input.row.subject_type === "PERSON_CAMPUS_ASSIGNMENT")) {
+    if (input.raw === null) return [];
+    return validatePersonCampusAssignment(input);
+  }
   if (input.row.subject_type === "PERSON_RELATIONSHIP" && input.row.action_code === "GROUP_LEADER_RELATIONSHIP_CHANGED") {
     if (input.raw === null) return [];
     return validateRelationshipJson(input, parseObject(input), { fields: input.columnName === "before_json"

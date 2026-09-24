@@ -24,6 +24,7 @@ test("关系审计真实PG：关系事实、缺关系分润项、状态筛选、
     const regionId = randomUUID();
     const campusId = randomUUID();
     await database.pool.query("INSERT INTO organization_unit(id,unit_type,name) VALUES($1,'REGION',$2),($3,'CAMPUS',$4)", [regionId, `audit-region-${regionId}`, campusId, `audit-campus-${campusId}`]);
+    await database.pool.query("INSERT INTO campus_region_assignment(campus_id,region_id,valid_from,created_by) VALUES($1,$2,$3,$4)", [campusId, regionId, iso, owner.session.personId]);
     await database.pool.query("INSERT INTO person_campus_assignment(person_id,campus_id,region_id,valid_from,created_by) VALUES($1,$2,$3,$4,$5)", [missingTeacher.session.personId, campusId, regionId, iso, owner.session.personId]);
     await database.pool.query("INSERT INTO rate_policy_version(version,effective_from,policy_json,reason,published_by) VALUES(1,'2026-01-01',$1::jsonb,'audit-live',$2)", [JSON.stringify({ groupLeaderRateBasisPoints: 100, teachingMentorRateBasisPoints: 100 }), owner.session.personId]);
     await database.pool.query("INSERT INTO academic_year_plan(id,label,starts_on,ends_on,created_by) VALUES($1,'audit-year','2026-01-01','2026-12-31',$2)", ['00000000-0000-4000-8000-000000000010', owner.session.personId]);
@@ -106,6 +107,10 @@ test("关系审计真实PG：正式周、定向职责、换校区间和关系实
       `INSERT INTO organization_unit(id,unit_type,name) VALUES
        ($1,'REGION',$2),($3,'CAMPUS',$4),($5,'CAMPUS',$6)`,
       [ids.region, `audit-region-${ids.region}`, ids.campusOne, `audit-campus-${ids.campusOne}`, ids.campusTwo, `audit-campus-${ids.campusTwo}`],
+    );
+    await database.pool.query(
+      "INSERT INTO campus_region_assignment(campus_id,region_id,valid_from,created_by,created_at) VALUES($1,$3,'2026-01-01T00:00:00Z',$4,'2026-01-01T00:00:00Z'),($2,$3,'2026-01-01T00:00:00Z',$4,'2026-01-01T00:00:00Z')",
+      [ids.campusOne, ids.campusTwo, ids.region, owner.session.personId],
     );
     await database.pool.query("INSERT INTO academic_year_plan(id,label,starts_on,ends_on,created_by) VALUES($1,'audit-boundary-year','2026-01-01','2026-12-31',$2)", [ids.year, owner.session.personId]);
     await database.pool.query("INSERT INTO academic_period(id,academic_year_plan_id,label,starts_on,ends_on) VALUES($1,$2,'audit-boundary-period','2026-09-01','2026-10-31')", [ids.period, ids.year]);

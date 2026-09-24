@@ -14,7 +14,7 @@ import { readBackupSpoolDataset } from "../../dist/full-backup-spool-reader.js";
 
 const connectionString = process.env.DATABASE_URL;
 
-test("真实98表只读快照可流式spool，资料历史幂等键只保留指纹", async () => {
+test("真实101表只读快照可流式spool，资料历史幂等键只保留指纹", async () => {
   const database = await createTestDatabase(connectionString);
   const tempRoot = await mkdtemp(join(tmpdir(), "alliance-spool-pg-"));
   try {
@@ -63,7 +63,7 @@ test("真实98表只读快照可流式spool，资料历史幂等键只保留指�
       batchSize: 1,
     }).create();
     assert.equal(spool.mode, "RAW_SOURCE_SPOOL");
-    assert.equal(spool.datasets.length, 98);
+    assert.equal(spool.datasets.length, 101);
     for (const tableName of ["user_session", "auth_login_throttle", "auth_password_reset_command"]) {
       assert.deepEqual(spool.datasets.find((dataset) => dataset.tableName === tableName), {
         tableName, columns: [], rowCount: null, logicalDigest: null, spoolFile: null, excluded: true,

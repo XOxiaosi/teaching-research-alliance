@@ -34,6 +34,7 @@ import { BenefitPanel } from "./benefit-panel.js";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel.js";
 import { TeachingMentorChangePanel } from "./teaching-mentor-change-panel.js";
 import { AdminPlanningMentorRelationshipPanel } from "./admin-planning-mentor-relationship-panel.js";
+import { PersonCampusAssignmentPanel } from "./person-campus-assignment-panel.js";
 import { PersonRelationshipAuditPanel } from "./person-relationship-audit-panel.js";
 import { PlanningMentorRelationshipPanel } from "./planning-mentor-relationship-panel.js";
 import { AccountAccessPanel, AccountAuthenticationPanel, canManageAccounts } from "./account-access-panel.js";
@@ -96,7 +97,7 @@ type Venue = Readonly<{
 
 type BoardDirectoryVenue = Readonly<{ id: string; name: string; ownerPersonId?: string; isOwn?: boolean }>;
 
-type Page = "fees" | "overview" | "referrals" | "referral-administration" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "accounts" | "people" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "venue-management" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change" | "teaching-mentor-change" | "admin-planning-mentor-change" | "person-relationship-audit" | "planning-mentor-relationships";
+type Page = "fees" | "overview" | "referrals" | "referral-administration" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "accounts" | "people" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "venue-management" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change" | "teaching-mentor-change" | "admin-planning-mentor-change" | "person-campus-assignment" | "person-relationship-audit" | "planning-mentor-relationships";
 
 const readBoardVenues = async (currentClient: TeacherApiClient, personId: string | undefined): Promise<readonly Venue[]> => {
   const visibleReader = (currentClient as TeacherApiClient & { listVisibleVenues: <T = unknown>() => Promise<T> }).listVisibleVenues;
@@ -401,6 +402,7 @@ export function App(): ReactNode {
     : activePage === "group-leader-change" && canManageRelationships ? "group-leader-change"
     : activePage === "teaching-mentor-change" && canManageRelationships ? "teaching-mentor-change"
     : activePage === "admin-planning-mentor-change" && canManageRelationships ? "admin-planning-mentor-change"
+    : activePage === "person-campus-assignment" && canManageRelationships ? "person-campus-assignment"
     : activePage === "planning-mentor-relationships" && canManagePlanningMentorRelationships ? "planning-mentor-relationships"
     : activePage === "referral-administration" && canManageReferrals ? "referral-administration"
     : activePage === "finance" && canProcessWithdrawal ? "finance"
@@ -423,7 +425,7 @@ export function App(): ReactNode {
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : activePage === "planning-mentor-relationships" && canManagePlanningMentorRelationships ? "planning-mentor-relationships" : "referrals")
     : canReadVenueBoard ? "venue-board"
     : canReadOrg ? "organization-revenue" : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance" : "overview";
-  const pageTitle = { accounts: "账号管理", people: "人员与职责", "person-relationship-audit": "人员关系审计", "group-leader-change": "普通周组长变更", "teaching-mentor-change": "普通周教学导师变更", "admin-planning-mentor-change": "普通周规划导师纠正", "planning-mentor-relationships": "我的规划师关系", "referral-administration": "推荐完结管理", "salary-confirmation": "工资发放确认", "bonus-projects": "项目奖金", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", "venue-management": "我的场地", salary: "工资管理", "organization-revenue": "组织营收" }[page];
+  const pageTitle = { accounts: "账号管理", people: "人员与职责", "person-campus-assignment": "人员校区调整", "person-relationship-audit": "人员关系审计", "group-leader-change": "普通周组长变更", "teaching-mentor-change": "普通周教学导师变更", "admin-planning-mentor-change": "普通周规划导师纠正", "planning-mentor-relationships": "我的规划师关系", "referral-administration": "推荐完结管理", "salary-confirmation": "工资发放确认", "bonus-projects": "项目奖金", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", "venue-management": "我的场地", salary: "工资管理", "organization-revenue": "组织营收" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -441,6 +443,7 @@ export function App(): ReactNode {
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "group-leader-change" ? "page" : undefined} onClick={() => goPage("group-leader-change")}><DashboardIcon name="group-leader-change" />普通周组长变更</button>}
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "teaching-mentor-change" ? "page" : undefined} onClick={() => goPage("teaching-mentor-change")}><DashboardIcon name="group-leader-change" />普通周教学导师变更</button>}
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "admin-planning-mentor-change" ? "page" : undefined} onClick={() => goPage("admin-planning-mentor-change")}><DashboardIcon name="group-leader-change" />普通周规划导师纠正</button>}
+    {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "person-campus-assignment" ? "page" : undefined} onClick={() => goPage("person-campus-assignment")}><DashboardIcon name="accounts" />人员校区调整</button>}
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "person-relationship-audit" ? "page" : undefined} onClick={() => goPage("person-relationship-audit")}><DashboardIcon name="accounts" />人员关系审计</button>}
     {canManagePlanningMentorRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "planning-mentor-relationships" ? "page" : undefined} onClick={() => goPage("planning-mentor-relationships")}><DashboardIcon name="group-leader-change" />我的规划师关系</button>}
     {canManageReferrals && <button disabled={busy || financeUnconfirmed} aria-current={page === "referral-administration" ? "page" : undefined} onClick={() => goPage("referral-administration")}><DashboardIcon name="referrals" />推荐完结管理</button>}
@@ -511,6 +514,7 @@ export function App(): ReactNode {
             {canManageRelationships && <div hidden={page !== "group-leader-change"}><GroupLeaderChangePanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManageRelationships && <div hidden={page !== "teaching-mentor-change"}><TeachingMentorChangePanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManageRelationships && <div hidden={page !== "admin-planning-mentor-change"}><AdminPlanningMentorRelationshipPanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canManageRelationships && <div hidden={page !== "person-campus-assignment"}><PersonCampusAssignmentPanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManagePlanningMentorRelationships && <div hidden={page !== "planning-mentor-relationships"}><PlanningMentorRelationshipPanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManageReferrals && <ManagedReferralCompletionPanel client={client} sessionKey={financeKey} busy={busy} active={page === "referral-administration"} onUnconfirmedChange={setReferralUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} />}
             {canReadOrg && <div hidden={page !== "organization-revenue"}><OrganizationRevenuePanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}

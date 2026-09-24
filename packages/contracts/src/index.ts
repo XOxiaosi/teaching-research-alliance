@@ -440,6 +440,17 @@ export const API_ERROR_CODES = [
   "RELATIONSHIP_TARGET_UNCHANGED",
   "RELATIONSHIP_TEACHER_NOT_ELIGIBLE",
   "PERSONAL_ACCOUNT_NOT_FOUND",
+  "PERSON_CAMPUS_PREVIEW_NOT_FOUND",
+  "PERSON_CAMPUS_PREVIEW_STALE",
+  "PERSON_CAMPUS_ASSIGNMENT_NO_CHANGE",
+  "PERSON_CAMPUS_ASSIGNMENT_SOURCE_INVALID",
+  "PERSON_CAMPUS_TARGET_NOT_FOUND",
+  "PERSON_CAMPUS_TARGET_REGION_NOT_UNIQUE",
+  "PERSON_CAMPUS_TARGET_PRINCIPAL_INVALID",
+  "PERSON_CAMPUS_PRINCIPAL_RELATIONSHIP_AMBIGUOUS",
+  "PERSON_CAMPUS_PERSON_NOT_ELIGIBLE",
+  "PERSON_CAMPUS_EFFECTIVE_RANGE_INVALID",
+  "PERSON_CAMPUS_SETTLEMENT_DATA_UNAVAILABLE",
   "INTERNAL_ERROR",
   "FORBIDDEN_SCOPE",
   "ROLE_CONTEXT_REQUIRED",
@@ -510,7 +521,7 @@ export type PersonRelationshipAuditItemDto = Readonly<{
   validFrom: string; validTo: string | null; effectiveScope: string | null;
   status: PersonRelationshipAuditStatus;
   matchingRoleAssignmentIds: readonly string[];
-  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "TEACHING_MENTOR_CHANGE" | "PLANNING_MENTOR_CHANGE" | "ADMIN_PLANNING_MENTOR_CHANGE"; changeId: string }> | null;
+  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "TEACHING_MENTOR_CHANGE" | "PLANNING_MENTOR_CHANGE" | "ADMIN_PLANNING_MENTOR_CHANGE" | "PERSON_CAMPUS_ASSIGNMENT_CHANGE"; changeId: string }> | null;
   referenceCounts: Readonly<{ weeklyFees: number; allocationSnapshots: number; referrals: number }>;
   anomalyCodes: readonly PersonRelationshipAuditAnomalyCode[];
   repairability: PersonRelationshipAuditRepairability;
@@ -619,6 +630,23 @@ export type AdminPlanningMentorRelationshipPublishDto = Readonly<{
   sourceMentorDeltaCents: string;
   destinationMentorDeltaCents: string;
   replay: boolean;
+}>;
+
+export type PersonCampusAssignmentCandidateDirectoryDto = Readonly<{
+  people: readonly Readonly<{ personId: string; nickname: string; currentCampusId: string | null; currentCampusName: string | null; currentRegionId: string | null; currentRegionName: string | null }>[];
+  campuses: readonly Readonly<{ campusId: string; campusName: string }>[];
+  regions: readonly Readonly<{ regionId: string; regionName: string }>[];
+}>;
+export type PersonCampusAssignmentPreviewDto = Readonly<{
+  previewId: string; personId: string; targetCampusId: string; targetRegionId: string; targetPrincipalPersonId: string; targetPrincipalNickname: string;
+  sourceCampusId: string; sourceRegionId: string; sourcePrincipalPersonId: string | null; effectiveFrom: string; effectiveTo: string | null;
+  consideredFeeCount: number; changedFeeCount: number; excludedRefundCount: number;
+  organizationImpact: Readonly<{ sourceCampusId: string; sourceRegionId: string; targetCampusId: string; targetRegionId: string; recordedGrossRevenueCents: string; refundedGrossRevenueCents: string; effectiveGrossRevenueCents: string; campusManagementFeeCents: string }>;
+  accountDeltas: readonly Readonly<{ accountCode: string; categoryKey: string; amountCents: string }>[];
+}>;
+export type PersonCampusAssignmentChangeDto = Readonly<{
+  changeId: string; previewId: string; assignmentVersion: number; resultAssignmentId: string | null; resultCampusPrincipalRelationshipId: string;
+  postingStatus: "POSTED" | "NO_BALANCE_CHANGE"; consideredFeeCount: number; changedFeeCount: number; excludedRefundCount: number; replay: boolean;
 }>;
 
 export type GroupLeaderRelationshipPersonDto = Readonly<{
@@ -819,6 +847,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/person-relationships/audit",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "person-relationship-audit.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/organization/person-campus-candidates",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "person-campus-assignment-candidates.v1",
     requiresRoleContext: true,
   },
   {
@@ -1431,6 +1466,20 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/person-relationships/planning-mentor",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "admin-planning-mentor-relationship-change.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/organization/person-campus/preview",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "person-campus-assignment-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/organization/person-campus",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "person-campus-assignment-change.v1",
     requiresRoleContext: true,
   },
   {

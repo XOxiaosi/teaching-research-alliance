@@ -2,6 +2,9 @@ import type {
   AdminPlanningMentorRelationshipDirectoryDto,
   AdminPlanningMentorRelationshipPreviewDto,
   AdminPlanningMentorRelationshipPublishDto,
+  PersonCampusAssignmentCandidateDirectoryDto,
+  PersonCampusAssignmentPreviewDto,
+  PersonCampusAssignmentChangeDto,
   GroupLeaderRelationshipCandidatesDto,
   TeachingMentorRelationshipCandidatesDto,
   TeachingMentorRelationshipPreviewDto,
@@ -237,6 +240,8 @@ export type AdminPlanningMentorRelationshipPreviewDraft = Readonly<{
   reason: string;
 }>;
 export type AdminPlanningMentorRelationshipChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
+export type PersonCampusAssignmentPreviewDraft = Readonly<{ personId: string; targetCampusId: string; effectiveFrom: string; effectiveTo?: string | null; reason: string }>;
+export type PersonCampusAssignmentChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
 
 export type GroupLeaderRelationshipPreviewDraft = Readonly<{
   teacherPersonId: string;
@@ -1461,6 +1466,7 @@ type Submission =
   | GroupLeaderRelationshipChangeSubmission
   | TeachingMentorRelationshipChangeSubmission
   | AdminPlanningMentorRelationshipChangeSubmission
+  | PersonCampusAssignmentChangeSubmission
   | PlanningMentorRelationshipChangeSubmission
   | ReferralCreationSubmission
   | ReferralCopySubmission
@@ -1585,6 +1591,12 @@ const validateAdminPlanningMentorRelationshipPreviewDraft = (
   }
   requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
   if (draft.effectiveThroughTeachingWeekId !== null && draft.effectiveThroughTeachingWeekId !== undefined) requireNonBlank(draft.effectiveThroughTeachingWeekId, "effectiveThroughTeachingWeekId");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+const validatePersonCampusAssignmentPreviewDraft = (draft: PersonCampusAssignmentPreviewDraft): void => {
+  requireNonBlank(draft.personId, "personId"); requireNonBlank(draft.targetCampusId, "targetCampusId");
+  requireNonBlank(draft.effectiveFrom, "effectiveFrom");
+  if (draft.effectiveTo !== undefined && draft.effectiveTo !== null) requireNonBlank(draft.effectiveTo, "effectiveTo");
   validateFinancialText(draft.reason, "reason", 1_000);
 };
 
@@ -2830,6 +2842,19 @@ export class TeacherApiClient {
     );
   }
 
+  public async listPersonCampusAssignmentCandidates(): Promise<PersonCampusAssignmentCandidateDirectoryDto> {
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<PersonCampusAssignmentCandidateDirectoryDto>("GET", "/v1/admin/organization/person-campus-candidates");
+  }
+
+  public async previewPersonCampusAssignmentChange(draft: PersonCampusAssignmentPreviewDraft): Promise<PersonCampusAssignmentPreviewDto> {
+    validatePersonCampusAssignmentPreviewDraft(draft); this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<PersonCampusAssignmentPreviewDto>("POST", "/v1/admin/organization/person-campus/preview", {
+      personId: draft.personId, targetCampusId: draft.targetCampusId, effectiveFrom: draft.effectiveFrom,
+      effectiveTo: draft.effectiveTo, reason: draft.reason,
+    });
+  }
+
   public async previewAdminPlanningMentorRelationshipChange(
     draft: AdminPlanningMentorRelationshipPreviewDraft,
   ): Promise<AdminPlanningMentorRelationshipPreviewDto> {
@@ -3098,6 +3123,14 @@ export class TeacherApiClient {
     const submission = Object.freeze({ draft: Object.freeze({ previewId }), idempotencyKey });
     this.submissionStatuses.set(submission, "READY"); this.submissionScopes.set(submission, scope);
     return submission;
+  }
+
+  public createPersonCampusAssignmentChangeSubmission(previewId: string): PersonCampusAssignmentChangeSubmission {
+    requireNonBlank(previewId, "previewId"); this.requireGroupLeaderRelationshipManager();
+    const scope = this.captureSubmissionScope(); const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({ draft: Object.freeze({ previewId }), idempotencyKey });
+    this.submissionStatuses.set(submission, "READY"); this.submissionScopes.set(submission, scope); return submission;
   }
 
   public createPlanningMentorRelationshipChangeSubmission(
@@ -3803,6 +3836,13 @@ export class TeacherApiClient {
       const result = await this.authenticatedRequest<AdminPlanningMentorRelationshipPublishDto>("POST", "/v1/admin/person-relationships/planning-mentor", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey });
       this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result;
     } catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
+  }
+
+  public async publishPersonCampusAssignmentChange(submission: PersonCampusAssignmentChangeSubmission): Promise<PersonCampusAssignmentChangeDto> {
+    const previous = this.submissionStatus(submission); if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireGroupLeaderRelationshipManager(); this.submissionStatuses.set(submission, "SUBMITTING");
+    try { const result = await this.authenticatedRequest<PersonCampusAssignmentChangeDto>("POST", "/v1/admin/organization/person-campus", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey }); this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result; }
+    catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
   }
 
   public async publishPlanningMentorRelationshipChange(

@@ -668,7 +668,7 @@ export class PostgresAccountAccessService {
                 account.login_status,person.status AS person_status,'{}'::text[] AS active_system_authorities,
                 profile.business_identity,profile.business_identity_version::text AS business_identity_version,profile.grade_subject,profile.employment_status,profile.campus_id::text AS profile_campus_id,profile.region_id::text AS profile_region_id,
                 (SELECT count(*) FROM person_campus_assignment a WHERE a.person_id=person.id AND a.valid_from <= $1::timestamptz AND (a.valid_to IS NULL OR $1::timestamptz < a.valid_to))::text AS campus_assignment_count,
-                (SELECT count(*) FROM person_campus_assignment a WHERE a.person_id=person.id AND a.valid_from <= $1::timestamptz AND (a.valid_to IS NULL OR $1::timestamptz < a.valid_to) AND (NOT EXISTS (SELECT 1 FROM campus_region_assignment cr WHERE cr.campus_id=a.campus_id AND cr.region_id=a.region_id AND cr.valid_from <= $1::timestamptz AND (cr.valid_to IS NULL OR $1::timestamptz < cr.valid_to)) OR (profile.person_id IS NOT NULL AND (profile.campus_id IS DISTINCT FROM a.campus_id OR profile.region_id IS DISTINCT FROM a.region_id))))::text AS campus_region_mismatch_count,
+                (SELECT count(*) FROM person_campus_assignment a WHERE a.person_id=person.id AND a.valid_from <= $1::timestamptz AND (a.valid_to IS NULL OR $1::timestamptz < a.valid_to) AND NOT EXISTS (SELECT 1 FROM campus_region_assignment cr WHERE cr.campus_id=a.campus_id AND cr.region_id=a.region_id AND cr.valid_from <= $1::timestamptz AND (cr.valid_to IS NULL OR $1::timestamptz < cr.valid_to)))::text AS campus_region_mismatch_count,
                 (SELECT count(*) FROM settlement_account s WHERE s.owner_type='PERSON' AND s.owner_id=person.id AND s.status='ACTIVE')::text AS settlement_account_count,
                 (SELECT count(*) FROM referral_case r WHERE r.receiver_person_id=person.id AND r.status IN ('PENDING','ACCEPTED','REACTIVATED'))::text AS pending_received_count,
                 (SELECT count(*) FROM person_relationship r WHERE r.teacher_id=person.id AND r.superseded_at IS NULL AND r.relationship_type='GROUP_LEADER' AND (r.valid_to IS NULL OR $1::timestamptz < r.valid_to))::text AS group_leader_relationship_count,
@@ -842,7 +842,6 @@ export class PostgresAccountAccessService {
       if (!profile && nonEmptySpecial.length) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
       if (profile && current.length !== 1) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
       if (profile && current[0]!.subject_code !== profile.business_identity) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
-      if (profile && (profile.campus_id !== campus.rows[0]!.campus_id || profile.region_id !== campus.rows[0]!.region_id)) throw new Error("CAMPUS_ASSIGNMENT_INVALID");
       if (profile && expected !== BigInt(profile.business_identity_version)) throw new Error("BUSINESS_IDENTITY_VERSION_STALE");
       if (!profile && expected !== null) throw new Error("BUSINESS_IDENTITY_VERSION_STALE");
       const finalGrade = targetIdentity === "TEACHING_TEACHER" ? (requestedGrade ?? profile?.grade_subject ?? null) : (requestedGrade ?? profile?.grade_subject ?? null);
