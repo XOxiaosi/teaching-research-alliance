@@ -1,3 +1,16 @@
 export const workerName = "teaching-research-alliance-worker";
 
-export const jobKinds = ["CALCULATION_REBUILD", "EXPORT_BACKUP", "REFERRAL_EXPIRY"] as const;
+export {
+  BackgroundWorkerRuntime,
+  WorkerTaskTransientError,
+} from "./background-worker-runtime.js";
+export type {
+  BackgroundWorkerRuntimeOptions,
+  ClaimedWorkerTask,
+  WorkerLogger,
+  WorkerQueue,
+  WorkerTask,
+  WorkerTaskContext,
+  WorkerTaskPayload,
+  WorkerTaskRegistration,
+} from "./background-worker-runtime.js";

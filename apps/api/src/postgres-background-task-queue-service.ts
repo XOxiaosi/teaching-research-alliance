@@ -56,6 +56,12 @@ const validateFailure = (failure: BackgroundTaskFailure): void => {
   if (!FAILURE.test(failure.code)) fail("TASK_FAILURE_CODE_INVALID");
   if (!KEY.test(failure.reason) || failure.reason.length > 1000) fail("TASK_FAILURE_REASON_INVALID");
 };
+const validateTaskTypes = (taskTypes: readonly string[]): readonly string[] => {
+  if (taskTypes.length === 0) fail("TASK_CLAIM_TYPES_REQUIRED");
+  const unique = [...new Set(taskTypes)];
+  if (unique.length !== taskTypes.length || unique.some((taskType) => !TYPE.test(taskType))) fail("TASK_CLAIM_TYPES_INVALID");
+  return unique;
+};
 const map = (row: TaskRow): BackgroundTask => ({
   id: row.id, taskType: row.task_type, idempotencyKey: row.idempotency_key, payload: row.payload, status: row.status,
   attemptCount: row.attempt_count, maxAttempts: row.max_attempts, availableAt: row.available_at, createdAt: row.created_at, updatedAt: row.updated_at,
@@ -92,21 +98,26 @@ export class PostgresBackgroundTaskQueueService {
     finally { await client.release(); }
   }
 
-  /** Claims distinct due tasks. Expired leases become immutable failed attempts before a fresh lease is issued. */
-  public async claim(at: Date, leaseMs: number, limit = 1): Promise<readonly ClaimedBackgroundTask[]> {
+  /**
+   * Claims distinct due tasks only when this worker has registered their type.
+   * Expired leases become immutable failed attempts before a fresh lease issues.
+   */
+  public async claim(at: Date, leaseMs: number, taskTypes: readonly string[], limit = 1): Promise<readonly ClaimedBackgroundTask[]> {
     const now = iso(at);
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1000 || leaseMs > 3_600_000) fail("TASK_LEASE_DURATION_INVALID");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) fail("TASK_CLAIM_LIMIT_INVALID");
+    const registeredTypes = validateTaskTypes(taskTypes);
     const leaseExpiresAt = new Date(at.getTime() + leaseMs).toISOString();
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await this.failExpiredAttemptsAtLimit(client, now);
+      await this.failExpiredAttemptsAtLimit(client, now, registeredTypes);
       const candidates = await client.query<Pick<TaskRow, "id" | "status" | "attempt_count">>(
         `SELECT id::text AS id,status,attempt_count FROM background_task
-          WHERE (status='PENDING' AND available_at <= $1::timestamptz)
-             OR (status='RUNNING' AND lease_expires_at <= $1::timestamptz AND attempt_count < max_attempts)
-          ORDER BY available_at,created_at,id LIMIT $2 FOR UPDATE SKIP LOCKED`, [now, limit]
+          WHERE task_type = ANY($2::text[])
+            AND ((status='PENDING' AND available_at <= $1::timestamptz)
+              OR (status='RUNNING' AND lease_expires_at <= $1::timestamptz AND attempt_count < max_attempts))
+          ORDER BY available_at,created_at,id LIMIT $3 FOR UPDATE SKIP LOCKED`, [now, registeredTypes, limit]
       );
       const claimed: ClaimedBackgroundTask[] = [];
       for (const candidate of candidates.rows) {
@@ -129,6 +140,35 @@ export class PostgresBackgroundTaskQueueService {
         claimed.push({ task: map(row), leaseToken: token, leaseExpiresAt });
       }
       await client.query("COMMIT"); return claimed;
+    } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error; }
+    finally { await client.release(); }
+  }
+
+  /** Extends the current lease for the same worker attempt. A stale or expired token cannot be renewed. */
+  public async renew(taskId: string, leaseToken: string, at: Date, leaseMs: number): Promise<ClaimedBackgroundTask> {
+    requireUuid(taskId, "TASK_ID_INVALID"); requireUuid(leaseToken, "TASK_LEASE_TOKEN_INVALID");
+    const now = iso(at);
+    if (!Number.isSafeInteger(leaseMs) || leaseMs < 1000 || leaseMs > 3_600_000) fail("TASK_LEASE_DURATION_INVALID");
+    const leaseExpiresAt = new Date(at.getTime() + leaseMs).toISOString();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query<TaskRow>(
+        `UPDATE background_task SET lease_expires_at=$4::timestamptz,updated_at=$3::timestamptz
+          WHERE id=$1::uuid AND status='RUNNING' AND lease_token=$2::uuid AND lease_expires_at > $3::timestamptz
+          RETURNING ${taskProjection}`,
+        [taskId, leaseToken, now, leaseExpiresAt]
+      );
+      const row = requireRow(updated.rows[0], "TASK_LEASE_LOST");
+      const attempt = await client.query(
+        `UPDATE background_task_attempt SET lease_expires_at=$3::timestamptz
+          WHERE task_id=$1::uuid AND lease_token=$2::uuid AND outcome='RUNNING'
+          RETURNING task_id`,
+        [taskId, leaseToken, leaseExpiresAt]
+      );
+      if (attempt.rows[0] === undefined) fail("TASK_LEASE_LOST");
+      await client.query("COMMIT");
+      return { task: map(row), leaseToken, leaseExpiresAt };
     } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error; }
     finally { await client.release(); }
   }
@@ -218,10 +258,11 @@ export class PostgresBackgroundTaskQueueService {
     finally { await client.release(); }
   }
 
-  private async failExpiredAttemptsAtLimit(client: PostgresClient, now: string): Promise<void> {
+  private async failExpiredAttemptsAtLimit(client: PostgresClient, now: string, taskTypes: readonly string[]): Promise<void> {
     const expired = await client.query<{ id: string }>(
-      `SELECT id::text AS id FROM background_task WHERE status='RUNNING' AND lease_expires_at <= $1::timestamptz AND attempt_count >= max_attempts
-        ORDER BY lease_expires_at,id FOR UPDATE SKIP LOCKED`, [now]
+      `SELECT id::text AS id FROM background_task
+        WHERE task_type = ANY($2::text[]) AND status='RUNNING' AND lease_expires_at <= $1::timestamptz AND attempt_count >= max_attempts
+        ORDER BY lease_expires_at,id FOR UPDATE SKIP LOCKED`, [now, taskTypes]
     );
     for (const row of expired.rows) {
       await client.query(`UPDATE background_task_attempt SET outcome='LEASE_EXPIRED',finished_at=$2::timestamptz,failure_code='LEASE_EXPIRED_RETRY_EXHAUSTED',failure_reason='Worker lease expired after the final permitted attempt.' WHERE task_id=$1::uuid AND outcome='RUNNING'`, [row.id, now]);
