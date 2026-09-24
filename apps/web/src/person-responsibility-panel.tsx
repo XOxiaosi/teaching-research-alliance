@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiClientError, type ManagedRoleAssignment, type PersonProfileDraft, type PersonResponsibilityDirectoryItem, type RoleAssignmentDraft, type SessionSnapshot, type TeacherApiClient } from "@teaching-research-alliance/client";
+import { ApiClientError, type ManagedRoleAssignment, type PersonBusinessIdentityDraft, type PersonProfileDraft, type PersonResponsibilityDirectoryItem, type RoleAssignmentDraft, type SessionSnapshot, type TeacherApiClient } from "@teaching-research-alliance/client";
 import { Button } from "./components/ui/button.js";
 
 export type PersonResponsibility = ManagedRoleAssignment;
@@ -33,6 +33,10 @@ const isAccessLoss = (error: unknown): boolean => error instanceof ApiClientErro
 const isConfirmedRejection = (error: unknown): boolean => error instanceof ApiClientError && error.status >= 400 && error.status < 500 && !isAccessLoss(error);
 const toInstant = (date: string): string => `${date}T00:00:00.000Z`;
 const today = (): string => new Date().toISOString().slice(0, 10);
+const identityLabel: Readonly<Record<PersonBusinessIdentityDraft["businessIdentity"], string>> = { TEACHING_TEACHER: "授课老师", ACADEMIC_PLANNER: "学业规划师" };
+const blockerLabel: Readonly<Record<string, string>> = { MISSING_GRADE_SUBJECT: "缺少教学学科", PERSON_INACTIVE: "人员已停用", ACCOUNT_INACTIVE: "账户已停用", PROFILE_EMPLOYMENT_INACTIVE: "任职资料已停用", SETTLEMENT_ACCOUNT_MISSING: "缺少结算账户", CAMPUS_ASSIGNMENT_REQUIRED: "需要校区归属", CAMPUS_REGION_MISMATCH: "校区与分区不匹配", PENDING_RECEIVED_REFERRALS: "存在待处理转介", ACTIVE_GROUP_LEADER_RELATIONSHIP: "存在有效教研组长关系", ACTIVE_TEACHING_MENTOR_RELATIONSHIP: "存在有效授课指导关系", ACTIVE_PLANNING_MENTOR_RELATIONSHIP: "存在有效规划指导关系", SYSTEM_IDENTITY_PROTECTED: "系统身份受保护", READINESS_BLOCKED: "前置条件未就绪", ACTIVE_RELATIONSHIPS: "存在有效关系", ACTIVE_SETTLEMENTS: "存在已生效结算" };
+const blockersFor = (person: PersonResponsibilityDirectoryItem, target: PersonBusinessIdentityDraft["businessIdentity"]): readonly { code: string; count: number }[] => person.businessIdentityBlockers[target];
+const blockerText = (items: readonly { code: string; count: number }[]): string => items.map((item) => `${blockerLabel[item.code] ?? item.code} × ${item.count}`).join("、");
 
 /** Management data deliberately omits every finance and credential field. */
 export function PersonResponsibilityPanel({ client, session, sessionKey, active, busy = false, onUnconfirmedChange, onInvalidated }: Props): ReactNode {
@@ -44,6 +48,8 @@ export function PersonResponsibilityPanel({ client, session, sessionKey, active,
   const [reason, setReason] = useState("");
   const [nickname, setNickname] = useState("");
   const [legalName, setLegalName] = useState("");
+  const [businessIdentity, setBusinessIdentity] = useState<PersonBusinessIdentityDraft["businessIdentity"]>("TEACHING_TEACHER");
+  const [gradeSubject, setGradeSubject] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -53,6 +59,7 @@ export function PersonResponsibilityPanel({ client, session, sessionKey, active,
   const owner = session.currentRoleContext?.subject === "SYSTEM_OWNER";
   const selected = useMemo(() => people.find((item) => item.personId === selectedId) ?? null, [people, selectedId]);
   useEffect(() => { setNickname(selected?.nickname ?? ""); setLegalName(selected?.legalName ?? ""); }, [selected]);
+  useEffect(() => { setBusinessIdentity(selected?.businessIdentity ?? "TEACHING_TEACHER"); setGradeSubject(selected?.gradeSubject ?? ""); }, [selected]);
   const candidates = Object.keys(scopeBySubject).filter((item) => !["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "VENUE_OWNER"].includes(item) && (owner || item !== "SYSTEM_ADMIN"));
   const scope = scopeBySubject[subject] ?? "SELF";
   const locked = busy || loading || submitting || pending.current !== null;
@@ -126,6 +133,16 @@ export function PersonResponsibilityPanel({ client, session, sessionKey, active,
     const submission = client.createPersonProfileSubmission({ personId: selected.personId, nickname: nextNickname, legalName: nextLegalName, expectedProfileVersion: selected.profileVersion, reason: reason.trim() } satisfies PersonProfileDraft);
     void execute({ label: "人员资料更正", successMessage: "资料已保存，人员编号、账户和职责未变化。", execute: () => client.updatePersonProfile(submission) });
   };
+  const updateBusinessIdentity = (): void => {
+    if (!selected || locked) return;
+    if (!reason.trim()) { setNotice("请填写业务身份变更理由。"); return; }
+    if (businessIdentity === "TEACHING_TEACHER" && !gradeSubject.trim()) { setNotice("授课老师业务身份必须填写教学学科。"); return; }
+    const blockers = blockersFor(selected, businessIdentity);
+    if (blockers.length > 0) { setNotice(`当前目标身份被阻断（${blockers.reduce((sum, item) => sum + item.count, 0)}项）：${blockerText(blockers)}`); return; }
+    if (selected.businessIdentity === businessIdentity) { setNotice("目标业务身份与当前身份相同，无需保存。"); return; }
+    const submission = client.createPersonBusinessIdentitySubmission({ personId: selected.personId, businessIdentity, ...(businessIdentity === "TEACHING_TEACHER" ? { gradeSubject: gradeSubject.trim() } : {}), expectedBusinessIdentityVersion: selected.businessIdentityVersion, reason: reason.trim() });
+    void execute({ label: "业务身份变更", successMessage: "业务身份已保存，历史推荐和费用不重算。", execute: () => client.updatePersonBusinessIdentity(submission) });
+  };
 
   if (!allowed) return null;
   return <section className="panel person-responsibility-panel" aria-label="人员与职责" hidden={!active}>
@@ -135,7 +152,7 @@ export function PersonResponsibilityPanel({ client, session, sessionKey, active,
     {loading ? <p>正在读取人员目录…</p> : people.length === 0 ? <p>当前没有可管理人员。</p> : <>
       <label>目标人员<select aria-label="目标人员" disabled={locked} value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setNotice(""); }}><option value="">请选择人员</option>{people.map((item) => <option key={item.personId} value={item.personId}>{item.nickname} · {item.personStatus === "ACTIVE" && item.loginStatus !== "REVOKED" ? "可登录" : "已停用"}</option>)}</select></label>
       {selected && <div className="person-responsibility-layout"><article className="account-directory"><h3>{selected.nickname}</h3><p>人员状态：{selected.personStatus === "ACTIVE" ? "启用" : "已停用"} · 账号：{selected.loginStatus === "REVOKED" ? "不可登录" : "可登录"}</p><h3>当前与历史职责</h3>{selected.responsibilities.length === 0 ? <p>暂无已任命职责。</p> : <ul>{selected.responsibilities.map((item) => <li key={item.assignmentId}><span>{subjectLabel[item.subject] ?? item.subject} · {scopeLabel[item.scope] ?? item.scope}{item.scopeId ? `（${item.scopeId}）` : ""} · {item.validFrom.slice(0, 10)} 至 {item.validTo?.slice(0, 10) ?? "持续有效"}</span>{canRevoke(item) ? <Button type="button" variant="outline" disabled={locked} onClick={() => revoke(item)}>{isFutureAssignment(item) ? "取消任命" : "撤销职责"}</Button> : null}</li>)}</ul>}</article>
-        {systemIdentityProtected ? <p className="account-access-notice">仅开发者可管理系统身份。</p> : <div className="person-responsibility-actions"><h3>人员资料</h3><label>展示昵称<input aria-label="展示昵称" value={nickname} disabled={locked} onChange={(event) => setNickname(event.target.value)} /></label><label>真实姓名<input aria-label="真实姓名" value={legalName} disabled={locked} onChange={(event) => setLegalName(event.target.value)} /></label><label>变更理由<textarea aria-label="人员职责变更理由" value={reason} maxLength={1000} disabled={locked} onChange={(event) => setReason(event.target.value)} placeholder="说明本次资料、任命、撤销或停用的业务原因" /></label><Button type="button" variant="outline" disabled={locked} onClick={correctProfile}>保存人员资料</Button>{canChangeSelectedStatus && <Button type="button" variant="outline" disabled={locked} onClick={toggleStatus}>{selected.personStatus === "ACTIVE" ? "停用人员并注销会话" : "恢复人员登录"}</Button>}{selected.personStatus === "INACTIVE" ? <p className="account-access-notice">人员已停用，请先恢复后再任命职责。</p> : <form onSubmit={assign}><h3>任命职责</h3><fieldset disabled={locked}><label>职责<select aria-label="职责" value={subject} onChange={(event) => { setSubject(event.target.value); setScopeId(""); }}>{candidates.map((item) => <option key={item} value={item}>{subjectLabel[item]}</option>)}</select></label><p>生效范围：{scopeLabel[scope] ?? scope}</p>{needsScopeId(scope) && <label>{scopeLabel[scope] ?? scope}编号<input aria-label="职责范围编号" value={scopeId} onChange={(event) => setScopeId(event.target.value)} /></label>}<label>生效日期<input aria-label="职责生效日期" type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /></label></fieldset><Button type="submit" disabled={locked}>确认任命</Button></form>}</div>}</div>}
+        {systemIdentityProtected ? <p className="account-access-notice">仅开发者可管理系统身份。</p> : <div className="person-responsibility-actions"><h3>业务身份</h3><p>当前身份：{(selected.businessIdentity && identityLabel[selected.businessIdentity]) ?? "未配置"}</p><label>目标业务身份<select aria-label="目标业务身份" value={businessIdentity} disabled={locked} onChange={(event) => setBusinessIdentity(event.target.value as PersonBusinessIdentityDraft["businessIdentity"])}>{(Object.keys(identityLabel) as PersonBusinessIdentityDraft["businessIdentity"][]).map((item) => <option key={item} value={item}>{identityLabel[item]}</option>)}</select></label>{businessIdentity === "TEACHING_TEACHER" && <label>教学学科<input aria-label="教学学科" value={gradeSubject} disabled={locked} onChange={(event) => setGradeSubject(event.target.value)} /></label>}<p>阻断项：{blockersFor(selected, businessIdentity).reduce((sum, item) => sum + item.count, 0)} 项{blockersFor(selected, businessIdentity).length > 0 ? `（${blockerText(blockersFor(selected, businessIdentity))}）` : ""}</p><Button type="button" variant="outline" disabled={locked || blockersFor(selected, businessIdentity).length > 0 || selected.businessIdentity === businessIdentity || (businessIdentity === "TEACHING_TEACHER" && !gradeSubject.trim())} onClick={updateBusinessIdentity}>保存业务身份</Button><h3>人员资料</h3><label>展示昵称<input aria-label="展示昵称" value={nickname} disabled={locked} onChange={(event) => setNickname(event.target.value)} /></label><label>真实姓名<input aria-label="真实姓名" value={legalName} disabled={locked} onChange={(event) => setLegalName(event.target.value)} /></label><label>变更理由<textarea aria-label="人员职责变更理由" value={reason} maxLength={1000} disabled={locked} onChange={(event) => setReason(event.target.value)} placeholder="说明本次资料、任命、撤销或停用的业务原因" /></label><Button type="button" variant="outline" disabled={locked} onClick={correctProfile}>保存人员资料</Button>{canChangeSelectedStatus && <Button type="button" variant="outline" disabled={locked} onClick={toggleStatus}>{selected.personStatus === "ACTIVE" ? "停用人员并注销会话" : "恢复人员登录"}</Button>}{selected.personStatus === "INACTIVE" ? <p className="account-access-notice">人员已停用，请先恢复后再任命职责。</p> : <form onSubmit={assign}><h3>任命职责</h3><fieldset disabled={locked}><label>职责<select aria-label="职责" value={subject} onChange={(event) => { setSubject(event.target.value); setScopeId(""); }}>{candidates.map((item) => <option key={item} value={item}>{subjectLabel[item]}</option>)}</select></label><p>生效范围：{scopeLabel[scope] ?? scope}</p>{needsScopeId(scope) && <label>{scopeLabel[scope] ?? scope}编号<input aria-label="职责范围编号" value={scopeId} onChange={(event) => setScopeId(event.target.value)} /></label>}<label>生效日期<input aria-label="职责生效日期" type="date" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /></label></fieldset><Button type="submit" disabled={locked}>确认任命</Button></form>}</div>}</div>}
     </>}
   </section>;
 }

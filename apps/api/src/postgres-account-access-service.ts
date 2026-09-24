@@ -106,6 +106,13 @@ export type PersonResponsibilityDirectoryItem = Readonly<{
   nickname: string;
   legalName: string;
   profileVersion: string;
+  businessIdentity: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | null;
+  businessIdentityVersion: string | null;
+  gradeSubject: string | null;
+  businessIdentityBlockers: Readonly<{
+    TEACHING_TEACHER: readonly { code: BusinessIdentityBlockerCode; count: number }[];
+    ACADEMIC_PLANNER: readonly { code: BusinessIdentityBlockerCode; count: number }[];
+  }>;
   phoneNormalized: string;
   loginStatus: "ACTIVE" | "REVOKED";
   personStatus: "ACTIVE" | "INACTIVE";
@@ -144,6 +151,19 @@ export type PersonProfileChangeResult = Readonly<{
   replay: boolean;
 }>;
 
+export type PersonBusinessIdentityChangeResult = Readonly<{
+  personId: string; businessIdentity: "TEACHING_TEACHER" | "ACADEMIC_PLANNER";
+  businessIdentityVersion: string; gradeSubject: string | null;
+  beforeRoleAssignmentId: string | null; resultRoleAssignmentId: string;
+  authVersion: string; changedAt: string; replay: boolean;
+}>;
+export type BusinessIdentityBlockerCode =
+  | "PERSON_INACTIVE" | "ACCOUNT_INACTIVE" | "PROFILE_EMPLOYMENT_INACTIVE"
+  | "SETTLEMENT_ACCOUNT_MISSING" | "CAMPUS_ASSIGNMENT_REQUIRED"
+  | "CAMPUS_REGION_MISMATCH" | "PENDING_RECEIVED_REFERRALS"
+  | "ACTIVE_GROUP_LEADER_RELATIONSHIP" | "ACTIVE_TEACHING_MENTOR_RELATIONSHIP"
+  | "ACTIVE_PLANNING_MENTOR_RELATIONSHIP";
+
 type AccountRow = Readonly<{
   account_id: string;
   person_id: string;
@@ -170,6 +190,19 @@ type DirectoryRow = Readonly<{
   active_system_authorities: readonly string[] | null;
   legal_name: string;
   profile_version: string;
+  business_identity: "TEACHING_TEACHER" | "ACADEMIC_PLANNER" | null;
+  business_identity_version: string | null;
+  grade_subject: string | null;
+  employment_status: "ACTIVE" | "INACTIVE" | null;
+  profile_campus_id: string | null;
+  profile_region_id: string | null;
+  campus_assignment_count: string;
+  campus_region_mismatch_count: string;
+  settlement_account_count: string;
+  pending_received_count: string;
+  group_leader_relationship_count: string;
+  teaching_mentor_relationship_count: string;
+  planning_mentor_relationship_count: string;
 }>;
 
 type ResponsibilityRow = Readonly<{
@@ -208,6 +241,18 @@ const strictGlobalAuthority = (
 const validAt = (at: Date): string => {
   if (!Number.isFinite(at.getTime())) throw new Error("INVALID_INPUT");
   return at.toISOString();
+};
+
+const businessIdentity = (value: string): "TEACHING_TEACHER" | "ACADEMIC_PLANNER" => {
+  if (value !== "TEACHING_TEACHER" && value !== "ACADEMIC_PLANNER") throw new Error("INVALID_INPUT");
+  return value;
+};
+
+const gradeSubject = (value: string | null | undefined): string | null => {
+  if (value === undefined || value === null) return null;
+  const normalized = value.trim();
+  if (normalized.length > 100) throw new Error("INVALID_INPUT");
+  return normalized || null;
 };
 
 const registrationConflict = (error: unknown): never => {
@@ -620,9 +665,19 @@ export class PostgresAccountAccessService {
       await this.assertCurrentAuthority(client, context, atIso);
       const people = await client.query<DirectoryRow>(
         `SELECT account.id::text AS account_id,person.id::text AS person_id,person.nickname,person.legal_name,person.profile_version::text AS profile_version,account.phone_normalized,
-                account.login_status,person.status AS person_status,'{}'::text[] AS active_system_authorities
+                account.login_status,person.status AS person_status,'{}'::text[] AS active_system_authorities,
+                profile.business_identity,profile.business_identity_version::text AS business_identity_version,profile.grade_subject,profile.employment_status,profile.campus_id::text AS profile_campus_id,profile.region_id::text AS profile_region_id,
+                (SELECT count(*) FROM person_campus_assignment a WHERE a.person_id=person.id AND a.valid_from <= $1::timestamptz AND (a.valid_to IS NULL OR $1::timestamptz < a.valid_to))::text AS campus_assignment_count,
+                (SELECT count(*) FROM person_campus_assignment a WHERE a.person_id=person.id AND a.valid_from <= $1::timestamptz AND (a.valid_to IS NULL OR $1::timestamptz < a.valid_to) AND (NOT EXISTS (SELECT 1 FROM campus_region_assignment cr WHERE cr.campus_id=a.campus_id AND cr.region_id=a.region_id AND cr.valid_from <= $1::timestamptz AND (cr.valid_to IS NULL OR $1::timestamptz < cr.valid_to)) OR (profile.person_id IS NOT NULL AND (profile.campus_id IS DISTINCT FROM a.campus_id OR profile.region_id IS DISTINCT FROM a.region_id))))::text AS campus_region_mismatch_count,
+                (SELECT count(*) FROM settlement_account s WHERE s.owner_type='PERSON' AND s.owner_id=person.id AND s.status='ACTIVE')::text AS settlement_account_count,
+                (SELECT count(*) FROM referral_case r WHERE r.receiver_person_id=person.id AND r.status IN ('PENDING','ACCEPTED','REACTIVATED'))::text AS pending_received_count,
+                (SELECT count(*) FROM person_relationship r WHERE r.teacher_id=person.id AND r.superseded_at IS NULL AND r.relationship_type='GROUP_LEADER' AND (r.valid_to IS NULL OR $1::timestamptz < r.valid_to))::text AS group_leader_relationship_count,
+                (SELECT count(*) FROM person_relationship r WHERE r.teacher_id=person.id AND r.superseded_at IS NULL AND r.relationship_type='TEACHING_MENTOR' AND (r.valid_to IS NULL OR $1::timestamptz < r.valid_to))::text AS teaching_mentor_relationship_count,
+                (SELECT count(*) FROM person_relationship r WHERE r.teacher_id=person.id AND r.superseded_at IS NULL AND r.relationship_type='PLANNING_MENTOR' AND (r.valid_to IS NULL OR $1::timestamptz < r.valid_to))::text AS planning_mentor_relationship_count
            FROM user_account account JOIN person ON person.id=account.person_id
+           LEFT JOIN teacher_profile profile ON profile.person_id=person.id
           ORDER BY person.nickname,person.id`,
+        [atIso],
       );
       const roles = await client.query<ResponsibilityRow>(
         `SELECT id::text AS assignment_id,person_id::text AS person_id,subject_code,scope_type,scope_id::text AS scope_id,
@@ -640,6 +695,30 @@ export class PostgresAccountAccessService {
         phoneNormalized: person.phone_normalized, legalName: person.legal_name, profileVersion: person.profile_version,
         loginStatus: person.login_status,
         personStatus: person.person_status, responsibilities: grouped.get(person.person_id) ?? [],
+        businessIdentity: person.business_identity, businessIdentityVersion: person.business_identity_version,
+        gradeSubject: person.grade_subject,
+        businessIdentityBlockers: {
+          TEACHING_TEACHER: [
+            ...(person.person_status !== "ACTIVE" ? [{ code: "PERSON_INACTIVE" as const, count: 1 }] : []),
+            ...(person.login_status !== "ACTIVE" ? [{ code: "ACCOUNT_INACTIVE" as const, count: 1 }] : []),
+            ...(person.campus_assignment_count !== "1" ? [{ code: "CAMPUS_ASSIGNMENT_REQUIRED" as const, count: Number(person.campus_assignment_count) }] : []),
+            ...(person.campus_region_mismatch_count !== "0" ? [{ code: "CAMPUS_REGION_MISMATCH" as const, count: Number(person.campus_region_mismatch_count) }] : []),
+            ...(person.employment_status === "INACTIVE" ? [{ code: "PROFILE_EMPLOYMENT_INACTIVE" as const, count: 1 }] : []),
+            ...(person.settlement_account_count !== "1" ? [{ code: "SETTLEMENT_ACCOUNT_MISSING" as const, count: Number(person.settlement_account_count) }] : []),
+            ...(person.planning_mentor_relationship_count !== "0" ? [{ code: "ACTIVE_PLANNING_MENTOR_RELATIONSHIP" as const, count: Number(person.planning_mentor_relationship_count) }] : []),
+          ],
+          ACADEMIC_PLANNER: [
+            ...(person.person_status !== "ACTIVE" ? [{ code: "PERSON_INACTIVE" as const, count: 1 }] : []),
+            ...(person.login_status !== "ACTIVE" ? [{ code: "ACCOUNT_INACTIVE" as const, count: 1 }] : []),
+            ...(person.campus_assignment_count !== "1" ? [{ code: "CAMPUS_ASSIGNMENT_REQUIRED" as const, count: Number(person.campus_assignment_count) }] : []),
+            ...(person.campus_region_mismatch_count !== "0" ? [{ code: "CAMPUS_REGION_MISMATCH" as const, count: Number(person.campus_region_mismatch_count) }] : []),
+            ...(person.pending_received_count !== "0" ? [{ code: "PENDING_RECEIVED_REFERRALS" as const, count: Number(person.pending_received_count) }] : []),
+            ...(person.group_leader_relationship_count !== "0" ? [{ code: "ACTIVE_GROUP_LEADER_RELATIONSHIP" as const, count: Number(person.group_leader_relationship_count) }] : []),
+            ...(person.employment_status === "INACTIVE" ? [{ code: "PROFILE_EMPLOYMENT_INACTIVE" as const, count: 1 }] : []),
+            ...(person.settlement_account_count !== "1" ? [{ code: "SETTLEMENT_ACCOUNT_MISSING" as const, count: Number(person.settlement_account_count) }] : []),
+            ...(person.teaching_mentor_relationship_count !== "0" ? [{ code: "ACTIVE_TEACHING_MENTOR_RELATIONSHIP" as const, count: Number(person.teaching_mentor_relationship_count) }] : []),
+          ],
+        },
       }));
     });
   }
@@ -705,6 +784,91 @@ export class PostgresAccountAccessService {
       await client.query(`INSERT INTO audit_event(id,actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at) VALUES($1::uuid,$2::uuid,'PERSON_PROFILE_CHANGED','PERSON',$3::uuid,$4::jsonb,$5::jsonb,$6,$7::timestamptz)`, [auditEventId,context.personId,personId,JSON.stringify({nickname: before.nickname, legalName: before.legal_name, profileVersion: expectedProfileVersion.toString()}),JSON.stringify({nickname,legalName,profileVersion: nextVersion.toString()}),reason,atIso]);
       const changedAt = inserted.rows[0]?.changed_at ?? atIso;
       return { personId, nickname, legalName, profileVersion: nextVersion.toString(), changedAt: new Date(changedAt).toISOString(), replay: false };
+    });
+  }
+
+  public async updatePersonBusinessIdentity(
+    context: RoleContext, personIdInput: string, identityInput: string,
+    gradeSubjectInput: string | null | undefined, expectedVersionInput: string | null,
+    reasonInput: string, idempotencyKeyInput: string, at: Date,
+  ): Promise<PersonBusinessIdentityChangeResult> {
+    const atIso = validAt(at), personId = personIdInput.toLowerCase();
+    if (!UUID_PATTERN.test(personId)) throw new Error("INVALID_INPUT");
+    const targetIdentity = businessIdentity(identityInput);
+    const requestedGrade = gradeSubject(gradeSubjectInput);
+    const reason = normalizeResetReason(reasonInput), idempotencyKey = assertIdempotencyKey(idempotencyKeyInput);
+    let expected: bigint | null = null;
+    if (expectedVersionInput !== null) {
+      try { expected = BigInt(expectedVersionInput); } catch { throw new Error("INVALID_INPUT"); }
+      if (expected < 1n) throw new Error("INVALID_INPUT");
+    }
+    return this.transaction(async (client) => {
+      const actor = await this.assertCurrentAuthority(client, context, atIso);
+      await client.query("SELECT id FROM person WHERE id=$1::uuid FOR UPDATE", [personId]);
+      const protectedTarget = await client.query(
+        `SELECT 1 FROM role_assignment WHERE person_id=$1::uuid AND subject_code IN ('SYSTEM_OWNER','SYSTEM_ADMIN')
+           AND scope_type='GLOBAL' AND scope_id IS NULL AND (valid_to IS NULL OR $2::timestamptz < valid_to)
+           AND (valid_to IS NULL OR valid_to > valid_from) LIMIT 1`, [personId, atIso]);
+      if (actor === "SYSTEM_ADMIN" && protectedTarget.rows.length) throw new Error("FORBIDDEN_SCOPE");
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`person-business-identity:${personId}`]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`person-business-identity-command:${context.personId}:${idempotencyKey}`]);
+      const replay = (await client.query<{ person_id:string; after_business_identity:"TEACHING_TEACHER"|"ACADEMIC_PLANNER"; result_business_identity_version:string; after_grade_subject:string|null; before_role_assignment_id:string|null; result_role_assignment_id:string; result_auth_version:string; changed_at:string; reason:string; requested_grade_subject:string|null }>(
+        `SELECT person_id::text,after_business_identity,result_business_identity_version::text,after_grade_subject,before_role_assignment_id::text,result_role_assignment_id::text,result_auth_version::text,changed_at::text,reason,requested_grade_subject
+           FROM teacher_profile_identity_change WHERE actor_person_id=$1::uuid AND idempotency_key=$2 FOR SHARE`, [context.personId, idempotencyKey])).rows[0];
+      if (replay) {
+        if (replay.person_id !== personId || replay.after_business_identity !== targetIdentity || replay.requested_grade_subject !== requestedGrade || (expected !== null && replay.result_business_identity_version !== (expected + 1n).toString()) || (expected === null && replay.result_business_identity_version !== "1") || replay.reason !== reason) throw new Error("IDEMPOTENCY_REPLAY");
+        return { personId, businessIdentity: replay.after_business_identity, businessIdentityVersion: replay.result_business_identity_version, gradeSubject: replay.after_grade_subject, beforeRoleAssignmentId: replay.before_role_assignment_id, resultRoleAssignmentId: replay.result_role_assignment_id, authVersion: replay.result_auth_version, changedAt: new Date(replay.changed_at).toISOString(), replay: true };
+      }
+      const account = (await client.query<{ id:string; auth_version:string; login_status:"ACTIVE"|"REVOKED" }>("SELECT id::text,auth_version::text,login_status FROM user_account WHERE person_id=$1::uuid FOR UPDATE", [personId])).rows[0];
+      if (!account || account.login_status !== "ACTIVE") throw new Error("ACCOUNT_INACTIVE");
+      const person = (await client.query<{ status:"ACTIVE"|"INACTIVE" }>("SELECT status FROM person WHERE id=$1::uuid", [personId])).rows[0];
+      if (!person || person.status !== "ACTIVE") throw new Error("PERSON_INACTIVE");
+      if ((await client.query("SELECT 1 FROM settlement_account WHERE owner_type='PERSON' AND owner_id=$1::uuid AND status='ACTIVE'", [personId])).rows.length !== 1) throw new Error("SETTLEMENT_ACCOUNT_MISSING");
+      const campus = await client.query<{id:string;campus_id:string;region_id:string}>(
+        `SELECT a.id,a.campus_id::text,a.region_id::text FROM person_campus_assignment a JOIN campus_region_assignment cr ON cr.campus_id=a.campus_id AND cr.region_id=a.region_id
+          WHERE a.person_id=$1::uuid AND a.valid_from <= $2::timestamptz AND (a.valid_to IS NULL OR $2::timestamptz < a.valid_to)
+            AND cr.valid_from <= $2::timestamptz AND (cr.valid_to IS NULL OR $2::timestamptz < cr.valid_to)`, [personId, atIso]);
+      const campusTotal = await client.query("SELECT count(*)::int AS n FROM person_campus_assignment WHERE person_id=$1::uuid AND valid_from <= $2::timestamptz AND (valid_to IS NULL OR $2::timestamptz < valid_to)", [personId, atIso]);
+      if (campusTotal.rows[0]!.n !== 1 || campus.rows.length !== 1) throw new Error("CAMPUS_ASSIGNMENT_INVALID");
+      const profile = (await client.query<{ business_identity:"TEACHING_TEACHER"|"ACADEMIC_PLANNER"; business_identity_version:string; grade_subject:string|null; employment_status:"ACTIVE"|"INACTIVE"; campus_id:string; region_id:string }>("SELECT business_identity,business_identity_version::text,grade_subject,employment_status,campus_id::text,region_id::text FROM teacher_profile WHERE person_id=$1::uuid FOR UPDATE", [personId])).rows[0];
+      if (profile && profile.employment_status !== "ACTIVE") throw new Error("PROFILE_EMPLOYMENT_INACTIVE");
+      const special = await client.query<{id:string;subject_code:string;valid_from:string;valid_to:string|null}>(
+        `SELECT id::text,subject_code,valid_from::text,valid_to::text FROM role_assignment WHERE person_id=$1::uuid AND subject_code IN ('TEACHING_TEACHER','ACADEMIC_PLANNER') AND scope_type='SELF' AND scope_id IS NULL ORDER BY valid_from,id`, [personId]);
+      const nonEmptySpecial = special.rows.filter(row => row.valid_to === null || new Date(row.valid_to).getTime() > new Date(row.valid_from).getTime());
+      const future = nonEmptySpecial.filter(row => new Date(row.valid_from).getTime() > at.getTime());
+      if (future.length) throw new Error("BUSINESS_IDENTITY_FUTURE_ROLE_CONFLICT");
+      const current = special.rows.filter(row => new Date(row.valid_from).getTime() <= at.getTime() && (row.valid_to === null || at < new Date(row.valid_to)));
+      if (current.length > 1) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
+      if (!profile && nonEmptySpecial.length) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
+      if (profile && current.length !== 1) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
+      if (profile && current[0]!.subject_code !== profile.business_identity) throw new Error("BUSINESS_IDENTITY_ROLE_CONFLICT");
+      if (profile && (profile.campus_id !== campus.rows[0]!.campus_id || profile.region_id !== campus.rows[0]!.region_id)) throw new Error("CAMPUS_ASSIGNMENT_INVALID");
+      if (profile && expected !== BigInt(profile.business_identity_version)) throw new Error("BUSINESS_IDENTITY_VERSION_STALE");
+      if (!profile && expected !== null) throw new Error("BUSINESS_IDENTITY_VERSION_STALE");
+      const finalGrade = targetIdentity === "TEACHING_TEACHER" ? (requestedGrade ?? profile?.grade_subject ?? null) : (requestedGrade ?? profile?.grade_subject ?? null);
+      if (targetIdentity === "TEACHING_TEACHER" && !finalGrade) throw new Error("GRADE_SUBJECT_REQUIRED");
+      if (profile && profile.business_identity === targetIdentity) throw new Error("BUSINESS_IDENTITY_NO_CHANGE");
+      const pending = await client.query<{n:number}>("SELECT count(*)::int AS n FROM referral_case WHERE receiver_person_id=$1::uuid AND status IN ('PENDING','ACCEPTED','REACTIVATED')", [personId]);
+      const groupTeaching = await client.query("SELECT relationship_type,count(*)::int AS n FROM person_relationship WHERE teacher_id=$1::uuid AND superseded_at IS NULL AND relationship_type IN ('GROUP_LEADER','TEACHING_MENTOR') AND (valid_to IS NULL OR $2::timestamptz < valid_to) GROUP BY relationship_type", [personId, atIso]);
+      const planning = await client.query<{n:number}>("SELECT count(*)::int AS n FROM person_relationship WHERE teacher_id=$1::uuid AND superseded_at IS NULL AND relationship_type='PLANNING_MENTOR' AND (valid_to IS NULL OR $2::timestamptz < valid_to)", [personId, atIso]);
+      if (targetIdentity === "ACADEMIC_PLANNER" && (pending.rows[0]!.n > 0 || groupTeaching.rows.length > 0)) throw new Error("BUSINESS_IDENTITY_RELATIONSHIP_BLOCKED");
+      if (targetIdentity === "TEACHING_TEACHER" && planning.rows[0]!.n > 0) throw new Error("BUSINESS_IDENTITY_RELATIONSHIP_BLOCKED");
+      const nextVersion = profile ? BigInt(profile.business_identity_version) + 1n : 1n;
+      const auditEventId = randomUUID();
+      await client.query("SELECT set_config('app.teacher_profile_identity_write_context','service-v1',true)");
+      let roleId: string;
+      if (profile) await client.query("UPDATE teacher_profile SET business_identity=$2,grade_subject=$3,updated_at=$4::timestamptz WHERE person_id=$1::uuid", [personId,targetIdentity,finalGrade,atIso]);
+      if (!profile) {
+        const assignment = await client.query<{campus_id:string;region_id:string}>("SELECT campus_id::text,region_id::text FROM person_campus_assignment WHERE person_id=$1::uuid AND valid_from <= $2::timestamptz AND (valid_to IS NULL OR $2::timestamptz < valid_to)", [personId,atIso]);
+        await client.query("INSERT INTO teacher_profile(person_id,business_identity,region_id,campus_id,grade_subject,employment_status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'ACTIVE',$6,$6)", [personId,targetIdentity,assignment.rows[0]!.region_id,assignment.rows[0]!.campus_id,finalGrade,atIso]);
+      }
+      let beforeRoleAssignmentId: string | null = current[0]?.id ?? null;
+      if (beforeRoleAssignmentId) await client.query("UPDATE role_assignment SET valid_to=$2::timestamptz WHERE id=$1::uuid", [beforeRoleAssignmentId,atIso]);
+      roleId = (await client.query<{id:string}>("INSERT INTO role_assignment(person_id,subject_code,scope_type,scope_id,valid_from,created_by,created_at,reason) VALUES($1,$2,'SELF',NULL,$3,$4,$3,'BUSINESS_IDENTITY_CHANGE') RETURNING id::text", [personId,targetIdentity,atIso,context.personId])).rows[0]!.id;
+      const authVersion = (await client.query<{auth_version:string}>("UPDATE user_account SET auth_version=auth_version+1,updated_at=$2::timestamptz WHERE person_id=$1::uuid RETURNING auth_version::text", [personId,atIso])).rows[0]!.auth_version;
+      await client.query(`INSERT INTO teacher_profile_identity_change(audit_event_id,person_id,source_business_identity_version,result_business_identity_version,before_business_identity,after_business_identity,before_grade_subject,after_grade_subject,before_role_assignment_id,result_role_assignment_id,before_auth_version,result_auth_version,actor_person_id,actor_subject_code,reason,requested_grade_subject,idempotency_key,changed_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`, [auditEventId,personId,profile?.business_identity_version ?? null,nextVersion.toString(),profile?.business_identity ?? null,targetIdentity,profile?.grade_subject ?? null,finalGrade,beforeRoleAssignmentId,roleId,account.auth_version,authVersion,context.personId,actor,reason,requestedGrade,idempotencyKey,atIso]);
+      await client.query(`INSERT INTO audit_event(id,actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at) VALUES($1,$2,'TEACHER_PROFILE_IDENTITY_CHANGED','PERSON',$3,$4::jsonb,$5::jsonb,$6,$7)`, [auditEventId,context.personId,personId,JSON.stringify({businessIdentity:profile?.business_identity??null,businessIdentityVersion:profile?.business_identity_version??null,gradeSubject:profile?.grade_subject??null,roleAssignmentId:beforeRoleAssignmentId,authVersion:account.auth_version}),JSON.stringify({businessIdentity:targetIdentity,businessIdentityVersion:nextVersion.toString(),gradeSubject:finalGrade,roleAssignmentId:roleId,authVersion:authVersion}),reason,atIso]);
+      return { personId, businessIdentity: targetIdentity, businessIdentityVersion: nextVersion.toString(), gradeSubject: finalGrade, beforeRoleAssignmentId, resultRoleAssignmentId: roleId, authVersion, changedAt: atIso, replay: false };
     });
   }
 

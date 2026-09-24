@@ -7,7 +7,7 @@ import { fullBackupOutputColumns } from "./full-backup-transformer.js";
  * deliberately does not assemble rows, join source tables, or calculate
  * amounts.  Raw-source workbooks remain the authoritative stored-fact export.
  */
-export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v7";
+export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v8";
 
 export type BusinessBackupSheetMode = "STORED_FACTS" | "DERIVED_REQUIRED";
 export type BusinessBackupRowModel = "SOURCE_ROWS_ONLY" | "DERIVED_NOT_GENERATED";
@@ -71,6 +71,7 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     key("role_assignment", "id", "role_assignment.person_id 关联被授予人"),
     key("person_relationship", "id", "person_relationship.teacher_id/related_person_id 关联人员"),
     key("person_profile_change", "id", "不可变人员资料更正历史主键"),
+    key("teacher_profile_identity_change", "id", "不可变业务身份更正历史主键"),
     key("organization_unit", "id", "organization_unit.parent_id 表达组织层级"),
     key("venue", "id", "venue.owner_person_id 关联场地所有人"),
     key("venue_permission_grant", "id", "venue_permission_grant.venue_id 关联场地"),
@@ -96,6 +97,14 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     source("person_profile_change", "actor_person_id", "更正操作者", "管理员操作人"),
     source("person_profile_change", "reason", "更正原因", "管理员填写原因"),
     source("person_profile_change", "changed_at", "更正时间", "可信服务端时间"),
+    source("teacher_profile_identity_change", "before_business_identity", "业务身份变更前身份", "不可变业务身份历史"),
+    source("teacher_profile_identity_change", "after_business_identity", "业务身份变更后身份", "不可变业务身份历史"),
+    source("teacher_profile_identity_change", "before_grade_subject", "业务身份变更前学科", "不可变业务身份历史"),
+    source("teacher_profile_identity_change", "after_grade_subject", "业务身份变更后学科", "不可变业务身份历史"),
+    source("teacher_profile_identity_change", "requested_grade_subject", "业务身份请求学科", "规范化请求参数历史"),
+    source("teacher_profile_identity_change", "actor_person_id", "业务身份变更操作者", "管理员操作人"),
+    source("teacher_profile_identity_change", "reason", "业务身份变更原因", "管理员填写原因"),
+    source("teacher_profile_identity_change", "changed_at", "业务身份变更时间", "可信服务端时间"),
     source("person", "status", "人员状态", "由 person.id 关联"),
     source("user_account", "login_status", "登录状态", "user_account.person_id 关联 person.id；不导出密码或认证版本"),
     source("teacher_profile", "business_identity", "业务身份", "teacher_profile.person_id 关联 person.id"),

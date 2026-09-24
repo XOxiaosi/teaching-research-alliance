@@ -109,6 +109,7 @@ export type ApiServices = Readonly<{
     ) => unknown | Promise<unknown>;
     listPeople: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
     updatePersonProfile: (context: RoleContext, personId: string, nickname: string, legalName: string, expectedProfileVersion: string, reason: string, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
+    updatePersonBusinessIdentity: (context: RoleContext, personId: string, businessIdentity: "TEACHING_TEACHER" | "ACADEMIC_PLANNER", gradeSubject: string | null | undefined, expectedVersion: string | null, reason: string, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
     assignRole: (context: RoleContext, personId: string, draft: {
       subject: PermissionSubject; scope: import("@teaching-research-alliance/contracts").PermissionScope;
       scopeId?: string; validFrom: string; validTo?: string; reason: string;
@@ -796,6 +797,16 @@ const errorStatus = (code: string): number => {
       "CANNOT_DEACTIVATE_LAST_OWNER",
       "PROFILE_VERSION_STALE",
       "PROFILE_NO_CHANGE",
+      "BUSINESS_IDENTITY_VERSION_STALE",
+      "BUSINESS_IDENTITY_NO_CHANGE",
+      "BUSINESS_IDENTITY_FUTURE_ROLE_CONFLICT",
+      "BUSINESS_IDENTITY_ROLE_CONFLICT",
+      "BUSINESS_IDENTITY_RELATIONSHIP_BLOCKED",
+      "CAMPUS_ASSIGNMENT_INVALID",
+      "SETTLEMENT_ACCOUNT_MISSING",
+      "ACCOUNT_INACTIVE",
+      "PROFILE_EMPLOYMENT_INACTIVE",
+      "GRADE_SUBJECT_REQUIRED",
     ].includes(code)
   )
     return 409;
@@ -864,9 +875,11 @@ const errorStatus = (code: string): number => {
   if (
     code === "VENUE_CHANGE_REQUIRED" ||
     code === "REFERRAL_ALREADY_ACCEPTED" ||
-    code === "REFERRAL_STATE_CONFLICT"
+    code === "REFERRAL_STATE_CONFLICT" ||
+    code === "REFERRAL_RECEIVER_IDENTITY_INVALID"
   )
     return 409;
+  if (code === "INTERNAL_ERROR" || ["TEACHER_PROFILE_IDENTITY_WRITE_FORBIDDEN", "TEACHER_PROFILE_IDENTITY_TRIPLE_INCOMPLETE", "TEACHER_PROFILE_IDENTITY_CHANGE_IMMUTABLE", "TEACHER_PROFILE_IDENTITY_AUDIT_IMMUTABLE"].includes(code)) return 500;
   return 400;
 };
 
@@ -1226,6 +1239,16 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
       return success(await services.accountAccess.updatePersonProfile(context, profilePath[1]!, requiredString(body,"nickname"), requiredString(body,"legalName"), requiredString(body,"expectedProfileVersion"), requiredString(body,"reason"), requiredString(body,"idempotencyKey"), at));
+    }
+    const businessIdentityPath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/business-identity$/);
+    if (request.method === "POST" && businessIdentityPath !== null) {
+      if (Object.keys(body).some((key) => !["sessionId","businessIdentity","gradeSubject","expectedBusinessIdentityVersion","reason","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (typeof body.businessIdentity !== "string" || (body.gradeSubject !== undefined && body.gradeSubject !== null && typeof body.gradeSubject !== "string")) throw new Error("INVALID_INPUT");
+      if (body.expectedBusinessIdentityVersion !== null && typeof body.expectedBusinessIdentityVersion !== "string") throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.updatePersonBusinessIdentity(context, businessIdentityPath[1]!, body.businessIdentity as "TEACHING_TEACHER" | "ACADEMIC_PLANNER", body.gradeSubject as string | null | undefined, body.expectedBusinessIdentityVersion as string | null, requiredString(body,"reason"), requiredString(body,"idempotencyKey"), at));
     }
     const roleAssignmentPath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/role-assignments$/);
     if (request.method === "POST" && roleAssignmentPath !== null) {

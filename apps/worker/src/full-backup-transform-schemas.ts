@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v7";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v8";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;

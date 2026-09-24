@@ -246,7 +246,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v7");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v8");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");
@@ -279,4 +279,17 @@ test("人员资料更正历史只输出幂等指纹，不输出原始命令键",
   });
   assert.equal(result.values.idempotency_key, undefined);
   assert.equal(result.values.idempotency_key_fingerprint, "a".repeat(64));
+});
+
+test("业务身份历史只输出幂等指纹，不输出原始命令键", async () => {
+  const result = await row("teacher_profile_identity_change", { idempotency_key: "raw-business-identity-key" }, {
+    id: "identity-change-1", audit_event_id: "audit-1", person_id: "person-1", source_business_identity_version: null,
+    result_business_identity_version: "1", before_business_identity: null, after_business_identity: "TEACHING_TEACHER",
+    before_grade_subject: null, after_grade_subject: "数学", before_role_assignment_id: null, result_role_assignment_id: "role-1",
+    before_auth_version: "1", result_auth_version: "2", actor_person_id: "admin-1", actor_subject_code: "SYSTEM_OWNER",
+    reason: "首配", requested_grade_subject: "数学", changed_at: "2026-09-23T00:00:00.000Z", created_at: "2026-09-23T00:00:00.000Z",
+  });
+  assert.equal(result.values.idempotency_key, undefined);
+  assert.match(result.values.idempotency_key_fingerprint, /^[0-9a-f]{64}$/);
+  assert.equal(JSON.stringify(result.values).includes("raw-business-identity-key"), false);
 });

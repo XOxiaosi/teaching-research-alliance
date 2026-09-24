@@ -100,17 +100,17 @@ try {
               ($8::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid)`,
       [ids.planner, ids.campus, ids.region, validFrom, ids.admin, ids.teacher, ids.teacherB, ids.platformFinance]
     );
-    await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "CAMPUS", ids.campus, ids.admin);
+    await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "SELF", null, ids.admin);
     await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "SELF", null, ids.admin);
     await addRole(pool, ids.groupLeader, "GROUP_LEADER", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
     // Two independent, login-enabled candidates make the real browser group-leader flow selectable.
     await addRole(pool, ids.groupLeaderCandidateA, "GROUP_LEADER", "ASSOCIATED_TEACHERS", null, ids.admin);
     await addRole(pool, ids.groupLeaderCandidateB, "GROUP_LEADER", "ASSOCIATED_TEACHERS", null, ids.admin);
     await addRole(pool, ids.teachingMentor, "TEACHING_MENTOR", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
-    await addRole(pool, ids.teacher, "TEACHING_TEACHER", "SELF", ids.teacher, ids.admin);
-    await addRole(pool, ids.teacherB, "TEACHING_TEACHER", "SELF", ids.teacherB, ids.admin);
+    await addRole(pool, ids.teacher, "TEACHING_TEACHER", "SELF", null, ids.admin);
+    await addRole(pool, ids.teacherB, "TEACHING_TEACHER", "SELF", null, ids.admin);
     await addRole(pool, ids.platformFinance, "HEADQUARTERS_FINANCE", "GLOBAL", null, ids.admin);
-    await addRole(pool, ids.platformFinance, "TEACHING_TEACHER", "SELF", ids.platformFinance, ids.admin);
+    await addRole(pool, ids.platformFinance, "TEACHING_TEACHER", "SELF", null, ids.admin);
     await addRole(pool, ids.platformFinance, "CAMPUS_PRINCIPAL", "CAMPUS", ids.campus, ids.admin);
     await addRole(pool, ids.admin, "SYSTEM_ADMIN", "GLOBAL", null, ids.admin);
     await addRole(pool, ids.regionFinance, "REGION_FINANCE", "REGION", ids.region, ids.admin);

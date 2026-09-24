@@ -10,6 +10,9 @@ import type {
   RoleContext,
   SalaryBenefitDocumentKind,
   PersonProfileChangeResult,
+  PersonBusinessIdentityChangeResult,
+  PersonBusinessIdentity,
+  BusinessIdentityBlocker,
 } from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
@@ -146,6 +149,10 @@ export type PersonResponsibilityDirectoryItem = Readonly<{
   accountId: string; personId: string; nickname: string; legalName: string; profileVersion: string; phoneNormalized: string;
   loginStatus: "ACTIVE" | "REVOKED"; personStatus: "ACTIVE" | "INACTIVE";
   responsibilities: readonly ManagedRoleAssignment[];
+  businessIdentity: PersonBusinessIdentity | null;
+  businessIdentityVersion: string | null;
+  gradeSubject: string | null;
+  businessIdentityBlockers: Readonly<Record<PersonBusinessIdentity, readonly BusinessIdentityBlocker[]>>;
 }>;
 
 export type RoleAssignmentDraft = Readonly<{
@@ -164,6 +171,8 @@ export type PersonStatusSubmission = Readonly<{ draft: PersonStatusDraft; idempo
 export type PersonStatusChangeResult = Readonly<{ personId: string; personStatus: "ACTIVE" | "INACTIVE"; authVersion: string; replay: boolean }>;
 export type PersonProfileDraft = Readonly<{ personId: string; nickname: string; legalName: string; expectedProfileVersion: string; reason: string }>;
 export type PersonProfileSubmission = Readonly<{ draft: PersonProfileDraft; idempotencyKey: string }>;
+export type PersonBusinessIdentityDraft = Readonly<{ personId: string; businessIdentity: PersonBusinessIdentity; gradeSubject?: string | null; expectedBusinessIdentityVersion: string | null; reason: string }>;
+export type PersonBusinessIdentitySubmission = Readonly<{ draft: PersonBusinessIdentityDraft; idempotencyKey: string }>;
 
 /** Monetary values stay decimal integer text in cents; callers must never provide a number. */
 export type WeeklyFeeDraftInput = Readonly<{
@@ -2224,6 +2233,25 @@ export class TeacherApiClient {
     try {
       const { personId, ...draft } = submission.draft;
       const result = await this.authenticatedRequest<PersonProfileChangeResult>("POST", `/v1/admin/people/${encodeURIComponent(personId)}/profile`, { ...draft, idempotencyKey: submission.idempotencyKey });
+      this.submissionStatuses.set(submission,"SUCCEEDED"); this.advanceResponseGeneration(); return result;
+    } catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
+  }
+
+  public createPersonBusinessIdentitySubmission(draft: PersonBusinessIdentityDraft): PersonBusinessIdentitySubmission {
+    this.requireCompanyFundAdministrator();
+    for (const field of [draft.personId,draft.businessIdentity,draft.reason]) requireNonBlank(field,"personBusinessIdentity");
+    if (draft.expectedBusinessIdentityVersion === undefined) throw new Error("INVALID_INPUT");
+    if (draft.expectedBusinessIdentityVersion !== null) requireNonBlank(draft.expectedBusinessIdentityVersion,"expectedBusinessIdentityVersion");
+    const submission = Object.freeze({ draft: Object.freeze({ ...draft }), idempotencyKey: this.newIdempotencyKey() });
+    this.submissionStatuses.set(submission,"READY"); this.submissionScopes.set(submission,this.captureSubmissionScope()); return submission;
+  }
+
+  public async updatePersonBusinessIdentity(submission: PersonBusinessIdentitySubmission): Promise<PersonBusinessIdentityChangeResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireCompanyFundAdministrator(); this.submissionStatuses.set(submission,"SUBMITTING");
+    try {
+      const { personId, ...draft } = submission.draft;
+      const result = await this.authenticatedRequest<PersonBusinessIdentityChangeResult>("POST", `/v1/admin/people/${encodeURIComponent(personId)}/business-identity`, { ...draft, idempotencyKey: submission.idempotencyKey });
       this.submissionStatuses.set(submission,"SUCCEEDED"); this.advanceResponseGeneration(); return result;
     } catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
   }

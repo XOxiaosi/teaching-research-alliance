@@ -102,7 +102,7 @@ test("在触碰任何目录前拒绝跨快照组件", async () => {
   await assert.rejects(() => new FullBackupLocalPackageAssembler({ spoolDirectory: "/does-not-exist/spool", spool, workbookDirectory: "/does-not-exist/workbooks", workbooks, attachmentDirectory: "/does-not-exist/attachments", attachments, outputRoot: "/does-not-exist/output" }).assemble(), /EXPORT_PACKAGE_SNAPSHOT_MISMATCH/);
 });
 
-test("拒绝截断或错序的固定91表 spool 清单，且不触碰目录", async () => {
+test("拒绝截断或错序的固定92表 spool 清单，且不触碰目录", async () => {
   const datasets = layout.map((item, index) => {
     const excluded = item.policy === "AUTH_SECRET_TABLE_EXCLUDED";
     return { tableName: item.tableName, excluded, columns: excluded ? [] : fullBackupOutputColumns(item.tableName), rowCount: excluded ? null : "0", logicalDigest: excluded ? null : "0".repeat(64), spoolFile: excluded ? null : `datasets/${String(index + 1).padStart(3, "0")}_${item.tableName}.ndjson` };

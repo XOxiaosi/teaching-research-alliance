@@ -325,6 +325,17 @@ export const API_ERROR_CODES = [
   "PROFILE_NICKNAME_CONFLICT",
   "PROFILE_VERSION_STALE",
   "PROFILE_NO_CHANGE",
+  "BUSINESS_IDENTITY_VERSION_STALE",
+  "BUSINESS_IDENTITY_NO_CHANGE",
+  "BUSINESS_IDENTITY_FUTURE_ROLE_CONFLICT",
+  "BUSINESS_IDENTITY_ROLE_CONFLICT",
+  "BUSINESS_IDENTITY_RELATIONSHIP_BLOCKED",
+  "CAMPUS_ASSIGNMENT_INVALID",
+  "SETTLEMENT_ACCOUNT_MISSING",
+  "ACCOUNT_INACTIVE",
+  "PROFILE_EMPLOYMENT_INACTIVE",
+  "GRADE_SUBJECT_REQUIRED",
+  "REFERRAL_RECEIVER_IDENTITY_INVALID",
   "ACCOUNT_NOT_FOUND",
   "PERSON_NOT_FOUND",
   "PERSON_INACTIVE",
@@ -458,6 +469,15 @@ export type PersonProfileChangeResult = Readonly<{
   profileVersion: string;
   changedAt: string;
   replay: boolean;
+}>;
+
+export type PersonBusinessIdentity = "TEACHING_TEACHER" | "ACADEMIC_PLANNER";
+export type BusinessIdentityBlockerCode = "PERSON_INACTIVE" | "ACCOUNT_INACTIVE" | "PROFILE_EMPLOYMENT_INACTIVE" | "SETTLEMENT_ACCOUNT_MISSING" | "CAMPUS_ASSIGNMENT_REQUIRED" | "CAMPUS_REGION_MISMATCH" | "PENDING_RECEIVED_REFERRALS" | "ACTIVE_GROUP_LEADER_RELATIONSHIP" | "ACTIVE_TEACHING_MENTOR_RELATIONSHIP" | "ACTIVE_PLANNING_MENTOR_RELATIONSHIP";
+export type BusinessIdentityBlocker = Readonly<{ code: BusinessIdentityBlockerCode; count: number }>;
+export type PersonBusinessIdentityChangeResult = Readonly<{
+  personId: string; businessIdentity: PersonBusinessIdentity; businessIdentityVersion: string;
+  gradeSubject: string | null; beforeRoleAssignmentId: string | null; resultRoleAssignmentId: string;
+  authVersion: string; changedAt: string; replay: boolean;
 }>;
 
 export type GroupLeaderRelationshipPersonDto = Readonly<{
@@ -622,6 +642,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/people/:personId/profile",
     action: "MANAGE_ACCOUNT_ACCESS",
     responseVersion: "person-profile-change.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/people/:personId/business-identity",
+    action: "MANAGE_ACCOUNT_ACCESS",
+    responseVersion: "person-business-identity-change.v1",
     requiresRoleContext: true,
   },
   { method: "GET", path: "/v1/organizations/revenue", action: "VIEW_ORGANIZATION_REVENUE", responseVersion: "organization-revenue.v1", requiresRoleContext: true },

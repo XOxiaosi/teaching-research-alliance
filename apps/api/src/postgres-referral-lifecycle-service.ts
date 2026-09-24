@@ -278,6 +278,15 @@ export class PostgresReferralLifecycleService {
         : referral.status === "ARCHIVED";
       if (!validState) throw new Error("REFERRAL_STATE_CONFLICT");
       const resultStatus = archive ? "ARCHIVED" : "REACTIVATED";
+      if (!archive) {
+        const profile = await client.query<{ business_identity: string; employment_status: string }>(
+          `SELECT business_identity,employment_status FROM teacher_profile WHERE person_id=$1::uuid FOR SHARE`,
+          [referral.receiver_person_id],
+        );
+        if (profile.rows.length !== 1 || profile.rows[0]!.business_identity !== "TEACHING_TEACHER" || profile.rows[0]!.employment_status !== "ACTIVE") {
+          throw new Error("REFERRAL_RECEIVER_IDENTITY_INVALID");
+        }
+      }
       const resultExpiresAt = archive
         ? referral.unaccepted_expires_at
         : new Date(at.getTime() + 21 * 24 * 60 * 60 * 1000).toISOString();

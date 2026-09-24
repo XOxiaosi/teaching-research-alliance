@@ -13,7 +13,7 @@ const flush = () => act(async () => { await new Promise((done) => setTimeout(don
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const propsOf = (node) => node[Object.keys(node).find((key) => key.startsWith("__reactProps$"))];
 const session = (subject = "SYSTEM_ADMIN", patch = {}) => ({ sessionId: "s", accountId: "a", personId: "actor", currentRoleContext: { subject, scope: "GLOBAL", personId: "actor", ...patch }, roleContexts: [] });
-const person = (nickname = "成员甲") => ({ accountId: "a2", personId: "p2", nickname, legalName: "真实姓名", profileVersion: "1", phoneNormalized: "13800000000", loginStatus: "ACTIVE", personStatus: "ACTIVE", responsibilities: [] });
+const person = (nickname = "成员甲") => ({ accountId: "a2", personId: "p2", nickname, legalName: "真实姓名", profileVersion: "1", businessIdentity: null, businessIdentityVersion: null, gradeSubject: null, businessIdentityBlockers: { TEACHING_TEACHER: [], ACADEMIC_PLANNER: [] }, phoneNormalized: "13800000000", loginStatus: "ACTIVE", personStatus: "ACTIVE", responsibilities: [] });
 
 test.before(async () => { directory = await mkdtemp(resolve(import.meta.dirname, ".people-panel-")); const outfile = resolve(directory, "panel.mjs"); await build({ entryPoints: [resolve(import.meta.dirname, "../src/person-responsibility-panel.tsx")], bundle: true, platform: "node", format: "esm", outfile, external: ["react", "react-dom", "@teaching-research-alliance/client"] }); ({ PersonResponsibilityPanel: Panel, canManagePersonnel } = await import(outfile)); });
 test.after(async () => { await rm(directory, { recursive: true, force: true }); });
@@ -95,4 +95,20 @@ test("资料更正入口最小化字段，并在未知结果时重试同一 subm
     assert.match(ui.host.textContent, /结果尚未确认/); const retry = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "安全重试原操作"); assert.ok(retry); await act(async () => retry.click()); await flush();
     assert.equal(attempts, 2); assert.equal(submissions.length, 1); assert.match(ui.host.textContent, /人员编号、账户和职责未变化/); assert.equal(ui.host.querySelector("[aria-label='展示昵称']").disabled, false); assert.equal([...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存人员资料").disabled, false);
   } finally { await ui.close(); }
+});
+
+test("业务身份显示目标与阻断项，未知结果使用同一命令重试", async () => {
+  const frozen = { draft: { personId: "p2", businessIdentity: "ACADEMIC_PLANNER", expectedBusinessIdentityVersion: "3", reason: "岗位调整" }, idempotencyKey: "identity-key" }; const submissions = []; let attempts = 0;
+  const target = { ...person(), businessIdentity: "TEACHING_TEACHER", businessIdentityVersion: "3", gradeSubject: "数学", businessIdentityBlockers: { TEACHING_TEACHER: [], ACADEMIC_PLANNER: [] } };
+  const client = { hasRoleContext: true, listPeople: async () => [target], createPersonBusinessIdentitySubmission: (draft) => { submissions.push(draft); return frozen; }, updatePersonBusinessIdentity: async (submission) => { assert.equal(submission, frozen); if (++attempts === 1) throw new ApiClientError(500, "INTERNAL_ERROR"); return { replay: true }; } };
+  const ui = await mount(React.createElement(Panel, { client, session: session("SYSTEM_OWNER"), sessionKey: "identity", active: true, onInvalidated() {} }));
+  try { assert.match(ui.host.textContent, /当前身份：授课老师/); await ui.input("目标业务身份", "ACADEMIC_PLANNER"); await ui.input("人员职责变更理由", "岗位调整"); const save = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存业务身份"); assert.ok(save); await act(async () => save.click()); await flush(); assert.match(ui.host.textContent, /结果尚未确认/); const retry = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "安全重试原操作"); assert.ok(retry); await act(async () => retry.click()); await flush(); assert.equal(attempts, 2); assert.equal(submissions.length, 1); assert.equal(submissions[0].expectedBusinessIdentityVersion, "3"); assert.match(ui.host.textContent, /历史推荐和费用不重算/); } finally { await ui.close(); }
+});
+
+test("业务身份首配绑定 null 版本并展示对象阻断项", async () => {
+  const drafts = [];
+  const target = { ...person(), businessIdentity: null, businessIdentityVersion: null, businessIdentityBlockers: { TEACHING_TEACHER: [{ code: "ACTIVE_GROUP_LEADER_RELATIONSHIP", count: 2 }], ACADEMIC_PLANNER: [] } };
+  const client = { hasRoleContext: true, listPeople: async () => [target], createPersonBusinessIdentitySubmission: (draft) => { drafts.push(draft); return { draft, idempotencyKey: "first" }; }, updatePersonBusinessIdentity: async () => ({ replay: true }) };
+  const ui = await mount(React.createElement(Panel, { client, session: session("SYSTEM_OWNER"), sessionKey: "identity-first", active: true, onInvalidated() {} }));
+  try { assert.match(ui.host.textContent, /当前身份：未配置/); assert.match(ui.host.textContent, /存在有效教研组长关系 × 2/); assert.equal([...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存业务身份").disabled, true); await ui.input("目标业务身份", "ACADEMIC_PLANNER"); await ui.input("人员职责变更理由", "首配"); const save = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存业务身份"); assert.equal(save.disabled, false); await act(async () => save.click()); await flush(); assert.equal(drafts[0].expectedBusinessIdentityVersion, null); } finally { await ui.close(); }
 });
