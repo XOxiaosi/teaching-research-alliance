@@ -411,3 +411,178 @@ test("账号与真实来源IP限流并发不丢计数、重启保留，HTTP忽�
     await database.close();
   }
 });
+
+test("职责任免、停复用都审计并立即使旧会话失效，系统管理权不会锁死", async () => {
+  const database = await createTestDatabase(connectionString);
+  const access = new PostgresAccountAccessService(database.pool);
+  const sessions = new PostgresSessionService(database.pool);
+  try {
+    const owner = await register(access, 1301);
+    const otherOwner = await register(access, 1302);
+    const admin = await register(access, 1303);
+    const target = await register(access, 1304);
+    const futureTarget = await register(access, 1305);
+    const statusOnlyTarget = await register(access, 1306);
+    const scheduledAdministrator = await register(access, 1310);
+    await addAuthority(database.pool, owner.session.personId, "SYSTEM_OWNER");
+    await addAuthority(database.pool, otherOwner.session.personId, "SYSTEM_OWNER");
+    await addAuthority(database.pool, admin.session.personId, "SYSTEM_ADMIN");
+    const ownerContext = (await sessions.switchRole(owner.session.sessionId, "SYSTEM_OWNER", later)).currentRoleContext;
+    const otherOwnerContext = (await sessions.switchRole(otherOwner.session.sessionId, "SYSTEM_OWNER", later)).currentRoleContext;
+    const adminContext = (await sessions.switchRole(admin.session.sessionId, "SYSTEM_ADMIN", later)).currentRoleContext;
+    const scheduledAdministratorAt = new Date(later.getTime() + 24 * 60 * 60_000);
+    await database.pool.query(
+      `INSERT INTO role_assignment(person_id,subject_code,scope_type,scope_id,valid_from,created_by,created_at)
+       VALUES($1::uuid,'SYSTEM_ADMIN','GLOBAL',NULL,$2::timestamptz,$3::uuid,$4::timestamptz)`,
+      [scheduledAdministrator.session.personId, scheduledAdministratorAt.toISOString(), owner.session.personId, later.toISOString()],
+    );
+    await assert.rejects(
+      access.setPersonStatus(adminContext, scheduledAdministrator.session.personId, "INACTIVE", "管理员不能绕过已安排系统身份", "future-admin-status", later), /FORBIDDEN_SCOPE/,
+    );
+    const people = await access.listPeople(ownerContext, later);
+    const ownerDirectory = people.find((item) => item.personId === owner.session.personId);
+    assert.equal(ownerDirectory?.responsibilities.some((item) => item.subject === "SYSTEM_OWNER" && item.scope === "GLOBAL"), true);
+    const serializedDirectory = JSON.stringify(people);
+    for (const sensitiveField of ["salary", "bank", "balance", "token", "password", "authVersion"]) {
+      assert.equal(serializedDirectory.toLowerCase().includes(sensitiveField.toLowerCase()), false);
+    }
+
+    await assert.rejects(
+      access.assignRole(adminContext, target.session.personId, {
+        subject: "SYSTEM_ADMIN", scope: "GLOBAL", validFrom: later.toISOString(), reason: "管理员不得任免系统管理员",
+      }, "admin-system-admin", later), /ONLY_SYSTEM_OWNER_CAN_MANAGE_ADMIN/,
+    );
+    await assert.rejects(
+      access.assignRole(ownerContext, target.session.personId, {
+        subject: "REGION_FINANCE", scope: "GLOBAL", validFrom: later.toISOString(), reason: "范围错误",
+      }, "bad-scope", later), /INVALID_ROLE_SCOPE/,
+    );
+    for (const subject of ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "VENUE_OWNER"]) {
+      await assert.rejects(
+        access.assignRole(ownerContext, target.session.personId, {
+          subject, scope: subject === "VENUE_OWNER" ? "VENUE" : "SELF", validFrom: later.toISOString(), reason: "不得手工任命派生或基础职责",
+        }, `forbidden-${subject}`, later), /FORBIDDEN_SCOPE/,
+      );
+    }
+    const baseTeacher = await database.pool.query(
+      "SELECT id::text AS id FROM role_assignment WHERE person_id=$1::uuid AND subject_code='TEACHER'", [target.session.personId],
+    );
+    await assert.rejects(
+      access.revokeRole(ownerContext, baseTeacher.rows[0].id, "基础身份不可撤销", "forbidden-revoke-teacher", later), /FORBIDDEN_SCOPE/,
+    );
+    const grant = await access.assignRole(ownerContext, target.session.personId, {
+      subject: "PLANNING_MENTOR", scope: "SELF", validFrom: later.toISOString(), reason: "承担规划导师职责",
+    }, "grant-teaching", later);
+    assert.equal(grant.replay, false);
+    await assert.rejects(() => sessions.get(target.session.sessionId, later), /UNAUTHENTICATED/);
+    const replay = await access.assignRole(ownerContext, target.session.personId, {
+      subject: "PLANNING_MENTOR", scope: "SELF", validFrom: later.toISOString(), reason: "承担规划导师职责",
+    }, "grant-teaching", later);
+    assert.equal(replay.replay, true);
+    await assert.rejects(
+      access.assignRole(ownerContext, target.session.personId, {
+        subject: "PLANNING_MENTOR", scope: "SELF", validFrom: later.toISOString(), reason: "重复职责",
+      }, "grant-overlap", later), /ROLE_ASSIGNMENT_OVERLAP/,
+    );
+    const revokeAt = later;
+    const revoked = await access.revokeRole(ownerContext, grant.assignment.assignmentId, "职责结束", "revoke-teaching", later);
+    assert.equal(revoked.assignment.validTo, revokeAt.toISOString());
+
+    const futureStart = new Date(later.getTime() + 24 * 60 * 60_000);
+    const futureGrant = await access.assignRole(ownerContext, futureTarget.session.personId, {
+      subject: "PLANNING_MENTOR", scope: "SELF", validFrom: futureStart.toISOString(), reason: "未来规划导师安排",
+    }, "future-grant", later);
+    await assert.rejects(() => sessions.get(futureTarget.session.sessionId, later), /UNAUTHENTICATED/);
+    const futureCancelled = await access.revokeRole(ownerContext, futureGrant.assignment.assignmentId, "未来安排取消", "future-cancel", later);
+    assert.equal(futureCancelled.assignment.validTo, futureStart.toISOString());
+    const futureLogin = await sessions.login("13800001305", "synthetic-password-1305", new Date(futureStart.getTime() + 1_000));
+    assert.equal(futureLogin.roleContexts.some((item) => item.subject === "PLANNING_MENTOR"), false);
+
+    await assert.rejects(
+      access.setPersonStatus(adminContext, owner.session.personId, "INACTIVE", "管理员不得停用系统身份", "admin-owner-status", later), /FORBIDDEN_SCOPE/,
+    );
+    await assert.rejects(
+      access.setPersonStatus(ownerContext, owner.session.personId, "INACTIVE", "不得停用自己", "owner-self-status", later), /CANNOT_DEACTIVATE_SELF/,
+    );
+    const deactivated = await access.setPersonStatus(ownerContext, target.session.personId, "INACTIVE", "离职停用", "target-inactive", later);
+    assert.equal(deactivated.personStatus, "INACTIVE");
+    const restored = await access.setPersonStatus(ownerContext, target.session.personId, "ACTIVE", "返聘恢复账号", "target-active", new Date(later.getTime() + 1_000));
+    assert.equal(restored.personStatus, "ACTIVE");
+    await assert.rejects(() => sessions.get(target.session.sessionId, new Date(later.getTime() + 2_000)), /UNAUTHENTICATED/);
+    const statusOnlyInitial = await database.pool.query("SELECT auth_version::text AS auth_version FROM user_account WHERE id=$1::uuid", [statusOnlyTarget.session.accountId]);
+    await access.setPersonStatus(ownerContext, statusOnlyTarget.session.personId, "INACTIVE", "单独验证停用", "status-only-inactive", later);
+    await assert.rejects(() => sessions.get(statusOnlyTarget.session.sessionId, later), /UNAUTHENTICATED/);
+    await assert.rejects(
+      access.assignRole(ownerContext, statusOnlyTarget.session.personId, {
+        subject: "PLANNING_MENTOR", scope: "SELF", validFrom: later.toISOString(), reason: "停用人员不可任命",
+      }, "inactive-person-role", later), /PERSON_INACTIVE/,
+    );
+    await access.setPersonStatus(ownerContext, statusOnlyTarget.session.personId, "ACTIVE", "单独验证恢复", "status-only-active", new Date(later.getTime() + 1_000));
+    await assert.rejects(() => sessions.get(statusOnlyTarget.session.sessionId, new Date(later.getTime() + 2_000)), /UNAUTHENTICATED/);
+    const statusOnlyFinal = await database.pool.query("SELECT auth_version::text AS auth_version FROM user_account WHERE id=$1::uuid", [statusOnlyTarget.session.accountId]);
+    assert.equal(BigInt(statusOnlyFinal.rows[0].auth_version), BigInt(statusOnlyInitial.rows[0].auth_version) + 2n);
+    const responsibility = await database.pool.query("SELECT valid_to::text AS valid_to FROM role_assignment WHERE id=$1::uuid", [grant.assignment.assignmentId]);
+    assert.equal(new Date(responsibility.rows[0].valid_to).toISOString(), revokeAt.toISOString());
+    const audit = await database.pool.query("SELECT action_code,before_json,after_json,reason FROM audit_event WHERE action_code IN ('ROLE_ASSIGNED','ROLE_REVOKED','PERSON_STATUS_CHANGED') ORDER BY created_at");
+    assert.ok(audit.rows.some((row) =>
+      row.action_code === "ROLE_ASSIGNED"
+      && row.before_json === null
+      && row.after_json?.subject === "PLANNING_MENTOR"
+      && row.after_json?.scope === "SELF",
+    ));
+    assert.ok(audit.rows.some((row) =>
+      row.action_code === "PERSON_STATUS_CHANGED"
+      && row.before_json?.status === "INACTIVE"
+      && row.after_json?.status === "ACTIVE",
+    ));
+    assert.ok(audit.rows.some((row) =>
+      row.action_code === "ROLE_REVOKED"
+      && row.before_json?.validTo === undefined
+      && row.after_json?.validTo === futureStart.toISOString(),
+    ));
+
+    const mutualOwnerDeactivation = await Promise.allSettled([
+      access.setPersonStatus(ownerContext, otherOwner.session.personId, "INACTIVE", "并发治理测试", "owner-b-stops-c", later),
+      access.setPersonStatus(otherOwnerContext, owner.session.personId, "INACTIVE", "并发治理测试", "owner-c-stops-b", later),
+      access.setPersonStatus(adminContext, owner.session.personId, "INACTIVE", "管理员不能绕过治理", "admin-stops-owner", later),
+    ]);
+    const ownerOutcomes = mutualOwnerDeactivation.slice(0, 2);
+    assert.equal(ownerOutcomes.filter((item) => item.status === "fulfilled").length, 1);
+    assert.equal(ownerOutcomes.filter((item) => item.status === "rejected").length, 1);
+    assert.equal(mutualOwnerDeactivation[2]?.status, "rejected");
+    if (mutualOwnerDeactivation[2]?.status === "rejected") assert.match(mutualOwnerDeactivation[2].reason.message, /FORBIDDEN_SCOPE/);
+    const liveOwners = await database.pool.query(
+      `SELECT account.phone_normalized FROM role_assignment authority
+        JOIN person owner_person ON owner_person.id=authority.person_id AND owner_person.status='ACTIVE'
+        JOIN user_account account ON account.person_id=owner_person.id AND account.login_status='ACTIVE'
+       WHERE authority.subject_code='SYSTEM_OWNER' AND authority.scope_type='GLOBAL' AND authority.scope_id IS NULL
+         AND authority.valid_from <= $1::timestamptz AND (authority.valid_to IS NULL OR $1::timestamptz < authority.valid_to)`, [later.toISOString()],
+    );
+    assert.ok(liveOwners.rows.length >= 1);
+    const survivingPhone = liveOwners.rows[0].phone_normalized;
+    const survivingSuffix = Number(survivingPhone.slice(-4));
+    const survivingSession = await sessions.login(survivingPhone, `synthetic-password-${survivingSuffix}`, new Date(later.getTime() + 2_000));
+    assert.equal(survivingSession.roleContexts.some((item) => item.subject === "SYSTEM_OWNER"), true);
+    const survivingOwnerContext = (await sessions.switchRole(survivingSession.sessionId, "SYSTEM_OWNER", new Date(later.getTime() + 2_000))).currentRoleContext;
+    const overlapTarget = await register(access, 1307);
+    const sameResponsibility = { subject: "PLANNING_MENTOR", scope: "SELF", validFrom: later.toISOString(), reason: "并发同职责" };
+    const sameTargetOutcomes = await Promise.allSettled([
+      access.assignRole(survivingOwnerContext, overlapTarget.session.personId, sameResponsibility, "same-responsibility-a", later),
+      access.assignRole(survivingOwnerContext, overlapTarget.session.personId, sameResponsibility, "same-responsibility-b", later),
+    ]);
+    assert.equal(sameTargetOutcomes.filter((item) => item.status === "fulfilled").length, 1);
+    const rejectedOverlap = sameTargetOutcomes.find((item) => item.status === "rejected");
+    if (rejectedOverlap?.status === "rejected") assert.match(rejectedOverlap.reason.message, /ROLE_ASSIGNMENT_OVERLAP/);
+    const replayKey = sameTargetOutcomes[0]?.status === "fulfilled" ? "same-responsibility-a" : "same-responsibility-b";
+    assert.equal((await access.assignRole(survivingOwnerContext, overlapTarget.session.personId, sameResponsibility, replayKey, later)).replay, true);
+    const differentTarget = await register(access, 1308);
+    const differentDutyTarget = await register(access, 1309);
+    const unrelatedOutcomes = await Promise.allSettled([
+      access.assignRole(survivingOwnerContext, differentTarget.session.personId, { subject: "TEACHING_MENTOR", scope: "MENTEES", validFrom: later.toISOString(), reason: "并发不同对象" }, "different-target", later),
+      access.assignRole(survivingOwnerContext, differentDutyTarget.session.personId, { subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", validFrom: later.toISOString(), reason: "并发不同职责" }, "different-duty", later),
+    ]);
+    assert.equal(unrelatedOutcomes.every((item) => item.status === "fulfilled"), true);
+  } finally {
+    await database.close();
+  }
+});

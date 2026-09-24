@@ -98,3 +98,50 @@ test('密码长度校验保持原值，不截断或规范化',async()=>{
     assert.throws(()=>client.createAccountPasswordResetSubmission({...draft,newPassword:password}),e=>e.code==='INVALID_INPUT');
   }
 });
+
+test('人员职责目录与三类命令冻结作用域，撤销不发送客户端时间',async()=>{
+  const requests=[];let assignAttempts=0;
+  const client=new TeacherApiClient({idempotencyKeyFactory:()=> 'responsibility-key',transport:async request=>{
+    if(request.path==='/v1/session')return ok(session('SYSTEM_ADMIN'));
+    requests.push(request);
+    if(request.path==='/v1/admin/people')return ok([{personId:'target',responsibilities:[]}]);
+    if(request.path.includes('/role-assignments')&&!request.path.endsWith('/revoke')){
+      if(++assignAttempts===1)return {status:500,body:{error:{code:'INTERNAL_ERROR',message:'INTERNAL_ERROR'}}};
+      return ok({personId:'target',assignment:{assignmentId:'assignment',subject:'TEACHING_TEACHER',scope:'SELF'},authVersion:'2',replay:true});
+    }
+    if(request.path.endsWith('/revoke'))return ok({personId:'target',assignment:{assignmentId:'assignment',subject:'TEACHING_TEACHER',scope:'SELF',validTo:'trusted'},authVersion:'3',replay:false});
+    return {status:401,body:{error:{code:'UNAUTHENTICATED',message:'UNAUTHENTICATED'}}};
+  }});
+  await login(client);
+  assert.deepEqual(await client.listPeople(),[{personId:'target',responsibilities:[]}]);
+  const mutable={personId:'target',subject:'TEACHING_TEACHER',scope:'SELF',validFrom:'2026-10-01T00:00:00.000Z',reason:'任命'};
+  const assignment=client.createRoleAssignmentSubmission(mutable); mutable.reason='篡改';
+  await assert.rejects(client.assignRole(assignment),e=>e.code==='INTERNAL_ERROR');
+  assert.equal(client.submissionStatus(assignment),'FAILED');
+  assert.equal((await client.assignRole(assignment)).replay,true);
+  assert.deepEqual(requests[1],requests[2]);
+  assert.deepEqual(requests[1].body,{subject:'TEACHING_TEACHER',scope:'SELF',validFrom:'2026-10-01T00:00:00.000Z',reason:'任命',idempotencyKey:'responsibility-key'});
+  const revoke=client.createRoleRevocationSubmission({assignmentId:'assignment',reason:'撤销'});
+  await client.revokeRole(revoke);
+  assert.deepEqual(requests[3].body,{reason:'撤销',idempotencyKey:'responsibility-key'});
+  const status=client.createPersonStatusSubmission({personId:'target',status:'INACTIVE',reason:'离职'});
+  await assert.rejects(client.setPersonStatus(status),e=>e.code==='UNAUTHENTICATED');
+  assert.equal(client.currentSession,null);
+});
+
+test('角色切换后旧职责命令拒绝发送，403清空角色上下文',async()=>{
+  let commands=0;
+  const client=new TeacherApiClient({transport:async request=>{
+    if(request.path==='/v1/session')return ok(session('SYSTEM_ADMIN'));
+    if(request.path==='/v1/role-contexts/switch')return ok(session('SYSTEM_OWNER'));
+    commands++;return {status:403,body:{error:{code:'FORBIDDEN_SCOPE',message:'FORBIDDEN_SCOPE'}}};
+  }});
+  await login(client);
+  const stale=client.createPersonStatusSubmission({personId:'target',status:'INACTIVE',reason:'离职'});
+  await client.switchRole('SYSTEM_OWNER');
+  await assert.rejects(client.setPersonStatus(stale),StaleResponseError);
+  assert.equal(commands,0);
+  const current=client.createPersonStatusSubmission({personId:'target',status:'INACTIVE',reason:'离职'});
+  await assert.rejects(client.setPersonStatus(current),e=>e.code==='FORBIDDEN_SCOPE');
+  assert.equal(client.currentSession.currentRoleContext,null);
+});

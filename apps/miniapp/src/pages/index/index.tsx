@@ -29,6 +29,7 @@ import { BenefitConfirmationPanel } from "./benefit-confirmation-panel";
 import { BenefitPanel } from "./benefit-panel";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel";
 import { AccountAccessPanel, canManageMiniAccountAccess } from "./account-access-panel";
+import { PersonResponsibilityPanel, canManageMiniPersonnel } from "./person-responsibility-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -177,8 +178,9 @@ export default function IndexPage(): ReactNode {
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
   const [accountAccessUnconfirmed, setAccountAccessUnconfirmed] = useState(false);
+  const [peopleUnconfirmed, setPeopleUnconfirmed] = useState(false);
   const [venueUnconfirmed, setVenueUnconfirmed] = useState(false);
-  const financeUnconfirmed = venueUnconfirmed || accountAccessUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const financeUnconfirmed = venueUnconfirmed || accountAccessUnconfirmed || peopleUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -190,6 +192,7 @@ export default function IndexPage(): ReactNode {
     setReimbursementBusy(false);setReimbursementUnconfirmed(false);
     setRefundBusy(false);setRefundUnconfirmed(false);
     setVenueUnconfirmed(false);
+    setPeopleUnconfirmed(false);
     setOverview(null);
     setReferrals([]);
     setShowArchived(false);
@@ -368,6 +371,7 @@ export default function IndexPage(): ReactNode {
   const venuePickerIndex = selectedVenueId === "" ? 0 : historicalVenue !== "" && selectedVenueId === historicalVenue ? 1 : venues.findIndex((venue) => venue.id === selectedVenueId) + 1 + (historicalVenue !== "" ? 1 : 0);
   const currentContext = session?.currentRoleContext;
   const canManageAccountAccess = session !== null && canManageMiniAccountAccess(session);
+  const canManagePeople = session !== null && canManageMiniPersonnel(session);
   const canManageRelationships = currentContext !== null && currentContext?.scope === "GLOBAL" && currentContext?.regionId === undefined && currentContext?.campusId === undefined && currentContext?.venueId === undefined && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext?.subject ?? "");
   const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const canManageVenue = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
@@ -703,6 +707,15 @@ export default function IndexPage(): ReactNode {
             onUnconfirmedChange={setAccountAccessUnconfirmed}
             onInvalidated={() => { clearTeachingState(); setPassword(""); setPasswordConfirmation(""); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }}
             onOwnPasswordReset={() => { clearTeachingState(); setAuthMode("login"); setPhone(""); setPassword(""); setPasswordConfirmation(""); setSession(null); setNotice("当前账户密码已重置，请使用新密码重新登录。"); }}
+          />}
+          {canManagePeople && <PersonResponsibilityPanel
+            key={`people:${session.sessionId}:${JSON.stringify(currentContext)}`}
+            client={client}
+            session={session}
+            sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`}
+            busy={busy}
+            onUnconfirmedChange={setPeopleUnconfirmed}
+            onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }}
           />}
 
           {(canReadOwnRefunds || canReadManagedRefunds) && (

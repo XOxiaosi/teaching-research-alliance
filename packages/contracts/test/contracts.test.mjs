@@ -89,6 +89,18 @@ test("账号访问管理仅授予系统所有者和系统管理员，并声明�
   }
 });
 
+test("人员职责目录与任免接口声明为严格账号访问管理契约", () => {
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.filter((item) => item.path.startsWith("/v1/admin/people") || item.path.startsWith("/v1/admin/role-assignments")),
+    [
+      { method: "GET", path: "/v1/admin/people", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-responsibility-directory.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/people/:personId/role-assignments", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-role-assignment.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/role-assignments/:assignmentId/revoke", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-role-revocation.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/people/:personId/status", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-status-change.v1", requiresRoleContext: true },
+    ],
+  );
+});
+
 test("分区财务只读个人余额与收入汇总，不得到逐笔结算或导出权限", () => {
   assert.equal(hasPermission("REGION_FINANCE", "VIEW_REGION_PERSONAL_SUMMARY"), true);
   assert.equal(hasPermission("REGION_FINANCE", "VIEW_OWN_CURRENT_YEAR_SETTLEMENT"), false);

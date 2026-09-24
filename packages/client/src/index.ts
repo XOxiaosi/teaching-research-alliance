@@ -133,6 +133,32 @@ export type AccountPasswordResetResult = Readonly<{
   replay: boolean;
 }>;
 
+export type ManagedRoleAssignment = Readonly<{
+  assignmentId: string; subject: PermissionSubject; scope: PermissionScope; scopeId?: string;
+  validFrom: string; validTo?: string; reason: string | null; createdByPersonId: string;
+}>;
+
+export type PersonResponsibilityDirectoryItem = Readonly<{
+  accountId: string; personId: string; nickname: string; phoneNormalized: string;
+  loginStatus: "ACTIVE" | "REVOKED"; personStatus: "ACTIVE" | "INACTIVE";
+  responsibilities: readonly ManagedRoleAssignment[];
+}>;
+
+export type RoleAssignmentDraft = Readonly<{
+  personId: string; subject: PermissionSubject; scope: PermissionScope; scopeId?: string;
+  validFrom: string; validTo?: string; reason: string;
+}>;
+export type RoleAssignmentSubmission = Readonly<{ draft: RoleAssignmentDraft; idempotencyKey: string }>;
+export type RoleAssignmentChangeResult = Readonly<{ personId: string; assignment: ManagedRoleAssignment; authVersion: string; replay: boolean }>;
+
+/** The trusted server clock determines when an active responsibility ends. */
+export type RoleRevocationDraft = Readonly<{ assignmentId: string; reason: string }>;
+export type RoleRevocationSubmission = Readonly<{ draft: RoleRevocationDraft; idempotencyKey: string }>;
+
+export type PersonStatusDraft = Readonly<{ personId: string; status: "ACTIVE" | "INACTIVE"; reason: string }>;
+export type PersonStatusSubmission = Readonly<{ draft: PersonStatusDraft; idempotencyKey: string }>;
+export type PersonStatusChangeResult = Readonly<{ personId: string; personStatus: "ACTIVE" | "INACTIVE"; authVersion: string; replay: boolean }>;
+
 /** Monetary values stay decimal integer text in cents; callers must never provide a number. */
 export type WeeklyFeeDraftInput = Readonly<{
   referralCaseId: string;
@@ -1338,6 +1364,9 @@ type Authentication = Readonly<{
 
 type Submission =
   | AccountPasswordResetSubmission
+  | RoleAssignmentSubmission
+  | RoleRevocationSubmission
+  | PersonStatusSubmission
   | WeeklyFeeSubmission
   | GroupLeaderRelationshipChangeSubmission
   | ReferralCreationSubmission
@@ -2127,6 +2156,58 @@ export class TeacherApiClient {
   public async listAccounts(): Promise<readonly AccountDirectoryItem[]> {
     this.requireCompanyFundAdministrator();
     return this.authenticatedRequest("GET", "/v1/admin/accounts");
+  }
+
+  public async listPeople(): Promise<readonly PersonResponsibilityDirectoryItem[]> {
+    this.requireCompanyFundAdministrator();
+    return this.authenticatedRequest("GET", "/v1/admin/people");
+  }
+
+  public createRoleAssignmentSubmission(draft: RoleAssignmentDraft): RoleAssignmentSubmission {
+    this.requireCompanyFundAdministrator();
+    for (const field of [draft.personId,draft.subject,draft.scope,draft.validFrom,draft.reason]) requireNonBlank(field,"roleAssignment");
+    if (draft.scopeId !== undefined) requireNonBlank(draft.scopeId,"scopeId");
+    if (draft.validTo !== undefined) requireNonBlank(draft.validTo,"validTo");
+    const submission = Object.freeze({ draft: Object.freeze({ ...draft }), idempotencyKey: this.newIdempotencyKey() });
+    this.submissionStatuses.set(submission,"READY"); this.submissionScopes.set(submission,this.captureSubmissionScope()); return submission;
+  }
+
+  public async assignRole(submission: RoleAssignmentSubmission): Promise<RoleAssignmentChangeResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireCompanyFundAdministrator(); this.submissionStatuses.set(submission,"SUBMITTING");
+    try {
+      const { personId,...draft } = submission.draft;
+      const result = await this.authenticatedRequest<RoleAssignmentChangeResult>("POST",`/v1/admin/people/${encodeURIComponent(personId)}/role-assignments`,{...draft,idempotencyKey:submission.idempotencyKey});
+      this.submissionStatuses.set(submission,"SUCCEEDED"); this.advanceResponseGeneration(); return result;
+    } catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
+  }
+
+  public createRoleRevocationSubmission(draft: RoleRevocationDraft): RoleRevocationSubmission {
+    this.requireCompanyFundAdministrator();
+    for (const field of [draft.assignmentId,draft.reason]) requireNonBlank(field,"roleRevocation");
+    const submission = Object.freeze({ draft: Object.freeze({ ...draft }), idempotencyKey: this.newIdempotencyKey() });
+    this.submissionStatuses.set(submission,"READY"); this.submissionScopes.set(submission,this.captureSubmissionScope()); return submission;
+  }
+
+  public async revokeRole(submission: RoleRevocationSubmission): Promise<RoleAssignmentChangeResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireCompanyFundAdministrator(); this.submissionStatuses.set(submission,"SUBMITTING");
+    try { const result = await this.authenticatedRequest<RoleAssignmentChangeResult>("POST",`/v1/admin/role-assignments/${encodeURIComponent(submission.draft.assignmentId)}/revoke`,{reason:submission.draft.reason,idempotencyKey:submission.idempotencyKey}); this.submissionStatuses.set(submission,"SUCCEEDED"); this.advanceResponseGeneration(); return result; }
+    catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
+  }
+
+  public createPersonStatusSubmission(draft: PersonStatusDraft): PersonStatusSubmission {
+    this.requireCompanyFundAdministrator(); requireNonBlank(draft.personId,"personId"); requireNonBlank(draft.reason,"reason");
+    if (draft.status !== "ACTIVE" && draft.status !== "INACTIVE") throw new ApiClientError(400,"INVALID_INPUT","INVALID_INPUT:status");
+    const submission = Object.freeze({ draft: Object.freeze({ ...draft }), idempotencyKey: this.newIdempotencyKey() });
+    this.submissionStatuses.set(submission,"READY"); this.submissionScopes.set(submission,this.captureSubmissionScope()); return submission;
+  }
+
+  public async setPersonStatus(submission: PersonStatusSubmission): Promise<PersonStatusChangeResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireCompanyFundAdministrator(); this.submissionStatuses.set(submission,"SUBMITTING");
+    try { const result = await this.authenticatedRequest<PersonStatusChangeResult>("POST",`/v1/admin/people/${encodeURIComponent(submission.draft.personId)}/status`,{status:submission.draft.status,reason:submission.draft.reason,idempotencyKey:submission.idempotencyKey}); this.submissionStatuses.set(submission,"SUCCEEDED"); if (submission.draft.personId === this.session?.personId) this.clearSessionState(); else this.advanceResponseGeneration(); return result; }
+    catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
   }
 
   public createAccountPasswordResetSubmission(draft: AccountPasswordResetDraft): AccountPasswordResetSubmission {
@@ -4290,6 +4371,12 @@ export class TeacherApiClient {
   private requireAuthentication(): Authentication {
     if (this.session === null) throw new ApiClientError(401, "UNAUTHENTICATED");
     return { sessionId: this.session.sessionId, epoch: this.epoch };
+  }
+
+  private newIdempotencyKey(): string {
+    const key = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(key, "idempotencyKey");
+    return key;
   }
 
   private captureSubmissionScope(): SubmissionScope {

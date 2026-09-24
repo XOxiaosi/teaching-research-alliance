@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { RoleContext } from "@teaching-research-alliance/contracts";
+import type { PermissionScope, PermissionSubject, RoleContext } from "@teaching-research-alliance/contracts";
 import {
   assertIdempotencyKey,
   assertPasswordInput,
@@ -18,6 +18,46 @@ import type { SessionView } from "./session-service.js";
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const MANAGED_SUBJECTS: readonly PermissionSubject[] = [
+  "SYSTEM_ADMIN",
+  "HEADQUARTERS_FINANCE", "REGION_FINANCE", "CAMPUS_PRINCIPAL", "GROUP_LEADER",
+  "TEACHING_MENTOR", "PLANNING_MENTOR",
+];
+
+/** Owners are visible in the read-only directory, but never valid appointment targets. */
+const DIRECTORY_SUBJECTS: readonly PermissionSubject[] = [
+  "SYSTEM_OWNER", "TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "VENUE_OWNER",
+  ...MANAGED_SUBJECTS,
+];
+
+const expectedScope = (subject: PermissionSubject): PermissionScope | undefined => {
+  switch (subject) {
+    case "SYSTEM_ADMIN": case "HEADQUARTERS_FINANCE": return "GLOBAL";
+    case "TEACHER": case "TEACHING_TEACHER": case "ACADEMIC_PLANNER": case "PLANNING_MENTOR": return "SELF";
+    case "REGION_FINANCE": return "REGION";
+    case "CAMPUS_PRINCIPAL": return "CAMPUS";
+    case "GROUP_LEADER": return "ASSOCIATED_TEACHERS";
+    case "TEACHING_MENTOR": return "MENTEES";
+    case "VENUE_OWNER": return "VENUE";
+    default: return undefined;
+  }
+};
+
+const normalizedTimestamp = (input: string): string => {
+  const value = new Date(input);
+  if (!Number.isFinite(value.getTime())) throw new Error("INVALID_INPUT");
+  return value.toISOString();
+};
+
+const managedSubject = (value: string): value is PermissionSubject =>
+  MANAGED_SUBJECTS.includes(value as PermissionSubject);
+
+const directorySubject = (value: string): value is PermissionSubject =>
+  DIRECTORY_SUBJECTS.includes(value as PermissionSubject);
+
+const managedScope = (value: string): value is PermissionScope =>
+  ["GLOBAL", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "SELF"].includes(value);
 
 export type RegistrationDraft = Readonly<{
   nickname: string;
@@ -49,6 +89,50 @@ export type PasswordResetResult = Readonly<{
   replay: boolean;
 }>;
 
+export type ManagedRoleAssignment = Readonly<{
+  assignmentId: string;
+  subject: PermissionSubject;
+  scope: PermissionScope;
+  scopeId?: string;
+  validFrom: string;
+  validTo?: string;
+  reason: string | null;
+  createdByPersonId: string;
+}>;
+
+export type PersonResponsibilityDirectoryItem = Readonly<{
+  accountId: string;
+  personId: string;
+  nickname: string;
+  phoneNormalized: string;
+  loginStatus: "ACTIVE" | "REVOKED";
+  personStatus: "ACTIVE" | "INACTIVE";
+  responsibilities: readonly ManagedRoleAssignment[];
+}>;
+
+export type RoleAssignmentDraft = Readonly<{
+  subject: PermissionSubject;
+  scope: PermissionScope;
+  scopeId?: string;
+  validFrom: string;
+  validTo?: string;
+  reason: string;
+}>;
+
+export type RoleAssignmentChangeResult = Readonly<{
+  personId: string;
+  assignment: ManagedRoleAssignment;
+  authVersion: string;
+  replay: boolean;
+}>;
+
+export type PersonStatusChangeResult = Readonly<{
+  personId: string;
+  personStatus: "ACTIVE" | "INACTIVE";
+  authVersion: string;
+  replay: boolean;
+}>;
+
 type AccountRow = Readonly<{
   account_id: string;
   person_id: string;
@@ -73,6 +157,19 @@ type DirectoryRow = Readonly<{
   login_status: "ACTIVE" | "REVOKED";
   person_status: "ACTIVE" | "INACTIVE";
   active_system_authorities: readonly string[] | null;
+}>;
+
+type ResponsibilityRow = Readonly<{
+  assignment_id: string; person_id: string; subject_code: string; scope_type: string;
+  scope_id: string | null; valid_from: string; valid_to: string | null;
+  reason: string | null; created_by_person_id: string;
+}>;
+
+type ResponsibilityCommandRow = Readonly<{
+  command_kind: "ASSIGN" | "REVOKE" | "PERSON_STATUS"; target_person_id: string;
+  role_assignment_id: string | null; subject_code: string | null; scope_type: string | null;
+  scope_id: string | null; valid_from: string | null; valid_to: string | null;
+  next_person_status: "ACTIVE" | "INACTIVE" | null; reason: string; result_auth_version: string;
 }>;
 
 type PgError = Readonly<{ code?: unknown; constraint?: unknown }>;
@@ -150,17 +247,19 @@ export class PostgresAccountAccessService {
     at: string,
   ): Promise<"SYSTEM_OWNER" | "SYSTEM_ADMIN"> {
     const subject = strictGlobalAuthority(context);
-    await client.query("LOCK TABLE role_assignment IN SHARE MODE");
     const result = await client.query(
-      `SELECT id
-         FROM role_assignment
-        WHERE person_id = $1::uuid
-          AND subject_code = $2
-          AND scope_type = 'GLOBAL'
-          AND scope_id IS NULL
-          AND valid_from <= $3::timestamptz
-          AND (valid_to IS NULL OR $3::timestamptz < valid_to)
-        LIMIT 2`,
+      `SELECT authority.id
+         FROM role_assignment authority
+         JOIN person actor_person ON actor_person.id=authority.person_id AND actor_person.status='ACTIVE'
+         JOIN user_account actor_account ON actor_account.person_id=authority.person_id AND actor_account.login_status='ACTIVE'
+        WHERE authority.person_id = $1::uuid
+          AND authority.subject_code = $2
+          AND authority.scope_type = 'GLOBAL'
+          AND authority.scope_id IS NULL
+          AND authority.valid_from <= $3::timestamptz
+          AND (authority.valid_to IS NULL OR $3::timestamptz < authority.valid_to)
+        LIMIT 2
+        FOR SHARE OF authority,actor_person,actor_account`,
       [context.personId, subject, at],
     );
     if (result.rows.length !== 1) throw new Error("FORBIDDEN_SCOPE");
@@ -442,6 +541,297 @@ export class PostgresAccountAccessService {
         resetAt: atIso,
         replay: false,
       };
+    });
+  }
+
+  private mapResponsibility(row: ResponsibilityRow): ManagedRoleAssignment {
+    if (!directorySubject(row.subject_code) || !managedScope(row.scope_type)) {
+      throw new Error("ROLE_ASSIGNMENT_DATA_INVALID");
+    }
+    return {
+      assignmentId: row.assignment_id,
+      subject: row.subject_code,
+      scope: row.scope_type,
+      ...(row.scope_id === null ? {} : { scopeId: row.scope_id }),
+      validFrom: new Date(row.valid_from).toISOString(),
+      ...(row.valid_to === null ? {} : { validTo: new Date(row.valid_to).toISOString() }),
+      reason: row.reason,
+      createdByPersonId: row.created_by_person_id,
+    };
+  }
+
+  private async authVersion(client: PostgresClient, personId: string): Promise<string> {
+    const result = await client.query<{ auth_version: string }>(
+      "SELECT auth_version::text AS auth_version FROM user_account WHERE person_id=$1::uuid",
+      [personId],
+    );
+    const authVersion = result.rows[0]?.auth_version;
+    if (authVersion === undefined) throw new Error("ACCOUNT_NOT_FOUND");
+    return authVersion;
+  }
+
+  private assertManagementAuthority(
+    actor: "SYSTEM_OWNER" | "SYSTEM_ADMIN",
+    subject: PermissionSubject,
+  ): void {
+    if (subject === "SYSTEM_OWNER" || !managedSubject(subject)) throw new Error("FORBIDDEN_SCOPE");
+    if (subject === "SYSTEM_ADMIN" && actor !== "SYSTEM_OWNER") {
+      throw new Error("ONLY_SYSTEM_OWNER_CAN_MANAGE_ADMIN");
+    }
+  }
+
+  private async assertScopeResource(
+    client: PostgresClient,
+    scope: PermissionScope,
+    scopeId: string | undefined,
+  ): Promise<void> {
+    const needsId = scope === "REGION" || scope === "CAMPUS" || scope === "VENUE";
+    if (needsId !== (scopeId !== undefined)) throw new Error("INVALID_ROLE_SCOPE");
+    if (scopeId === undefined) return;
+    if (!UUID_PATTERN.test(scopeId)) throw new Error("INVALID_INPUT");
+    const resource = scope === "VENUE"
+      ? await client.query("SELECT id FROM venue WHERE id=$1::uuid", [scopeId])
+      : await client.query(
+          "SELECT id FROM organization_unit WHERE id=$1::uuid AND unit_type=$2",
+          [scopeId, scope === "REGION" ? "REGION" : "CAMPUS"],
+        );
+    if (resource.rows.length !== 1) throw new Error("ROLE_SCOPE_NOT_FOUND");
+  }
+
+  public async listPeople(
+    context: RoleContext,
+    at: Date,
+  ): Promise<readonly PersonResponsibilityDirectoryItem[]> {
+    const atIso = validAt(at);
+    return this.transaction(async (client) => {
+      await this.assertCurrentAuthority(client, context, atIso);
+      const people = await client.query<DirectoryRow>(
+        `SELECT account.id::text AS account_id,person.id::text AS person_id,person.nickname,account.phone_normalized,
+                account.login_status,person.status AS person_status,'{}'::text[] AS active_system_authorities
+           FROM user_account account JOIN person ON person.id=account.person_id
+          ORDER BY person.nickname,person.id`,
+      );
+      const roles = await client.query<ResponsibilityRow>(
+        `SELECT id::text AS assignment_id,person_id::text AS person_id,subject_code,scope_type,scope_id::text AS scope_id,
+                valid_from::text AS valid_from,valid_to::text AS valid_to,reason,created_by::text AS created_by_person_id
+           FROM role_assignment ORDER BY person_id,valid_from,id`,
+      );
+      const grouped = new Map<string, ManagedRoleAssignment[]>();
+      for (const role of roles.rows) {
+        const list = grouped.get(role.person_id) ?? [];
+        list.push(this.mapResponsibility(role));
+        grouped.set(role.person_id, list);
+      }
+      return people.rows.map((person) => ({
+        accountId: person.account_id, personId: person.person_id, nickname: person.nickname,
+        phoneNormalized: person.phone_normalized, loginStatus: person.login_status,
+        personStatus: person.person_status, responsibilities: grouped.get(person.person_id) ?? [],
+      }));
+    });
+  }
+
+  public async assignRole(
+    context: RoleContext, personIdInput: string, draft: RoleAssignmentDraft,
+    idempotencyKeyInput: string, at: Date,
+  ): Promise<RoleAssignmentChangeResult> {
+    const atIso = validAt(at);
+    const personId = personIdInput.toLowerCase();
+    if (!UUID_PATTERN.test(personId) || !managedScope(draft.scope) || !directorySubject(draft.subject)) throw new Error("INVALID_INPUT");
+    if (!managedSubject(draft.subject)) throw new Error("FORBIDDEN_SCOPE");
+    const expected = expectedScope(draft.subject);
+    if (expected !== draft.scope) throw new Error("INVALID_ROLE_SCOPE");
+    const validFrom = normalizedTimestamp(draft.validFrom);
+    const validTo = draft.validTo === undefined ? undefined : normalizedTimestamp(draft.validTo);
+    if (validTo !== undefined && validTo <= validFrom) throw new Error("INVALID_INPUT");
+    const reason = normalizeResetReason(draft.reason);
+    const key = assertIdempotencyKey(idempotencyKeyInput);
+    return this.transaction(async (client) => {
+      const actor = await this.assertCurrentAuthority(client, context, atIso);
+      this.assertManagementAuthority(actor, draft.subject);
+      await this.assertScopeResource(client, draft.scope, draft.scopeId);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`role-command:${context.personId}:${key}`]);
+      const existing = await client.query<ResponsibilityCommandRow>(
+        `SELECT command_kind,target_person_id::text AS target_person_id,role_assignment_id::text AS role_assignment_id,subject_code,scope_type,scope_id::text AS scope_id,
+                valid_from::text AS valid_from,valid_to::text AS valid_to,next_person_status,reason,result_auth_version::text AS result_auth_version
+           FROM person_responsibility_command WHERE actor_person_id=$1::uuid AND idempotency_key=$2 FOR SHARE`,
+        [context.personId, key],
+      );
+      const replay = existing.rows[0];
+      if (replay !== undefined) {
+        if (replay.command_kind !== "ASSIGN" || replay.target_person_id !== personId || replay.subject_code !== draft.subject || replay.scope_type !== draft.scope ||
+          replay.scope_id !== (draft.scopeId ?? null) || new Date(replay.valid_from ?? "").toISOString() !== validFrom ||
+          (replay.valid_to === null ? undefined : new Date(replay.valid_to).toISOString()) !== validTo || replay.reason !== reason) throw new Error("IDEMPOTENCY_REPLAY");
+        const row = await client.query<ResponsibilityRow>(this.responsibilitySelect("id=$1::uuid"), [replay.role_assignment_id]);
+        if (!row.rows[0]) throw new Error("ROLE_ASSIGNMENT_NOT_FOUND");
+        return { personId, assignment: this.mapResponsibility(row.rows[0]), authVersion: replay.result_auth_version, replay: true };
+      }
+      const target = await client.query<{ status: string }>("SELECT status FROM person WHERE id=$1::uuid FOR UPDATE", [personId]);
+      if (!target.rows[0]) throw new Error("PERSON_NOT_FOUND");
+      if (target.rows[0].status !== "ACTIVE") throw new Error("PERSON_INACTIVE");
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`role-overlap:${personId}:${draft.subject}:${draft.scope}:${draft.scopeId ?? ""}`]);
+      let inserted: ResponsibilityRow;
+      try {
+        const result = await client.query<ResponsibilityRow>(
+          `INSERT INTO role_assignment(person_id,subject_code,scope_type,scope_id,valid_from,valid_to,reason,created_by,created_at)
+           VALUES($1::uuid,$2,$3,$4::uuid,$5::timestamptz,$6::timestamptz,$7,$8::uuid,$9::timestamptz)
+           RETURNING id::text AS assignment_id,person_id::text AS person_id,subject_code,scope_type,scope_id::text AS scope_id,valid_from::text AS valid_from,valid_to::text AS valid_to,reason,created_by::text AS created_by_person_id`,
+          [personId,draft.subject,draft.scope,draft.scopeId ?? null,validFrom,validTo ?? null,reason,context.personId,atIso],
+        );
+        inserted = result.rows[0]!;
+      } catch (error) {
+        if ((error as PgError).code === "23P01") throw new Error("ROLE_ASSIGNMENT_OVERLAP");
+        throw error;
+      }
+      const authVersion = await this.bumpRoleAuthVersion(client, personId, atIso);
+      const assignment = this.mapResponsibility(inserted);
+      await this.auditResponsibility(client, context.personId, "ROLE_ASSIGNED", inserted.assignment_id, null, assignment, reason, atIso);
+      await client.query(
+        `INSERT INTO person_responsibility_command(actor_person_id,idempotency_key,command_kind,target_person_id,role_assignment_id,subject_code,scope_type,scope_id,valid_from,valid_to,reason,result_auth_version,actor_subject_code,created_at)
+         VALUES($1::uuid,$2,'ASSIGN',$3::uuid,$4::uuid,$5,$6,$7::uuid,$8::timestamptz,$9::timestamptz,$10,$11::bigint,$12,$13::timestamptz)`,
+        [context.personId,key,personId,inserted.assignment_id,draft.subject,draft.scope,draft.scopeId ?? null,validFrom,validTo ?? null,reason,authVersion,actor,atIso],
+      );
+      return { personId, assignment, authVersion, replay: false };
+    });
+  }
+
+  private responsibilitySelect(where: string): string {
+    return `SELECT id::text AS assignment_id,person_id::text AS person_id,subject_code,scope_type,scope_id::text AS scope_id,
+                   valid_from::text AS valid_from,valid_to::text AS valid_to,reason,created_by::text AS created_by_person_id
+              FROM role_assignment WHERE ${where}`;
+  }
+
+  private async bumpRoleAuthVersion(client: PostgresClient, personId: string, at: string): Promise<string> {
+    const result = await client.query<{ auth_version: string }>(
+      `UPDATE user_account SET auth_version=auth_version+1,updated_at=$2::timestamptz
+        WHERE person_id=$1::uuid RETURNING auth_version::text AS auth_version`, [personId, at],
+    );
+    const authVersion = result.rows[0]?.auth_version;
+    if (authVersion === undefined) throw new Error("ACCOUNT_NOT_FOUND");
+    return authVersion;
+  }
+
+  private async auditResponsibility(
+    client: PostgresClient, actorId: string, action: string, subjectId: string,
+    before: unknown, after: unknown, reason: string, at: string,
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_event(actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at)
+       VALUES($1::uuid,$2,'ROLE_ASSIGNMENT',$3::uuid,$4::jsonb,$5::jsonb,$6,$7::timestamptz)`,
+      [actorId,action,subjectId,JSON.stringify(before),JSON.stringify(after),reason,at],
+    );
+  }
+
+  public async revokeRole(
+    context: RoleContext, assignmentIdInput: string, reasonInput: string,
+    idempotencyKeyInput: string, at: Date,
+  ): Promise<RoleAssignmentChangeResult> {
+    const atIso = validAt(at); const assignmentId = assignmentIdInput.toLowerCase();
+    if (!UUID_PATTERN.test(assignmentId)) throw new Error("INVALID_INPUT");
+    const reason = normalizeResetReason(reasonInput);
+    const key = assertIdempotencyKey(idempotencyKeyInput);
+    return this.transaction(async (client) => {
+      const actor = await this.assertCurrentAuthority(client, context, atIso);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`role-command:${context.personId}:${key}`]);
+      const existing = await client.query<ResponsibilityCommandRow>(
+        `SELECT command_kind,target_person_id::text AS target_person_id,role_assignment_id::text AS role_assignment_id,subject_code,scope_type,scope_id::text AS scope_id,
+                valid_from::text AS valid_from,valid_to::text AS valid_to,next_person_status,reason,result_auth_version::text AS result_auth_version
+           FROM person_responsibility_command WHERE actor_person_id=$1::uuid AND idempotency_key=$2 FOR SHARE`, [context.personId,key],
+      );
+      const replay = existing.rows[0];
+      if (replay !== undefined) {
+        if (replay.command_kind !== "REVOKE" || replay.role_assignment_id !== assignmentId ||
+          replay.reason !== reason) throw new Error("IDEMPOTENCY_REPLAY");
+        const row = await client.query<ResponsibilityRow>(this.responsibilitySelect("id=$1::uuid"), [assignmentId]);
+        if (!row.rows[0]) throw new Error("ROLE_ASSIGNMENT_NOT_FOUND");
+        return { personId: row.rows[0].person_id, assignment: this.mapResponsibility(row.rows[0]), authVersion: replay.result_auth_version, replay: true };
+      }
+      const current = await client.query<ResponsibilityRow>(`${this.responsibilitySelect("id=$1::uuid")} FOR UPDATE`, [assignmentId]);
+      const row = current.rows[0]; if (!row) throw new Error("ROLE_ASSIGNMENT_NOT_FOUND");
+      if (!managedSubject(row.subject_code)) throw new Error("FORBIDDEN_SCOPE");
+      this.assertManagementAuthority(actor, row.subject_code);
+      const before = this.mapResponsibility(row);
+      const startsAt = new Date(before.validFrom).getTime();
+      const now = new Date(atIso).getTime();
+      if (before.validTo !== undefined && new Date(before.validTo).getTime() <= now) throw new Error("INVALID_ROLE_REVOCATION");
+      const validTo = startsAt > now ? before.validFrom : atIso;
+      const changed = await client.query<ResponsibilityRow>(
+        `UPDATE role_assignment SET valid_to=$2::timestamptz
+          WHERE id=$1::uuid
+          RETURNING id::text AS assignment_id,person_id::text AS person_id,subject_code,scope_type,scope_id::text AS scope_id,valid_from::text AS valid_from,valid_to::text AS valid_to,reason,created_by::text AS created_by_person_id`,
+        [assignmentId,validTo],
+      );
+      const assignment = this.mapResponsibility(changed.rows[0]!);
+      const authVersion = await this.bumpRoleAuthVersion(client,row.person_id,atIso);
+      await this.auditResponsibility(client,"" + context.personId,"ROLE_REVOKED",assignmentId,before,assignment,reason,atIso);
+      await client.query(
+        `INSERT INTO person_responsibility_command(actor_person_id,idempotency_key,command_kind,target_person_id,role_assignment_id,valid_to,reason,result_auth_version,actor_subject_code,created_at)
+         VALUES($1::uuid,$2,'REVOKE',$3::uuid,$4::uuid,$5::timestamptz,$6,$7::bigint,$8,$9::timestamptz)`,
+        [context.personId,key,row.person_id,assignmentId,validTo,reason,authVersion,actor,atIso],
+      );
+      return { personId: row.person_id, assignment, authVersion, replay: false };
+    });
+  }
+
+  public async setPersonStatus(
+    context: RoleContext, personIdInput: string, status: "ACTIVE" | "INACTIVE",
+    reasonInput: string, idempotencyKeyInput: string, at: Date,
+  ): Promise<PersonStatusChangeResult> {
+    const atIso = validAt(at); const personId = personIdInput.toLowerCase();
+    if (!UUID_PATTERN.test(personId) || (status !== "ACTIVE" && status !== "INACTIVE")) throw new Error("INVALID_INPUT");
+    const reason = normalizeResetReason(reasonInput); const key = assertIdempotencyKey(idempotencyKeyInput);
+    return this.transaction(async (client) => {
+      // All owner-affecting status changes share this lock. Recheck authority under
+      // it so a concurrently deactivated owner cannot use a previously loaded context.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["person-governance-status"]);
+      const actor = await this.assertCurrentAuthority(client, context, atIso);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`role-command:${context.personId}:${key}`]);
+      const existing = await client.query<ResponsibilityCommandRow>(
+        `SELECT command_kind,target_person_id::text AS target_person_id,role_assignment_id::text AS role_assignment_id,subject_code,scope_type,scope_id::text AS scope_id,
+                valid_from::text AS valid_from,valid_to::text AS valid_to,next_person_status,reason,result_auth_version::text AS result_auth_version
+           FROM person_responsibility_command WHERE actor_person_id=$1::uuid AND idempotency_key=$2 FOR SHARE`, [context.personId,key],
+      );
+      const replay = existing.rows[0];
+      if (replay !== undefined) {
+        if (replay.command_kind !== "PERSON_STATUS" || replay.target_person_id !== personId || replay.next_person_status !== status || replay.reason !== reason) throw new Error("IDEMPOTENCY_REPLAY");
+        return { personId, personStatus: status, authVersion: replay.result_auth_version, replay: true };
+      }
+      const target = await client.query<{ status: "ACTIVE" | "INACTIVE" }>("SELECT status FROM person WHERE id=$1::uuid FOR UPDATE", [personId]);
+      const before = target.rows[0]; if (!before) throw new Error("PERSON_NOT_FOUND");
+      const targetAuthorities = await client.query<{ subject_code: "SYSTEM_OWNER" | "SYSTEM_ADMIN" }>(
+        `SELECT subject_code FROM role_assignment
+          WHERE person_id=$1::uuid AND subject_code IN ('SYSTEM_OWNER','SYSTEM_ADMIN')
+            AND scope_type='GLOBAL' AND scope_id IS NULL
+            AND (valid_to IS NULL OR $2::timestamptz < valid_to)
+            AND (valid_to IS NULL OR valid_to > valid_from)`, [personId,atIso],
+      );
+      const protectedTarget = targetAuthorities.rows.some((row) => row.subject_code === "SYSTEM_OWNER" || row.subject_code === "SYSTEM_ADMIN");
+      if (actor === "SYSTEM_ADMIN" && protectedTarget) throw new Error("FORBIDDEN_SCOPE");
+      if (actor === "SYSTEM_OWNER" && status === "INACTIVE") {
+        if (personId === context.personId) throw new Error("CANNOT_DEACTIVATE_SELF");
+        if (targetAuthorities.rows.some((row) => row.subject_code === "SYSTEM_OWNER")) {
+          const owners = await client.query(
+            `SELECT authority.id FROM role_assignment authority
+              JOIN person owner_person ON owner_person.id=authority.person_id AND owner_person.status='ACTIVE'
+              JOIN user_account owner_account ON owner_account.person_id=authority.person_id AND owner_account.login_status='ACTIVE'
+             WHERE authority.subject_code='SYSTEM_OWNER' AND authority.scope_type='GLOBAL' AND authority.scope_id IS NULL
+               AND authority.valid_from <= $1::timestamptz AND (authority.valid_to IS NULL OR $1::timestamptz < authority.valid_to)`, [atIso],
+          );
+          if (owners.rows.length <= 1) throw new Error("CANNOT_DEACTIVATE_LAST_OWNER");
+        }
+      }
+      await client.query("UPDATE person SET status=$2,updated_at=$3::timestamptz WHERE id=$1::uuid", [personId,status,atIso]);
+      const authVersion = await this.authVersion(client,personId);
+      await client.query(
+        `INSERT INTO audit_event(actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at)
+         VALUES($1::uuid,'PERSON_STATUS_CHANGED','PERSON',$2::uuid,$3::jsonb,$4::jsonb,$5,$6::timestamptz)`,
+        [context.personId,personId,JSON.stringify({status:before.status}),JSON.stringify({status}),reason,atIso],
+      );
+      await client.query(
+        `INSERT INTO person_responsibility_command(actor_person_id,idempotency_key,command_kind,target_person_id,next_person_status,reason,result_auth_version,actor_subject_code,created_at)
+         VALUES($1::uuid,$2,'PERSON_STATUS',$3::uuid,$4,$5,$6::bigint,$7,$8::timestamptz)`,
+        [context.personId,key,personId,status,reason,authVersion,actor,atIso],
+      );
+      return { personId, personStatus: status, authVersion, replay: false };
     });
   }
 }

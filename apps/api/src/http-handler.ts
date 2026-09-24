@@ -98,6 +98,13 @@ export type ApiServices = Readonly<{
       idempotencyKey: string,
       at: Date,
     ) => unknown | Promise<unknown>;
+    listPeople: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    assignRole: (context: RoleContext, personId: string, draft: {
+      subject: PermissionSubject; scope: import("@teaching-research-alliance/contracts").PermissionScope;
+      scopeId?: string; validFrom: string; validTo?: string; reason: string;
+    }, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
+    revokeRole: (context: RoleContext, assignmentId: string, reason: string, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
+    setPersonStatus: (context: RoleContext, personId: string, status: "ACTIVE" | "INACTIVE", reason: string, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
   }>;
   weeklyFees: WeeklyFeeApiService;
   ratePolicies?: RatePolicyService;
@@ -751,6 +758,11 @@ const errorStatus = (code: string): number => {
       "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
       "GROUP_LEADER_RELATIONSHIP_MISSING",
       "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+      "ROLE_ASSIGNMENT_OVERLAP",
+      "PERSON_INACTIVE",
+      "INVALID_ROLE_REVOCATION",
+      "CANNOT_DEACTIVATE_SELF",
+      "CANNOT_DEACTIVATE_LAST_OWNER",
     ].includes(code)
   )
     return 409;
@@ -803,6 +815,7 @@ const errorStatus = (code: string): number => {
   if (code === "UNAUTHENTICATED") return 401;
   if (
     code === "FORBIDDEN_SCOPE" ||
+    code === "ONLY_SYSTEM_OWNER_CAN_MANAGE_ADMIN" ||
     code === "ROLE_CONTEXT_REQUIRED" ||
     code === "ROLE_CONTEXT_NOT_ASSIGNED" ||
     code === "ROLE_CONTEXT_AMBIGUOUS"
@@ -1094,6 +1107,45 @@ export const handleRequest = async (
       );
       if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
       return success(await services.accountAccess.listAccounts(context, at));
+    }
+    if (request.method === "GET" && request.path === "/v1/admin/people") {
+      if (Object.keys(body).some((key) => key !== "sessionId")) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.listPeople(context, at));
+    }
+    const roleAssignmentPath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/role-assignments$/);
+    if (request.method === "POST" && roleAssignmentPath !== null) {
+      if (Object.keys(body).some((key) => !["sessionId","subject","scope","scopeId","validFrom","validTo","reason","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (typeof body.subject !== "string" || typeof body.scope !== "string") throw new Error("INVALID_INPUT");
+      if (body.scopeId !== undefined && typeof body.scopeId !== "string") throw new Error("INVALID_INPUT");
+      if (body.validTo !== undefined && typeof body.validTo !== "string") throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.assignRole(context, roleAssignmentPath[1]!, {
+        subject: body.subject as PermissionSubject, scope: body.scope as import("@teaching-research-alliance/contracts").PermissionScope,
+        ...(body.scopeId === undefined ? {} : { scopeId: body.scopeId }), validFrom: requiredString(body,"validFrom"),
+        ...(body.validTo === undefined ? {} : { validTo: body.validTo }), reason: requiredString(body,"reason"),
+      }, requiredString(body,"idempotencyKey"), at));
+    }
+    const roleRevokePath = request.path.match(/^\/v1\/admin\/role-assignments\/([^/]+)\/revoke$/);
+    if (request.method === "POST" && roleRevokePath !== null) {
+      if (Object.keys(body).some((key) => !["sessionId","reason","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.revokeRole(context, roleRevokePath[1]!, requiredString(body,"reason"), requiredString(body,"idempotencyKey"), at));
+    }
+    const statusPath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/status$/);
+    if (request.method === "POST" && statusPath !== null) {
+      if (Object.keys(body).some((key) => !["sessionId","status","reason","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const status = requiredString(body,"status"); if (status !== "ACTIVE" && status !== "INACTIVE") throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.setPersonStatus(context, statusPath[1]!, status, requiredString(body,"reason"), requiredString(body,"idempotencyKey"), at));
     }
     const passwordResetPath = request.path.match(
       /^\/v1\/admin\/accounts\/([^/]+)\/password-reset$/,

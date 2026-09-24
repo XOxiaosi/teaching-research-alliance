@@ -30,11 +30,13 @@ export const BenefitConfirmationPanel = Empty;
 export const BenefitPanel = Empty;
 export const GroupLeaderChangePanel = Empty;
 export const AccountAccessPanel = Empty;
+export const PersonResponsibilityPanel = Empty;
 export const AccountAuthenticationPanel = Empty;
 export const OrganizationRevenuePanel = Empty;
 export const DashboardIcon = Empty;
 export const Button = Empty;
 export const canManageAccounts = () => false;
+export const canManagePersonnel = () => false;
 export const canReadOrganizationRevenue = (context) => context?.scope === "GLOBAL" && ["SYSTEM_OWNER", "SYSTEM_ADMIN", "HEADQUARTERS_FINANCE"].includes(context.subject);
 `;
 
