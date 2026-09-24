@@ -43,6 +43,7 @@ export { PostgresWithdrawalReadService } from "./postgres-withdrawal-read-servic
 export { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
 export { PostgresBonusProjectCatalogService } from "./postgres-bonus-project-catalog-service.js";
 export { PostgresProjectBonusReadService } from "./postgres-project-bonus-read-service.js";
+export { PostgresBackgroundTaskQueueService } from "./postgres-background-task-queue-service.js";
 export { PostgresSelfPurchaseService } from "./postgres-self-purchase-service.js";
 export { PostgresSelfPurchaseReversalService } from "./postgres-self-purchase-reversal-service.js";
 export { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-service.js";
