@@ -13,7 +13,7 @@ const flush = () => act(async () => { await new Promise((done) => setTimeout(don
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const propsOf = (node) => node[Object.keys(node).find((key) => key.startsWith("__reactProps$"))];
 const session = (subject = "SYSTEM_ADMIN", patch = {}) => ({ sessionId: "s", accountId: "a", personId: "actor", currentRoleContext: { subject, scope: "GLOBAL", personId: "actor", ...patch }, roleContexts: [] });
-const person = (nickname = "成员甲") => ({ accountId: "a2", personId: "p2", nickname, phoneNormalized: "13800000000", loginStatus: "ACTIVE", personStatus: "ACTIVE", responsibilities: [] });
+const person = (nickname = "成员甲") => ({ accountId: "a2", personId: "p2", nickname, legalName: "真实姓名", profileVersion: "1", phoneNormalized: "13800000000", loginStatus: "ACTIVE", personStatus: "ACTIVE", responsibilities: [] });
 
 test.before(async () => { directory = await mkdtemp(resolve(import.meta.dirname, ".people-panel-")); const outfile = resolve(directory, "panel.mjs"); await build({ entryPoints: [resolve(import.meta.dirname, "../src/person-responsibility-panel.tsx")], bundle: true, platform: "node", format: "esm", outfile, external: ["react", "react-dom", "@teaching-research-alliance/client"] }); ({ PersonResponsibilityPanel: Panel, canManagePersonnel } = await import(outfile)); });
 test.after(async () => { await rm(directory, { recursive: true, force: true }); });
@@ -80,5 +80,19 @@ test("未来系统任命仍保护目标，零长度已取消记录不保护", as
     client.listPeople = async () => [{ ...person("已取消成员"), responsibilities: [system(future)] }];
     await ui.render(React.createElement(Panel, { client, session: session("SYSTEM_ADMIN"), sessionKey: "cancelled-system", active: true, onInvalidated() {} }));
     assert.equal([...ui.host.querySelectorAll("button")].some((node) => node.textContent === "确认任命"), true);
+  } finally { await ui.close(); }
+});
+
+test("资料更正入口最小化字段，并在未知结果时重试同一 submission", async () => {
+  const frozen = { draft: { personId: "p2", nickname: "新昵称", legalName: "新姓名", expectedProfileVersion: "1", reason: "资料核对" }, idempotencyKey: "profile-key" };
+  const submissions = []; let attempts = 0;
+  const client = { hasRoleContext: true, listPeople: async () => [person()], createPersonProfileSubmission: (draft) => { submissions.push(draft); return frozen; }, updatePersonProfile: async (submission) => { assert.equal(submission, frozen); if (++attempts === 1) throw new ApiClientError(500, "INTERNAL_ERROR"); return { replay: true }; } };
+  const ui = await mount(React.createElement(Panel, { client, session: session("SYSTEM_OWNER"), sessionKey: "profile", active: true, onInvalidated() {} }));
+  try {
+    assert.match(ui.host.textContent, /人员资料/); assert.doesNotMatch(ui.host.textContent, /13800000000/);
+    await ui.input("展示昵称", "新昵称"); await ui.input("真实姓名", "新姓名"); await ui.input("人员职责变更理由", "资料核对");
+    const save = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存人员资料"); assert.ok(save); await act(async () => save.click()); await flush();
+    assert.match(ui.host.textContent, /结果尚未确认/); const retry = [...ui.host.querySelectorAll("button")].find((node) => node.textContent === "安全重试原操作"); assert.ok(retry); await act(async () => retry.click()); await flush();
+    assert.equal(attempts, 2); assert.equal(submissions.length, 1); assert.match(ui.host.textContent, /人员编号、账户和职责未变化/); assert.equal(ui.host.querySelector("[aria-label='展示昵称']").disabled, false); assert.equal([...ui.host.querySelectorAll("button")].find((node) => node.textContent === "保存人员资料").disabled, false);
   } finally { await ui.close(); }
 });

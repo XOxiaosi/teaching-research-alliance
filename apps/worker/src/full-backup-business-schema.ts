@@ -7,7 +7,7 @@ import { fullBackupOutputColumns } from "./full-backup-transformer.js";
  * deliberately does not assemble rows, join source tables, or calculate
  * amounts.  Raw-source workbooks remain the authoritative stored-fact export.
  */
-export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v6";
+export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v7";
 
 export type BusinessBackupSheetMode = "STORED_FACTS" | "DERIVED_REQUIRED";
 export type BusinessBackupRowModel = "SOURCE_ROWS_ONLY" | "DERIVED_NOT_GENERATED";
@@ -70,6 +70,7 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     key("person_campus_assignment", "id", "person_campus_assignment.person_id 关联自然人"),
     key("role_assignment", "id", "role_assignment.person_id 关联被授予人"),
     key("person_relationship", "id", "person_relationship.teacher_id/related_person_id 关联人员"),
+    key("person_profile_change", "id", "不可变人员资料更正历史主键"),
     key("organization_unit", "id", "organization_unit.parent_id 表达组织层级"),
     key("venue", "id", "venue.owner_person_id 关联场地所有人"),
     key("venue_permission_grant", "id", "venue_permission_grant.venue_id 关联场地"),
@@ -84,7 +85,17 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     key("planning_mentor_relationship_change_effect", "weekly_fee_entry_id", "规划导师批次与周费用共同定位迁移影响"),
   ]), Object.freeze([
     source("person", "id", "人员ID", "person.id 为表1自然人主键"),
-    source("person", "nickname", "教师昵称", "由 person.id 关联，昵称更正历史另列 RAW 缺口"),
+    source("person", "nickname", "教师昵称", "由 person.id 关联，当前展示值"),
+    source("person", "legal_name", "真实姓名", "由 person.id 关联，当前展示值"),
+    source("person", "profile_version", "资料版本", "资料更正的乐观并发版本"),
+    source("person_profile_change", "before_nickname", "更正前昵称", "不可变资料更正历史"),
+    source("person_profile_change", "audit_event_id", "关联审计事件", "人员资料更正历史与 PERSON_PROFILE_CHANGED 审计的一对一关联"),
+    source("person_profile_change", "after_nickname", "更正后昵称", "不可变资料更正历史"),
+    source("person_profile_change", "before_legal_name", "更正前真实姓名", "不可变资料更正历史"),
+    source("person_profile_change", "after_legal_name", "更正后真实姓名", "不可变资料更正历史"),
+    source("person_profile_change", "actor_person_id", "更正操作者", "管理员操作人"),
+    source("person_profile_change", "reason", "更正原因", "管理员填写原因"),
+    source("person_profile_change", "changed_at", "更正时间", "可信服务端时间"),
     source("person", "status", "人员状态", "由 person.id 关联"),
     source("user_account", "login_status", "登录状态", "user_account.person_id 关联 person.id；不导出密码或认证版本"),
     source("teacher_profile", "business_identity", "业务身份", "teacher_profile.person_id 关联 person.id"),

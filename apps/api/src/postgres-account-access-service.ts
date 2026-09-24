@@ -104,6 +104,8 @@ export type PersonResponsibilityDirectoryItem = Readonly<{
   accountId: string;
   personId: string;
   nickname: string;
+  legalName: string;
+  profileVersion: string;
   phoneNormalized: string;
   loginStatus: "ACTIVE" | "REVOKED";
   personStatus: "ACTIVE" | "INACTIVE";
@@ -133,6 +135,15 @@ export type PersonStatusChangeResult = Readonly<{
   replay: boolean;
 }>;
 
+export type PersonProfileChangeResult = Readonly<{
+  personId: string;
+  nickname: string;
+  legalName: string;
+  profileVersion: string;
+  changedAt: string;
+  replay: boolean;
+}>;
+
 type AccountRow = Readonly<{
   account_id: string;
   person_id: string;
@@ -157,6 +168,8 @@ type DirectoryRow = Readonly<{
   login_status: "ACTIVE" | "REVOKED";
   person_status: "ACTIVE" | "INACTIVE";
   active_system_authorities: readonly string[] | null;
+  legal_name: string;
+  profile_version: string;
 }>;
 
 type ResponsibilityRow = Readonly<{
@@ -606,7 +619,7 @@ export class PostgresAccountAccessService {
     return this.transaction(async (client) => {
       await this.assertCurrentAuthority(client, context, atIso);
       const people = await client.query<DirectoryRow>(
-        `SELECT account.id::text AS account_id,person.id::text AS person_id,person.nickname,account.phone_normalized,
+        `SELECT account.id::text AS account_id,person.id::text AS person_id,person.nickname,person.legal_name,person.profile_version::text AS profile_version,account.phone_normalized,
                 account.login_status,person.status AS person_status,'{}'::text[] AS active_system_authorities
            FROM user_account account JOIN person ON person.id=account.person_id
           ORDER BY person.nickname,person.id`,
@@ -624,9 +637,74 @@ export class PostgresAccountAccessService {
       }
       return people.rows.map((person) => ({
         accountId: person.account_id, personId: person.person_id, nickname: person.nickname,
-        phoneNormalized: person.phone_normalized, loginStatus: person.login_status,
+        phoneNormalized: person.phone_normalized, legalName: person.legal_name, profileVersion: person.profile_version,
+        loginStatus: person.login_status,
         personStatus: person.person_status, responsibilities: grouped.get(person.person_id) ?? [],
       }));
+    });
+  }
+
+  public async updatePersonProfile(
+    context: RoleContext, personIdInput: string, nicknameInput: string,
+    legalNameInput: string, expectedProfileVersionInput: string,
+    reasonInput: string, idempotencyKeyInput: string, at: Date,
+  ): Promise<PersonProfileChangeResult> {
+    const atIso = validAt(at);
+    const personId = personIdInput.toLowerCase();
+    if (!UUID_PATTERN.test(personId)) throw new Error("INVALID_INPUT");
+    const nickname = normalizeNickname(nicknameInput);
+    const legalName = normalizeLegalName(legalNameInput);
+    const reason = normalizeResetReason(reasonInput);
+    const idempotencyKey = assertIdempotencyKey(idempotencyKeyInput);
+    let expectedProfileVersion: bigint;
+    try { expectedProfileVersion = BigInt(expectedProfileVersionInput); } catch { throw new Error("INVALID_INPUT"); }
+    if (expectedProfileVersion < 1n) throw new Error("INVALID_INPUT");
+    return this.transaction(async (client) => {
+      const actor = await this.assertCurrentAuthority(client, context, atIso);
+      await client.query("SELECT id FROM person WHERE id=$1::uuid FOR UPDATE", [personId]);
+      if (actor === "SYSTEM_ADMIN") {
+        const protectedTarget = await client.query(
+          `SELECT 1 FROM role_assignment
+             WHERE person_id=$1::uuid AND subject_code IN ('SYSTEM_OWNER','SYSTEM_ADMIN')
+               AND scope_type='GLOBAL' AND scope_id IS NULL
+               AND (valid_to IS NULL OR $2::timestamptz < valid_to)
+               AND (valid_to IS NULL OR valid_to > valid_from)
+             LIMIT 1`, [personId, atIso]);
+        if (protectedTarget.rows.length !== 0) throw new Error("FORBIDDEN_SCOPE");
+      }
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`person-profile:${personId}`]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`person-profile-command:${context.personId}:${idempotencyKey}`]);
+      const existing = await client.query<{ person_id: string; source_profile_version: string; before_nickname: string; before_legal_name: string; after_nickname: string; after_legal_name: string; reason: string; result_profile_version: string; changed_at: string }>(
+        `SELECT person_id::text,source_profile_version::text,before_nickname,before_legal_name,after_nickname,after_legal_name,reason,result_profile_version::text,
+                changed_at::text FROM person_profile_change WHERE actor_person_id=$1::uuid AND idempotency_key=$2 FOR SHARE`,
+        [context.personId, idempotencyKey]);
+      const replay = existing.rows[0];
+      if (replay !== undefined) {
+        if (replay.person_id !== personId || replay.source_profile_version !== expectedProfileVersion.toString() || replay.after_nickname !== nickname || replay.after_legal_name !== legalName || replay.reason !== reason) throw new Error("IDEMPOTENCY_REPLAY");
+        return { personId, nickname: replay.after_nickname, legalName: replay.after_legal_name, profileVersion: replay.result_profile_version, changedAt: new Date(replay.changed_at).toISOString(), replay: true };
+      }
+      const current = await client.query<{ nickname: string; legal_name: string; profile_version: string }>(
+        `SELECT nickname,legal_name,profile_version::text FROM person WHERE id=$1::uuid FOR UPDATE`, [personId]);
+      const before = current.rows[0];
+      if (before === undefined) throw new Error("PERSON_NOT_FOUND");
+      if (BigInt(before.profile_version) !== expectedProfileVersion) throw new Error("PROFILE_VERSION_STALE");
+      if (before.nickname === nickname && before.legal_name === legalName) throw new Error("PROFILE_NO_CHANGE");
+      const nextVersion = expectedProfileVersion + 1n;
+      await client.query("SELECT set_config('app.person_profile_write_context','service-v1',true)");
+      try {
+        await client.query(`UPDATE person SET nickname=$2,legal_name=$3,profile_version=$4::bigint,updated_at=$5::timestamptz WHERE id=$1::uuid`, [personId,nickname,legalName,nextVersion.toString(),atIso]);
+      } catch (error) {
+        if ((error as PgError).code === "23505" && (error as PgError).constraint === "person_nickname_key") throw new Error("PROFILE_NICKNAME_CONFLICT");
+        throw error;
+      }
+      const auditEventId = randomUUID();
+      const inserted = await client.query<{ id: string; changed_at: string }>(
+        `INSERT INTO person_profile_change(audit_event_id,person_id,source_profile_version,result_profile_version,before_nickname,before_legal_name,after_nickname,after_legal_name,actor_person_id,actor_subject_code,reason,idempotency_key,changed_at,created_at)
+         VALUES($1::uuid,$2::uuid,$3::bigint,$4::bigint,$5,$6,$7,$8,$9::uuid,$10,$11,$12,$13::timestamptz,$13::timestamptz) RETURNING id::text,changed_at::text`,
+        [auditEventId,personId,expectedProfileVersion.toString(),nextVersion.toString(),before.nickname,before.legal_name,nickname,legalName,context.personId,actor,reason,idempotencyKey,atIso]);
+      await client.query(`INSERT INTO audit_event(id,actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at) VALUES($1::uuid,$2::uuid,'PERSON_PROFILE_CHANGED','PERSON',$3::uuid,$4::jsonb,$5::jsonb,$6,$7::timestamptz)`, [auditEventId,context.personId,personId,JSON.stringify({nickname: before.nickname, legalName: before.legal_name, profileVersion: expectedProfileVersion.toString()}),JSON.stringify({nickname,legalName,profileVersion: nextVersion.toString()}),reason,atIso]);
+      const changedAt = inserted.rows[0]?.changed_at ?? atIso;
+      return { personId, nickname, legalName, profileVersion: nextVersion.toString(), changedAt: new Date(changedAt).toISOString(), replay: false };
     });
   }
 

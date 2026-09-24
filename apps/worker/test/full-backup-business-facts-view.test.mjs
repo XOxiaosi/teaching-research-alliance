@@ -41,7 +41,6 @@ const createCompleteSpool = async (records = {}) => {
         "MONTHLY_INCOME_PUBLISHED_VERSIONS_NOT_IMPLEMENTED",
         "MANUAL_ADJUSTMENT_WORKFLOW_NOT_IMPLEMENTED",
         "BACKUP_JOB_AND_SCHEDULE_HISTORY_NOT_IMPLEMENTED",
-        "NICKNAME_CORRECTION_HISTORY_NOT_IMPLEMENTED",
       ],
     },
     datasetFile: (tableName) => join(directory, datasets.find((dataset) => dataset.tableName === tableName).spoolFile),
@@ -56,7 +55,7 @@ const rows = async (view, tableNumber, sourceTable) => {
 
 test("projects fixed stored facts from a complete spool without joining or coercing text values", async () => {
   const fixture = await createCompleteSpool({
-    person: [{ id: "001", nickname: "", legal_name: "合成姓名", status: "INACTIVE", created_at: "2026-09-23T00:00:00.000Z", updated_at: null }],
+    person: [{ id: "001", nickname: "", legal_name: "合成姓名", status: "INACTIVE", profile_version: "7", created_at: "2026-09-23T00:00:00.000Z", updated_at: null }],
     weekly_fee_entry: [{ id: "fee-001", gross_amount_cents: "0", settlement_month: null }],
     referral_acceptance_snapshot: [{ referral_case_id: "case-001", accepted_referral_version: "0002", venue_id: "venue-001" }],
     finance_attachment_version: [
@@ -75,6 +74,8 @@ test("projects fixed stored facts from a complete spool without joining or coerc
       sourceTable: "person", rowKeyColumns: ["id"], columns: [
         { sourceColumn: "id", label: "人员ID" },
         { sourceColumn: "nickname", label: "教师昵称" },
+        { sourceColumn: "legal_name", label: "真实姓名" },
+        { sourceColumn: "profile_version", label: "资料版本" },
         { sourceColumn: "status", label: "人员状态" },
       ],
     });
@@ -85,7 +86,7 @@ test("projects fixed stored facts from a complete spool without joining or coerc
       assert.equal(source, undefined, `${sourceTable} is excluded from business facts`);
     }
     assert.deepEqual(await rows(view, 1, "person"), [{
-      sourceTable: "person", sourceRecordKey: '[["id","001"]]', rowNumber: "1", values: ["001", "", "INACTIVE"],
+      sourceTable: "person", sourceRecordKey: '[["id","001"]]', rowNumber: "1", values: ["001", "", "合成姓名", "7", "INACTIVE"],
     }]);
     assert.deepEqual(await rows(view, 2, "weekly_fee_entry"), [{
       sourceTable: "weekly_fee_entry", sourceRecordKey: '[["id","fee-001"]]', rowNumber: "1", values: ["fee-001", "0", null],

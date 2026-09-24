@@ -41,7 +41,6 @@ const createCompleteSpool = async (records = {}) => {
         "MONTHLY_INCOME_PUBLISHED_VERSIONS_NOT_IMPLEMENTED",
         "MANUAL_ADJUSTMENT_WORKFLOW_NOT_IMPLEMENTED",
         "BACKUP_JOB_AND_SCHEDULE_HISTORY_NOT_IMPLEMENTED",
-        "NICKNAME_CORRECTION_HISTORY_NOT_IMPLEMENTED",
       ],
     },
     datasetFile: (tableName) => join(directory, datasets.find((dataset) => dataset.tableName === tableName).spoolFile),
@@ -51,8 +50,8 @@ const createCompleteSpool = async (records = {}) => {
 test("indexes each fixed RAW source after integrity-checked EOF while preserving spool order and text", async () => {
   const fixture = await createCompleteSpool({
     person: [
-      { id: "0002", nickname: "", legal_name: "第二位", status: "INACTIVE", created_at: "2026-09-01T00:00:00.000Z", updated_at: null },
-      { id: "0010", nickname: "前导零", legal_name: "第十位", status: "ACTIVE", created_at: "2026-09-02T00:00:00.000Z", updated_at: null },
+      { id: "0002", nickname: "", legal_name: "第二位", status: "INACTIVE", profile_version: "2", created_at: "2026-09-01T00:00:00.000Z", updated_at: null },
+      { id: "0010", nickname: "前导零", legal_name: "第十位", status: "ACTIVE", profile_version: "10", created_at: "2026-09-02T00:00:00.000Z", updated_at: null },
     ],
     referral_acceptance_snapshot: [
       { referral_case_id: "case-001", accepted_referral_version: "0002", venue_id: "venue-001" },
@@ -76,8 +75,8 @@ test("indexes each fixed RAW source after integrity-checked EOF while preserving
 
     const people = await collect(index.stream("person"));
     assert.deepEqual(people.map((row) => ({ key: row.sourceRecordKey, ordinal: row.ordinal, values: row.values })), [
-      { key: '[["id","0002"]]', ordinal: "1", values: ["0002", "", "第二位", "INACTIVE", "2026-09-01T00:00:00.000Z", null] },
-      { key: '[["id","0010"]]', ordinal: "2", values: ["0010", "前导零", "第十位", "ACTIVE", "2026-09-02T00:00:00.000Z", null] },
+      { key: '[["id","0002"]]', ordinal: "1", values: ["0002", "", "第二位", "INACTIVE", "2", "2026-09-01T00:00:00.000Z", null] },
+      { key: '[["id","0010"]]', ordinal: "2", values: ["0010", "前导零", "第十位", "ACTIVE", "10", "2026-09-02T00:00:00.000Z", null] },
     ]);
     assert.deepEqual(await index.lookup("person", [["id", "0010"]]), people[1]);
     assert.deepEqual(await index.lookup("referral_acceptance_snapshot", [["referral_case_id", "case-001"], ["accepted_referral_version", "0002"]]), {

@@ -32,7 +32,7 @@ test('real PG microsecond cutoff and approved refund survive all RAW workbook ma
   assert.equal(context.asOf,spool.asOf);
   assert.ok(BigInt(context.money.ledgerEntryCount)>0n);
   const result=await new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot:join(root,'books'),manifestContext:context}).export();
-  assert.equal(result.workbooks.length,12);
+  assert.equal(result.workbooks.length,13);
   const {stdout}=await run('python3',['-c',`import json,sys,zipfile,hashlib,pathlib,xml.etree.ElementTree as E
 root=pathlib.Path(sys.argv[1]); cutoff=sys.argv[2];snapshot=sys.argv[3]
 ns={'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'};out=[]

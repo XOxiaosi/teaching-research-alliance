@@ -246,7 +246,7 @@ test("指纹必须是域隔离的小写 64 位 hex，错误或回显原文失败
 });
 
 test("manifest 声明转换版本、排除和指纹编码", () => {
-  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v6");
+  assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.transformSchemaVersion, "full-backup-transform.v7");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.ledgerEventKeysFingerprinted, true);
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintAlgorithm, "HMAC-SHA-256");
   assert.equal(FULL_BACKUP_TRANSFORM_MANIFEST.fingerprintEncoding, "lowercase-hex");
@@ -269,4 +269,14 @@ test("空数据集和实际转换行共用固定输出列布局", async () => {
   assert.deepEqual(Object.keys(withdrawal.values), fullBackupOutputColumns("finance_withdrawal_submission"));
   assert.equal(fullBackupOutputColumns("finance_withdrawal_submission").includes("recipient_ciphertext"), false);
   assert.deepEqual(fullBackupOutputColumns("finance_withdrawal_submission").slice(-4), ["authorization_snapshot", "recipient_name", "bank_account", "bank_name"]);
+});
+
+test("人员资料更正历史只输出幂等指纹，不输出原始命令键", async () => {
+  const result = await row("person_profile_change", { idempotency_key: "raw-profile-key" }, {
+    id: "profile-change-1", person_id: "person-1", source_profile_version: "1", result_profile_version: "2",
+    before_nickname: "旧昵称", before_legal_name: "旧实名", after_nickname: "新昵称", after_legal_name: "新实名",
+    actor_person_id: "admin-1", actor_subject_code: "SYSTEM_OWNER", reason: "纠正", changed_at: "2026-09-23T00:00:00.000Z", created_at: "2026-09-23T00:00:00.000Z",
+  });
+  assert.equal(result.values.idempotency_key, undefined);
+  assert.equal(result.values.idempotency_key_fingerprint, "a".repeat(64));
 });

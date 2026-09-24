@@ -17,6 +17,10 @@ const effectiveFrom = "2026-09-01";
 const validFrom = "2026-01-01T00:00:00Z";
 const at = new Date("2026-09-21T04:00:00Z");
 const stringifyPolicy = (policy) => JSON.stringify(policy, (_, value) => typeof value === "bigint" ? value.toString() : value);
+const demoNicknames = {
+  teacher: "演示授课老师", planner: "演示规划师", platformFinance: "演示总部财务", admin: "演示管理员",
+  groupLeader: "演示原组长", groupLeaderCandidateA: "演示候选组长甲", groupLeaderCandidateB: "演示候选组长乙",
+};
 
 const addPerson = async (pool, id, name) => {
   await pool.query(
@@ -72,7 +76,7 @@ try {
   ].map((key) => [key, randomUUID()]));
     for (const [key, id] of Object.entries(ids)) {
       if (["region", "campus", "year", "period", "week", "student", "referral", "venue"].includes(key)) continue;
-      await addPerson(pool, id, `结算测试-${key}-${suffix}`);
+      await addPerson(pool, id, demoNicknames[key] ?? `结算测试-${key}-${suffix}`);
     }
     await pool.query(
       `INSERT INTO organization_unit (id, unit_type, name)
@@ -97,7 +101,7 @@ try {
       [ids.planner, ids.campus, ids.region, validFrom, ids.admin, ids.teacher, ids.teacherB, ids.platformFinance]
     );
     await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "CAMPUS", ids.campus, ids.admin);
-    await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "ASSOCIATED_TEACHERS", ids.planner, ids.admin);
+    await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "SELF", null, ids.admin);
     await addRole(pool, ids.groupLeader, "GROUP_LEADER", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
     // Two independent, login-enabled candidates make the real browser group-leader flow selectable.
     await addRole(pool, ids.groupLeaderCandidateA, "GROUP_LEADER", "ASSOCIATED_TEACHERS", null, ids.admin);
@@ -110,7 +114,6 @@ try {
     await addRole(pool, ids.platformFinance, "CAMPUS_PRINCIPAL", "CAMPUS", ids.campus, ids.admin);
     await addRole(pool, ids.admin, "SYSTEM_ADMIN", "GLOBAL", null, ids.admin);
     await addRole(pool, ids.regionFinance, "REGION_FINANCE", "REGION", ids.region, ids.admin);
-    await addRelationship(pool, ids.planner, "PLANNING_MENTOR", ids.planningMentor);
     await addRelationship(pool, ids.teacher, "GROUP_LEADER", ids.groupLeader);
     await addRelationship(pool, ids.teacher, "TEACHING_MENTOR", ids.teachingMentor);
     await addRelationship(pool, ids.teacherB, "GROUP_LEADER", ids.groupLeader);
@@ -166,13 +169,6 @@ try {
     for (const [personId, phone] of [[ids.teacher,"13800000001"],[ids.planner,"13800000002"],[ids.platformFinance,"13800000003"],[ids.admin,"13800000004"],[ids.regionFinance,"13800000005"],[ids.groupLeaderCandidateA,"13800000006"],[ids.groupLeaderCandidateB,"13800000007"]]) {
       await pool.query("INSERT INTO user_account(person_id,phone_normalized,password_hash,login_status) VALUES ($1,$2,$3,'ACTIVE')", [personId,phone,hash]);
     }
-    await pool.query("UPDATE person SET nickname='演示授课老师' WHERE id=$1", [ids.teacher]);
-    await pool.query("UPDATE person SET nickname='演示规划师' WHERE id=$1", [ids.planner]);
-    await pool.query("UPDATE person SET nickname='演示总部财务' WHERE id=$1", [ids.platformFinance]);
-    await pool.query("UPDATE person SET nickname='演示管理员' WHERE id=$1", [ids.admin]);
-    await pool.query("UPDATE person SET nickname='演示原组长' WHERE id=$1", [ids.groupLeader]);
-    await pool.query("UPDATE person SET nickname='演示候选组长甲' WHERE id=$1", [ids.groupLeaderCandidateA]);
-    await pool.query("UPDATE person SET nickname='演示候选组长乙' WHERE id=$1", [ids.groupLeaderCandidateB]);
     if (process.env.DEMO_WITH_ACCOUNT_ACCESS === "1") {
       const ownerId = randomUUID();
       await addPerson(pool, ownerId, "演示开发者");

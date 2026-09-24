@@ -45,7 +45,6 @@ const createCompleteSpool = async (records = {}) => {
         "MONTHLY_INCOME_PUBLISHED_VERSIONS_NOT_IMPLEMENTED",
         "MANUAL_ADJUSTMENT_WORKFLOW_NOT_IMPLEMENTED",
         "BACKUP_JOB_AND_SCHEDULE_HISTORY_NOT_IMPLEMENTED",
-        "NICKNAME_CORRECTION_HISTORY_NOT_IMPLEMENTED",
       ],
     },
     datasetFile: (tableName) => join(directory, datasets.find((dataset) => dataset.tableName === tableName).spoolFile),

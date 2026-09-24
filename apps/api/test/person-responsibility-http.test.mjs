@@ -17,6 +17,7 @@ const setup = () => {
       assignRole: (context, target, draft, key, receivedAt) => { calls.push(["assign",context,target,draft,key,receivedAt]); return { personId: target, assignment: { assignmentId }, authVersion: "2", replay: false }; },
       revokeRole: (context, target, reason, key, receivedAt) => { calls.push(["revoke",context,target,reason,key,receivedAt]); return { personId, assignment: { assignmentId: target }, authVersion: "3", replay: false }; },
       setPersonStatus: (context, target, status, reason, key, receivedAt) => { calls.push(["status",context,target,status,reason,key,receivedAt]); return { personId: target, personStatus: status, authVersion: "4", replay: false }; },
+      updatePersonProfile: (context, target, nickname, legalName, expectedVersion, reason, key, receivedAt) => { calls.push(["profile",context,target,nickname,legalName,expectedVersion,reason,key,receivedAt]); return { personId: target, nickname, legalName, profileVersion: "2", changedAt: receivedAt.toISOString(), replay: false }; },
     },
   }};
 };
@@ -36,6 +37,9 @@ test("人员职责四条 HTTP 路由传递白名单参数，撤销不接收客�
   const status = await handleRequest(request("POST", `/v1/admin/people/${personId}/status`, { status: "INACTIVE", reason: "离职", idempotencyKey: "status-key" }), services);
   assert.equal(status.status, 200);
   assert.deepEqual(calls[3]?.slice(2), [personId, "INACTIVE", "离职", "status-key", at]);
+  const profile = await handleRequest(request("POST", `/v1/admin/people/${personId}/profile`, { nickname: "新昵称", legalName: "新实名", expectedProfileVersion: "1", reason: "资料更正", idempotencyKey: "profile-key" }), services);
+  assert.equal(profile.status, 200);
+  assert.deepEqual(calls[4]?.slice(2), [personId, "新昵称", "新实名", "1", "资料更正", "profile-key", at]);
   for (const [path, body] of [
     [`/v1/admin/role-assignments/${assignmentId}/revoke`, { reason: "撤销", idempotencyKey: "key", validTo: "forged" }],
     [`/v1/admin/people/${personId}/status`, { status: "INACTIVE", reason: "离职", idempotencyKey: "key", actorPersonId: personId }],
@@ -56,4 +60,8 @@ test("人员职责 HTTP 将治理权限与重叠冲突映射为可预期状态�
   const inactiveResponse = await handleRequest(request("POST", `/v1/admin/people/${personId}/role-assignments`, { subject: "PLANNING_MENTOR", scope: "SELF", validFrom: "2026-10-01T00:00:00.000Z", reason: "停用人员", idempotencyKey: "key" }), inactive.services);
   assert.equal(inactiveResponse.status, 409);
   assert.deepEqual(inactiveResponse.body.error, { code: "PERSON_INACTIVE", message: "PERSON_INACTIVE" });
+  const stale = setup();
+  stale.services.accountAccess.updatePersonProfile = () => { throw new Error("PROFILE_VERSION_STALE"); };
+  const staleResponse = await handleRequest(request("POST", `/v1/admin/people/${personId}/profile`, { nickname: "新昵称", legalName: "新实名", expectedProfileVersion: "1", reason: "资料更正", idempotencyKey: "key" }), stale.services);
+  assert.equal(staleResponse.status, 409);
 });

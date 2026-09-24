@@ -108,6 +108,7 @@ export type ApiServices = Readonly<{
       at: Date,
     ) => unknown | Promise<unknown>;
     listPeople: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
+    updatePersonProfile: (context: RoleContext, personId: string, nickname: string, legalName: string, expectedProfileVersion: string, reason: string, idempotencyKey: string, at: Date) => unknown | Promise<unknown>;
     assignRole: (context: RoleContext, personId: string, draft: {
       subject: PermissionSubject; scope: import("@teaching-research-alliance/contracts").PermissionScope;
       scopeId?: string; validFrom: string; validTo?: string; reason: string;
@@ -741,7 +742,8 @@ const errorStatus = (code: string): number => {
   if (code === "ACCOUNT_ACCESS_SERVICE_UNAVAILABLE") return 503;
   if (
     code === "REGISTRATION_PHONE_CONFLICT" ||
-    code === "REGISTRATION_NICKNAME_CONFLICT"
+    code === "REGISTRATION_NICKNAME_CONFLICT" ||
+    code === "PROFILE_NICKNAME_CONFLICT"
   ) return 409;
   if (code === "RELATIONSHIP_SERVICE_UNAVAILABLE") return 503;
   if (code === "ORGANIZATION_REVENUE_DATA_UNAVAILABLE") return 500;
@@ -792,6 +794,8 @@ const errorStatus = (code: string): number => {
       "INVALID_ROLE_REVOCATION",
       "CANNOT_DEACTIVATE_SELF",
       "CANNOT_DEACTIVATE_LAST_OWNER",
+      "PROFILE_VERSION_STALE",
+      "PROFILE_NO_CHANGE",
     ].includes(code)
   )
     return 409;
@@ -1214,6 +1218,14 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
       return success(await services.accountAccess.listPeople(context, at));
+    }
+    const profilePath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/profile$/);
+    if (request.method === "POST" && profilePath !== null) {
+      if (Object.keys(body).some((key) => !["sessionId","nickname","legalName","expectedProfileVersion","reason","idempotencyKey"].includes(key))) throw new Error("INVALID_INPUT");
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.accountAccess) throw new Error("ACCOUNT_ACCESS_SERVICE_UNAVAILABLE");
+      return success(await services.accountAccess.updatePersonProfile(context, profilePath[1]!, requiredString(body,"nickname"), requiredString(body,"legalName"), requiredString(body,"expectedProfileVersion"), requiredString(body,"reason"), requiredString(body,"idempotencyKey"), at));
     }
     const roleAssignmentPath = request.path.match(/^\/v1\/admin\/people\/([^/]+)\/role-assignments$/);
     if (request.method === "POST" && roleAssignmentPath !== null) {

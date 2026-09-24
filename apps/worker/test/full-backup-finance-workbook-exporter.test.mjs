@@ -82,7 +82,7 @@ const createCompleteSpool = async (records = {}) => {
     mode: "RAW_SOURCE_SPOOL", spoolId: "synthetic-finance-spool", snapshotId: "synthetic-finance-snapshot", asOf: "2026-09-23T00:00:00.000Z",
     datasets, anomalyFile: "anomalies.ndjson", anomalyCount: "0", coverageGaps: [
       "MONTHLY_INCOME_PUBLISHED_VERSIONS_NOT_IMPLEMENTED", "MANUAL_ADJUSTMENT_WORKFLOW_NOT_IMPLEMENTED",
-      "BACKUP_JOB_AND_SCHEDULE_HISTORY_NOT_IMPLEMENTED", "NICKNAME_CORRECTION_HISTORY_NOT_IMPLEMENTED",
+      "BACKUP_JOB_AND_SCHEDULE_HISTORY_NOT_IMPLEMENTED",
     ],
   }, datasetFile: (tableName) => join(directory, datasets.find((dataset) => dataset.tableName === tableName).spoolFile) };
 };

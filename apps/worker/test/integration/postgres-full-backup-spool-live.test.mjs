@@ -8,12 +8,13 @@ import { createTestDatabase } from "../../../api/test/integration/postgres-test-
 import { PostgresAccountAccessService, PostgresSessionService } from "../../../api/dist/main.js";
 import { FullBackupSpool } from "../../dist/full-backup-spool.js";
 import { FullBackupTransformer } from "../../dist/full-backup-transformer.js";
+import { FullBackupWorkbookExporter } from "../../dist/full-backup-workbook-exporter.js";
 import { PostgresFullBackupSource } from "../../dist/postgres-full-backup-source.js";
 import { readBackupSpoolDataset } from "../../dist/full-backup-spool-reader.js";
 
 const connectionString = process.env.DATABASE_URL;
 
-test("真实90表只读快照可流式spool，认证秘密表不计数不读取", async () => {
+test("真实91表只读快照可流式spool，资料历史幂等键只保留指纹", async () => {
   const database = await createTestDatabase(connectionString);
   const tempRoot = await mkdtemp(join(tmpdir(), "alliance-spool-pg-"));
   try {
@@ -40,6 +41,7 @@ test("真实90表只读快照可流式spool，认证秘密表不计数不读取"
     );
     const sessions = new PostgresSessionService(database.pool);
     const ownerSession = await sessions.switchRole(owner.session.sessionId, "SYSTEM_OWNER", later);
+    await access.updatePersonProfile(ownerSession.currentRoleContext, target.session.personId, "spool普通成员新昵称", "spool普通成员新实名", "1", "备份资料更正", "spool-profile-command", later);
     await access.resetPassword(
       ownerSession.currentRoleContext,
       target.session.accountId,
@@ -61,7 +63,7 @@ test("真实90表只读快照可流式spool，认证秘密表不计数不读取"
       batchSize: 1,
     }).create();
     assert.equal(spool.mode, "RAW_SOURCE_SPOOL");
-    assert.equal(spool.datasets.length, 90);
+    assert.equal(spool.datasets.length, 91);
     for (const tableName of ["user_session", "auth_login_throttle", "auth_password_reset_command"]) {
       assert.deepEqual(spool.datasets.find((dataset) => dataset.tableName === tableName), {
         tableName, columns: [], rowCount: null, logicalDigest: null, spoolFile: null, excluded: true,
@@ -73,6 +75,19 @@ test("真实90表只读快照可流式spool，认证秘密表不计数不读取"
     assert.equal(text.includes("spool所有者"), true);
     assert.equal(text.includes("spool普通成员"), true);
     assert.equal(text.split("\n").length, 4, "header plus two data rows");
+    const profileHistory = spool.datasets.find((dataset) => dataset.tableName === "person_profile_change");
+    assert.equal(profileHistory.rowCount, "1");
+    const profileText = await readFile(join(tempRoot, spool.spoolId, profileHistory.spoolFile), "utf8");
+    assert.equal(profileText.includes("spool-profile-command"), false);
+    assert.equal(profileText.includes("idempotency_key_fingerprint"), true);
+    const rawWorkbooks = await new FullBackupWorkbookExporter({
+      spoolDirectory: join(tempRoot, spool.spoolId), spool, outputRoot: join(tempRoot, "workbooks"),
+    }).export();
+    const teacherWorkbook = rawWorkbooks.workbooks.find((workbook) => workbook.workbookId === "02");
+    assert.ok(teacherWorkbook, "教师信息 RAW workbook must exist");
+    const teacherWorkbookBytes = await readFile(join(tempRoot, "workbooks", rawWorkbooks.outputId, teacherWorkbook.file));
+    assert.equal(teacherWorkbookBytes.includes(Buffer.from("spool-profile-command")), false);
+    assert.equal(teacherWorkbookBytes.includes(Buffer.from("idempotency_key_fingerprint")), true);
 
     const auditDataset = spool.datasets.find((dataset) => dataset.tableName === "audit_event");
     const auditText = await readFile(join(tempRoot, spool.spoolId, auditDataset.spoolFile), "utf8");
@@ -122,7 +137,7 @@ test("真实90表只读快照可流式spool，认证秘密表不计数不读取"
       }).create(),
       { message: "EXPORT_TRANSFORM_SCHEMA_GAP" },
     );
-    assert.equal((await readdir(tempRoot)).length, 1, "failed secret-bearing export leaves only the successful spool");
+    assert.equal((await readdir(tempRoot)).length, 2, "failed secret-bearing export leaves the successful spool and workbook output");
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
     await database.close();

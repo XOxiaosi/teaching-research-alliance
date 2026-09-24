@@ -56,6 +56,7 @@ const fingerprintColumns = new Set([
   "finance_self_purchase_command_idempotency.idempotency_key",
   "finance_withdrawal_command_idempotency.idempotency_key",
   "person_responsibility_command.idempotency_key",
+  "person_profile_change.idempotency_key",
   "person_relationship_change.idempotency_key",
   "planning_mentor_relationship_change.idempotency_key",
   "referral_acceptance_idempotency.idempotency_key",

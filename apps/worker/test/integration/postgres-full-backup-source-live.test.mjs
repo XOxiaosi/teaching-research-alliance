@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTestDatabase } from "../../../api/test/integration/postgres-test-database.mjs";
+import { PostgresAccountAccessService } from "../../../api/dist/main.js";
 import { EXPORT_SCHEMA_REGISTRY } from "../../dist/export-schema-registry.js";
 import { PostgresFullBackupSource } from "../../dist/postgres-full-backup-source.js";
 
@@ -78,8 +79,21 @@ const nextBatch = async (stream) => {
   return result.value;
 };
 
-test("全量备份数据源以注册的 90 表、固定主键和统一快照打开", async () => {
+test("全量备份数据源以注册的 91 表、固定主键和统一快照打开", async () => {
   await withDatabase(async (database) => {
+    const at = new Date("2026-09-23T02:00:00.000Z");
+    const access = new PostgresAccountAccessService(database.pool);
+    const owner = await access.register({ nickname: "资料历史管理员", legalName: "资料历史管理员", phoneNormalized: "13800009101", password: "backup-owner-password" }, at);
+    const target = await access.register({ nickname: "资料历史当前值", legalName: "资料历史当前值", phoneNormalized: "13800009102", password: "backup-target-password" }, at);
+    await database.pool.query(
+      "INSERT INTO role_assignment(person_id,subject_code,scope_type,valid_from,created_by) VALUES($1,'SYSTEM_OWNER','GLOBAL',$2,$1)",
+      [owner.session.personId, at.toISOString()],
+    );
+    await access.updatePersonProfile(
+      { personId: owner.session.personId, subject: "SYSTEM_OWNER", scope: "GLOBAL" },
+      target.session.personId, "资料历史新值", "资料历史实名", "1", "备份测试", "backup-profile-key", at,
+    );
+    const personId = target.session.personId;
     const observed = sourcePool(database);
     const source = await new PostgresFullBackupSource(observed.pool).open();
     try {
@@ -87,7 +101,12 @@ test("全量备份数据源以注册的 90 表、固定主键和统一快照打�
       assert.equal(source.snapshotId.length > 0, true);
       assert.equal(source.asOf.length > 0, true);
       assert.deepEqual(source.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
-      assert.equal(source.datasets.length, 90);
+      assert.equal(source.datasets.length, 91);
+      assert.equal(await source.countRows("person_profile_change"), 1n);
+      const stream = await source.openStream("person_profile_change", 10);
+      const batch = await nextBatch(stream);
+      assert.equal(batch.rows[0].transformValues.get("idempotency_key"), "backup-profile-key");
+      await stream.close();
       for (const dataset of source.datasets) {
         const registry = EXPORT_SCHEMA_REGISTRY.find((item) => item.name === dataset.tableName);
         assert.deepEqual(dataset.orderBy, registry.orderBy);

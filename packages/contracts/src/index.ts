@@ -322,6 +322,9 @@ export const API_ERROR_CODES = [
   "ACCOUNT_ACCESS_SERVICE_UNAVAILABLE",
   "REGISTRATION_PHONE_CONFLICT",
   "REGISTRATION_NICKNAME_CONFLICT",
+  "PROFILE_NICKNAME_CONFLICT",
+  "PROFILE_VERSION_STALE",
+  "PROFILE_NO_CHANGE",
   "ACCOUNT_NOT_FOUND",
   "PERSON_NOT_FOUND",
   "PERSON_INACTIVE",
@@ -446,6 +449,15 @@ export type EndpointContract = Readonly<{
   alternativeActions?: readonly Action[];
   responseVersion: string;
   requiresRoleContext: boolean;
+}>;
+
+export type PersonProfileChangeResult = Readonly<{
+  personId: string;
+  nickname: string;
+  legalName: string;
+  profileVersion: string;
+  changedAt: string;
+  replay: boolean;
 }>;
 
 export type GroupLeaderRelationshipPersonDto = Readonly<{
@@ -603,6 +615,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/people/:personId/status",
     action: "MANAGE_ACCOUNT_ACCESS",
     responseVersion: "person-status-change.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/people/:personId/profile",
+    action: "MANAGE_ACCOUNT_ACCESS",
+    responseVersion: "person-profile-change.v1",
     requiresRoleContext: true,
   },
   { method: "GET", path: "/v1/organizations/revenue", action: "VIEW_ORGANIZATION_REVENUE", responseVersion: "organization-revenue.v1", requiresRoleContext: true },

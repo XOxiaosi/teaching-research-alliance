@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v6";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v7";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -441,6 +441,15 @@ const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
     const anomalies = auditExact(input, root, ["authVersion"], ["authVersion"], []);
     if (typeof root.authVersion === "string" && !/^[1-9]\d*$/.test(root.authVersion))
       anomalies.push(anomaly(input, "authVersion"));
+    return anomalies;
+  }
+  if (subject === "PERSON" && action === "PERSON_PROFILE_CHANGED") {
+    if (input.raw === null || input.raw === "null") return [anomaly(input)];
+    const root = parseObject(input);
+    const anomalies = auditExact(input, root, ["nickname", "legalName", "profileVersion"], ["nickname", "legalName", "profileVersion"], []);
+    if (typeof root.nickname === "string" && root.nickname.trim() === "") anomalies.push(anomaly(input, "nickname"));
+    if (typeof root.legalName === "string" && root.legalName.trim() === "") anomalies.push(anomaly(input, "legalName"));
+    if (typeof root.profileVersion === "string" && !/^[1-9][0-9]*$/.test(root.profileVersion)) anomalies.push(anomaly(input, "profileVersion"));
     return anomalies;
   }
   if (subject === "VENUE" && venueActions.includes(action ?? "")) { if (input.raw === null) return []; if (input.raw === "null") return [anomaly(input)]; if (action === "VENUE_PERMISSION_CHANGED" && input.columnName === "before_json") return auditExact(input, parseObject(input), ["id", "venue_id", "grantee_person_id", "can_view", "can_withdraw", "valid_from", "valid_to", "version"], [], []); return auditExact(input, parseObject(input), ["id", "venueId", "ownerPersonId", "name", "status", "defaultForOwner", "version", "accountId", "accountCode", "previousDefaultVenueId", "granteePersonId", "canView", "canWithdraw", "validFrom", "validTo", "replay"]); }

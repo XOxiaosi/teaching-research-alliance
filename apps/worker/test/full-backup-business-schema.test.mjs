@@ -15,7 +15,7 @@ const cloneSheets = () => JSON.parse(JSON.stringify(BUSINESS_BACKUP_SHEETS));
 
 test("business schema is an explicit, incomplete eight-table audit baseline", () => {
   const schema = createFullBackupBusinessSchema();
-  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v6");
+  assert.equal(FULL_BACKUP_BUSINESS_SCHEMA_VERSION, "full-backup-business-schema.v7");
   assert.equal(schema.schemaVersion, FULL_BACKUP_BUSINESS_SCHEMA_VERSION);
   assert.equal(schema.mode, "BUSINESS_SCHEMA_ONLY");
   assert.equal(schema.complete, false);
@@ -125,7 +125,7 @@ test("validation rejects duplicate sheets, duplicate mapped columns, unknown col
 
   const unreviewedExistingColumn = cloneSheets();
   unreviewedExistingColumn[0].columns.push({
-    sourceTable: "person", sourceColumn: "legal_name", label: "未审查字段", relationKeyDescription: "person.id 关联",
+    sourceTable: "person", sourceColumn: "updated_at", label: "未审查字段", relationKeyDescription: "person.id 关联",
   });
   assert.throws(() => validateBusinessBackupSheets(unreviewedExistingColumn), /BUSINESS_SCHEMA_FIXED_COLUMN_SET_REQUIRED/);
 

@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createTestDatabase } from '../../../api/test/integration/postgres-test-database.mjs';
+import { PostgresAccountAccessService } from '../../../api/dist/main.js';
 import { LocalAttachmentStore } from '../../../api/dist/local-attachment-store.js';
 import { PostgresFinanceAttachmentService } from '../../../api/dist/postgres-finance-attachment-service.js';
 import { PostgresFinanceAttachmentUploadService } from '../../../api/dist/postgres-finance-attachment-upload-service.js';
@@ -23,7 +24,7 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
   const root = await mkdtemp(join(tmpdir(), 'alliance-backup-attachment-pg-'));
   try {
     const { pool } = database;
-    const personId = randomUUID(), documentId = randomUUID();
+    const personId = randomUUID(), ownerId = randomUUID(), documentId = randomUUID();
     const at = new Date('2026-09-23T00:00:00Z');
     await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1::uuid,'000001老师','合成用户','ACTIVE')", [personId]);
     await pool.query("INSERT INTO finance_document(id,applicant_person_id,kind,status,version,created_at,updated_at) VALUES ($1::uuid,$2::uuid,'REIMBURSEMENT','DRAFT',1,$3::timestamptz,$3::timestamptz)", [documentId, personId, at.toISOString()]);
@@ -44,9 +45,15 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
       transformer: new FullBackupTransformer({ fingerprint: ({ domain, value }) => sha(domain + ':' + value) }),
       tempRoot: join(root, 'spools'), batchSize: 1,
     }).create();
+    await pool.query("INSERT INTO person(id,nickname,legal_name,status) VALUES ($1::uuid,'备份管理员','备份管理员','ACTIVE')", [ownerId]);
+    await pool.query("INSERT INTO user_account(person_id,phone_normalized,password_hash,login_status) VALUES($1,'13900009999','synthetic','ACTIVE')", [ownerId]);
+    await pool.query("INSERT INTO role_assignment(person_id,subject_code,scope_type,valid_from,created_by) VALUES($1,'SYSTEM_OWNER','GLOBAL',$2,$1)", [ownerId, at.toISOString()]);
     await upload(pending);
     const later = await create('later'); await upload(later);
-    await pool.query("UPDATE person SET nickname = 'changed-after-snapshot' WHERE id = $1::uuid", [personId]);
+    await new PostgresAccountAccessService(pool).updatePersonProfile(
+      { personId: ownerId, subject: 'SYSTEM_OWNER', scope: 'GLOBAL' },
+      personId, 'changed-after-snapshot', '更正后姓名', '1', '快照后正式资料更正', 'local-package-profile-change', at,
+    );
     const facts = new FullBackupBusinessFactsView({ spoolDirectory: join(root, 'spools', spool.spoolId), spool });
     const describe = facts.describe(1);
     assert.equal(describe.snapshotId, spool.snapshotId);
@@ -110,7 +117,7 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
     assert.equal(sha(packageIndexBytes), packaged.indexSha256);
     const packageIndex = JSON.parse(packageIndexBytes);
     assert.equal(packageIndex.complete, false);
-    assert.equal(packageIndex.files.length, 16);
+    assert.equal(packageIndex.files.length, 17);
     let totalBytes = 0n;
     for (const file of packageIndex.files) {
       assert.ok(!file.path.startsWith('/') && !file.path.includes('..'));
@@ -126,8 +133,8 @@ test('raw local package verifies PostgreSQL snapshot workbooks and historical at
       totalBytes += BigInt(bytes.length);
     }
     assert.equal(String(totalBytes), packaged.totalBytes);
-    assert.equal(packaged.payloadFileCount, '16');
-    assert.equal(packageIndex.files.filter(file => file.path.endsWith('.xlsx')).length, 12);
+    assert.equal(packaged.payloadFileCount, '17');
+    assert.equal(packageIndex.files.filter(file => file.path.endsWith('.xlsx')).length, 13);
     assert.equal(packageIndex.files.filter(file => file.path.startsWith('attachments/')).length, 2);
     assert.equal(packageIndexBytes.includes(Buffer.from(root)), false);
     assert.equal(packageIndexBytes.includes(Buffer.from('package-manifest.json')), false);

@@ -9,6 +9,7 @@ import type {
   PermissionSubject,
   RoleContext,
   SalaryBenefitDocumentKind,
+  PersonProfileChangeResult,
 } from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
@@ -142,7 +143,7 @@ export type ManagedRoleAssignment = Readonly<{
 }>;
 
 export type PersonResponsibilityDirectoryItem = Readonly<{
-  accountId: string; personId: string; nickname: string; phoneNormalized: string;
+  accountId: string; personId: string; nickname: string; legalName: string; profileVersion: string; phoneNormalized: string;
   loginStatus: "ACTIVE" | "REVOKED"; personStatus: "ACTIVE" | "INACTIVE";
   responsibilities: readonly ManagedRoleAssignment[];
 }>;
@@ -161,6 +162,8 @@ export type RoleRevocationSubmission = Readonly<{ draft: RoleRevocationDraft; id
 export type PersonStatusDraft = Readonly<{ personId: string; status: "ACTIVE" | "INACTIVE"; reason: string }>;
 export type PersonStatusSubmission = Readonly<{ draft: PersonStatusDraft; idempotencyKey: string }>;
 export type PersonStatusChangeResult = Readonly<{ personId: string; personStatus: "ACTIVE" | "INACTIVE"; authVersion: string; replay: boolean }>;
+export type PersonProfileDraft = Readonly<{ personId: string; nickname: string; legalName: string; expectedProfileVersion: string; reason: string }>;
+export type PersonProfileSubmission = Readonly<{ draft: PersonProfileDraft; idempotencyKey: string }>;
 
 /** Monetary values stay decimal integer text in cents; callers must never provide a number. */
 export type WeeklyFeeDraftInput = Readonly<{
@@ -2206,6 +2209,23 @@ export class TeacherApiClient {
   public async listPeople(): Promise<readonly PersonResponsibilityDirectoryItem[]> {
     this.requireCompanyFundAdministrator();
     return this.authenticatedRequest("GET", "/v1/admin/people");
+  }
+
+  public createPersonProfileSubmission(draft: PersonProfileDraft): PersonProfileSubmission {
+    this.requireCompanyFundAdministrator();
+    for (const field of [draft.personId,draft.nickname,draft.legalName,draft.expectedProfileVersion,draft.reason]) requireNonBlank(field,"personProfile");
+    const submission = Object.freeze({ draft: Object.freeze({ ...draft }), idempotencyKey: this.newIdempotencyKey() });
+    this.submissionStatuses.set(submission,"READY"); this.submissionScopes.set(submission,this.captureSubmissionScope()); return submission;
+  }
+
+  public async updatePersonProfile(submission: PersonProfileSubmission): Promise<PersonProfileChangeResult> {
+    if (this.submissionStatus(submission) === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireCompanyFundAdministrator(); this.submissionStatuses.set(submission,"SUBMITTING");
+    try {
+      const { personId, ...draft } = submission.draft;
+      const result = await this.authenticatedRequest<PersonProfileChangeResult>("POST", `/v1/admin/people/${encodeURIComponent(personId)}/profile`, { ...draft, idempotencyKey: submission.idempotencyKey });
+      this.submissionStatuses.set(submission,"SUCCEEDED"); this.advanceResponseGeneration(); return result;
+    } catch (error) { this.submissionStatuses.set(submission,"FAILED"); throw error; }
   }
 
   public createRoleAssignmentSubmission(draft: RoleAssignmentDraft): RoleAssignmentSubmission {

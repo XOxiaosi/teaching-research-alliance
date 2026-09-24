@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {EXPORT_SCHEMA_REGISTRY} from '../dist/export-schema-registry.js';
 import {createFullBackupLayout,backupSheetPartId,FULL_BACKUP_KNOWN_COVERAGE_GAPS} from '../dist/full-backup-layout.js';
 test('every registered table has exactly one explicit group and secrets-only tables have no sheet',()=>{
- const items=createFullBackupLayout();assert.equal(items.length,90);assert.equal(new Set(items.map(item=>item.tableName)).size,90);
+ const items=createFullBackupLayout();assert.equal(items.length,91);assert.equal(new Set(items.map(item=>item.tableName)).size,91);
+ const profileHistory=items.find(item=>item.tableName==='person_profile_change');assert.equal(profileHistory.workbookId,'02');
  assert.deepEqual(items.map(item=>item.tableName),EXPORT_SCHEMA_REGISTRY.map(table=>table.name));
  const secret=items.find(item=>item.tableName==='user_session');assert.equal(secret.sheetId,null);assert.equal(secret.policy,'AUTH_SECRET_TABLE_EXCLUDED');assert.ok(secret.excludedColumns.length>0);
  assert.throws(()=>backupSheetPartId(secret,1),/EXPORT_INVALID_SHEET_PART/);

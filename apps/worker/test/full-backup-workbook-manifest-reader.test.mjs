@@ -94,11 +94,22 @@ const context = () => createFullBackupManifestContext({
 });
 
 const part = () => ({
-  sheetId: "t02_person_0001",
+  sheetId: layout.find((item) => item.tableName === "person").sheetId + "_0001",
   logicalName: "person",
   partNo: "1",
   rowCount: "1",
   sourceTable: "person",
+  sourceLogicalDigest: sha,
+  pageLogicalDigest: null,
+  summaryScope: "SOURCE_TABLE_DIGEST_ONLY",
+});
+
+const profileChangePart = () => ({
+  sheetId: layout.find((item) => item.tableName === "person_profile_change").sheetId + "_0001",
+  logicalName: "person_profile_change",
+  partNo: "1",
+  rowCount: "0",
+  sourceTable: "person_profile_change",
   sourceLogicalDigest: sha,
   pageLogicalDigest: null,
   summaryScope: "SOURCE_TABLE_DIGEST_ONLY",
@@ -116,7 +127,7 @@ const teacherPart = () => ({
 });
 
 const render = (value) => value === null ? "" : (splitBackupLongText(value)?.reference ?? value);
-const rows = (value, parts = [part(), teacherPart()]) => createManifestWorkbookRows({
+const rows = (value, parts = [part(), profileChangePart(), teacherPart()]) => createManifestWorkbookRows({
   context: value,
   spoolId: value.spoolId,
   snapshotId: value.snapshotId,
@@ -138,6 +149,7 @@ const input = (root, value) => ({
 
 const defaultMainSheets = () => [
   { name: part().sheetId, rows: [["row"]] },
+  { name: profileChangePart().sheetId, rows: [] },
   { name: teacherPart().sheetId, rows: [] },
 ];
 
@@ -199,7 +211,7 @@ test("真实 writeXlsx 清单逐行校验可信 context、长文本引用和分�
     await writeWorkbook(root, manifestRows);
     assert.deepEqual(await verifyWorkbookManifest(input(root, trusted)), {
       manifestRowCount: String(manifestRows.length),
-      mainSheetPartCount: "2",
+      mainSheetPartCount: "3",
     });
     await assert.rejects(
       () => verifyWorkbookManifest(input(root, { ...trusted, snapshotId: "snapshot-2" })),
@@ -220,21 +232,23 @@ test("主表逐页流式计数，合法多页通过而重写空页不能沿用�
     };
     const first = part();
     const second = { ...part(), sheetId: part().sheetId.replace("_0001", "_0002"), partNo: "2" };
-    const manifestRows = rows(trusted, [first, second, teacherPart()]);
+    const manifestRows = rows(trusted, [first, second, profileChangePart(), teacherPart()]);
     await writeWorkbook(root, manifestRows, "00_manifest", [
       { name: first.sheetId, rows: [["first"]] },
       { name: second.sheetId, rows: [["second"]] },
+      { name: profileChangePart().sheetId, rows: [] },
       { name: teacherPart().sheetId, rows: [] },
     ]);
     assert.deepEqual(await verifyWorkbookManifest(input(root, trusted)), {
       manifestRowCount: String(manifestRows.length),
-      mainSheetPartCount: "3",
+      mainSheetPartCount: "4",
     });
     const path = join(root, "workbook-02.xlsx");
     await rm(path);
     await writeWorkbook(root, manifestRows, "00_manifest", [
       { name: first.sheetId, rows: [] },
       { name: second.sheetId, rows: [["second"]] },
+      { name: profileChangePart().sheetId, rows: [] },
       { name: teacherPart().sheetId, rows: [] },
     ]);
     await assert.rejects(
@@ -281,17 +295,18 @@ test("伪造 complete、首工作表和公式形式均不能作为本项目 mani
     await writeWorkbook(root, rows(trusted, []));
     await assert.rejects(() => verifyWorkbookManifest(input(root, trusted)), /XLSX_MANIFEST_SHEET_INVALID/);
     await rm(path);
-    await writeWorkbook(root, rows(trusted, [{ ...part(), sheetId: "t02_person_0002" }]));
+    await writeWorkbook(root, rows(trusted, [{ ...part(), sheetId: part().sheetId.replace("_0001", "_0002") }, profileChangePart(), teacherPart()]));
     await assert.rejects(() => verifyWorkbookManifest(input(root, trusted)), /XLSX_MANIFEST_PART_INVALID/);
     await rm(path);
-    await writeWorkbook(root, rows(trusted, [{ ...part(), sourceTable: "teacher_profile" }, teacherPart()]));
+    await writeWorkbook(root, rows(trusted, [{ ...part(), sourceTable: "teacher_profile" }, profileChangePart(), teacherPart()]));
     await assert.rejects(() => verifyWorkbookManifest(input(root, trusted)), /XLSX_MANIFEST_PART_INVALID/);
     await rm(path);
-    await writeWorkbook(root, rows(trusted, [{ ...part(), rowCount: "0" }, teacherPart()]));
+    await writeWorkbook(root, rows(trusted, [{ ...part(), rowCount: "0" }, profileChangePart(), teacherPart()]));
     await assert.rejects(() => verifyWorkbookManifest(input(root, trusted)), /XLSX_MANIFEST_PART_INVALID/);
     await rm(path);
     await writeWorkbook(root, rows(trusted), "00_manifest", [
       { name: part().sheetId, columns: ["source", "extra"], rows: [["row"]] },
+      { name: profileChangePart().sheetId, rows: [] },
       { name: teacherPart().sheetId, rows: [] },
     ]);
     await assert.rejects(() => verifyWorkbookManifest(input(root, trusted)), /XLSX_MANIFEST_SHEET_INVALID/);

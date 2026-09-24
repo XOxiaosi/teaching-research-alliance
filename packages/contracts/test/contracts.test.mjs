@@ -97,6 +97,7 @@ test("人员职责目录与任免接口声明为严格账号访问管理契约",
       { method: "POST", path: "/v1/admin/people/:personId/role-assignments", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-role-assignment.v1", requiresRoleContext: true },
       { method: "POST", path: "/v1/admin/role-assignments/:assignmentId/revoke", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-role-revocation.v1", requiresRoleContext: true },
       { method: "POST", path: "/v1/admin/people/:personId/status", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-status-change.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/people/:personId/profile", action: "MANAGE_ACCOUNT_ACCESS", responseVersion: "person-profile-change.v1", requiresRoleContext: true },
     ],
   );
 });
