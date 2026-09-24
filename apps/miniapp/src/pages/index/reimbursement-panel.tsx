@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Taro from "@tarojs/taro";
-import { Button, Input, Picker, Text, Textarea, View } from "@tarojs/components";
+import { Button, Image, Input, Text, Textarea, View } from "@tarojs/components";
 import {
   ApiClientError,
   RoleSelectionRequiredError,
@@ -8,7 +8,6 @@ import {
   formatCentsAsBeans,
   parseBeanAmountToCents,
   type FinanceAttachmentReservationSubmission,
-  type FinanceAttachmentVersionSubmission,
   type FinanceDocumentAttachment,
   type FinanceDocumentAttachmentVersion,
   type FinanceDraftMetadata,
@@ -26,13 +25,8 @@ import {
 import { createPickedFinanceAttachment, type PickedFinanceAttachment } from "../../finance-attachment-helpers";
 import { downloadFinanceAttachmentToTemp, readTemporaryFileBytes, uploadFinanceAttachmentBytes } from "../../services";
 
-const purposes = [
-  { value: "SUPPORTING_DOCUMENT", label: "报销业务单据" },
-  { value: "APPLICATION_SCREENSHOT", label: "报销申请截图" }
-] as const;
-type Purpose = (typeof purposes)[number]["value"];
-type AttachmentSubmission = FinanceAttachmentReservationSubmission | FinanceAttachmentVersionSubmission;
-type PendingUpload = Readonly<{ file: PickedFinanceAttachment; submission: AttachmentSubmission; attempted: boolean; versionId?: string }>;
+const SCREENSHOT_PURPOSE = "APPLICATION_SCREENSHOT";
+type PendingUpload = Readonly<{ file: PickedFinanceAttachment; submission: FinanceAttachmentReservationSubmission; attempted: boolean; versionId?: string }>;
 type Command = Readonly<{ kind: "submit"; submission: ReimbursementSubmission } | { kind: "review"; submission: ReimbursementReviewSubmission } | { kind: "execute"; submission: ReimbursementExecuteSubmission } | { kind: "reverse"; submission: ReimbursementReversalSubmission }>;
 const personalSubjects = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"] as const;
 const managedSubjects = ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"] as const;
@@ -49,14 +43,10 @@ const sameSessionScope = (left: SessionSnapshot, right: SessionSnapshot | null):
   && left.currentRoleContext?.subject === right.currentRoleContext?.subject && left.currentRoleContext?.personId === right.currentRoleContext?.personId
   && left.currentRoleContext?.scope === right.currentRoleContext?.scope && left.currentRoleContext?.regionId === right.currentRoleContext?.regionId
   && left.currentRoleContext?.campusId === right.currentRoleContext?.campusId && left.currentRoleContext?.venueId === right.currentRoleContext?.venueId;
-const isVersionSubmission = (submission: AttachmentSubmission): submission is FinanceAttachmentVersionSubmission => "attachmentId" in submission.draft;
-const readyVersions = (attachments: readonly FinanceDocumentAttachment[], purpose: Purpose): readonly Readonly<{ attachmentId: string; version: FinanceDocumentAttachmentVersion }>[] =>
-  attachments.filter((item) => item.purpose === purpose).flatMap((item) => item.versions.filter((version) => version.status === "READY").map((version) => ({ attachmentId: item.attachmentId, version })))
-    .sort((left, right) => right.version.versionNo - left.version.versionNo || right.version.createdAt.localeCompare(left.version.createdAt));
-const defaultVersions = (attachments: readonly FinanceDocumentAttachment[]): Readonly<Partial<Record<Purpose, string>>> => Object.fromEntries(purposes.flatMap((purpose) => {
-  const version = readyVersions(attachments, purpose.value)[0]?.version.versionId;
-  return version === undefined ? [] : [[purpose.value, version]];
-})) as Partial<Record<Purpose, string>>;
+const readyScreenshotVersions = (attachments: readonly FinanceDocumentAttachment[]): readonly FinanceDocumentAttachmentVersion[] => attachments
+  .filter((attachment) => attachment.purpose === SCREENSHOT_PURPOSE)
+  .flatMap((attachment) => attachment.versions.filter((version) => version.status === "READY" && (version.declaredMediaType === "image/png" || version.declaredMediaType === "image/jpeg"))
+    .sort((left, right) => right.versionNo - left.versionNo || right.createdAt.localeCompare(left.createdAt)).slice(0, 1));
 
 /** This component creates, reviews, and explicitly executes approved internal reimbursement transfers. */
 export function ReimbursementPanel({ client, session, mode, onInvalidated, onBusyChange, onUnconfirmedChange, onDataMayChange }: {
@@ -78,7 +68,8 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
   const mounted = useRef(true); const running = useRef(false);
   const pendingCreate = useRef<FinanceDraftSubmission | null>(null);
   const pendingCommand = useRef<Command | null>(null);
-  const pendingUploads = useRef<Partial<Record<Purpose, PendingUpload>>>({});
+  const pendingUploads = useRef<Readonly<Record<string, PendingUpload>>>({});
+  const uploadSerial = useRef(0);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -86,7 +77,6 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
   const [drafts, setDrafts] = useState<readonly FinanceDraftMetadata[]>([]);
   const [draft, setDraft] = useState<FinanceDraftMetadata | null>(null);
   const [attachments, setAttachments] = useState<readonly FinanceDocumentAttachment[]>([]);
-  const [chosen, setChosen] = useState<Readonly<Partial<Record<Purpose, string>>>>({});
   const [attachmentRefreshRequired, setAttachmentRefreshRequired] = useState(false);
   const [amount, setAmount] = useState(""); const [reason, setReason] = useState("");
   const [detail, setDetail] = useState<ReimbursementDetail | null>(null);
@@ -96,7 +86,7 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
 
   const hasUnknownUpload = (): boolean => Object.values(pendingUploads.current).some((item) => item?.attempted);
   const reportPending = (): void => { onUnconfirmedChange(pendingCreate.current !== null || pendingCommand.current !== null || hasUnknownUpload()); setRevision((value) => value + 1); };
-  const clearForm = (): void => { setDraft(null); setAttachments([]); setChosen({}); setAttachmentRefreshRequired(false); setAmount(""); setReason(""); pendingUploads.current = {}; };
+  const clearForm = (): void => { setDraft(null); setAttachments([]); setAttachmentRefreshRequired(false); setAmount(""); setReason(""); pendingUploads.current = {}; };
   const clearSensitive = (): void => { clearForm(); setDrafts([]); setRecords([]); setDetail(null); setReviewReason(""); setReversalReason(""); pendingCreate.current = null; pendingCommand.current = null; };
   const invalidate = (): void => { clearSensitive(); onUnconfirmedChange(false); onBusyChange(false); onInvalidated(); };
   const locked = busy || pendingCreate.current !== null || pendingCommand.current !== null || hasUnknownUpload();
@@ -127,7 +117,7 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
       if (!mounted.current || error instanceof StaleResponseError) return;
       if (isAccessLoss(error) || !client.hasRoleContext) { invalidate(); return; }
       if (error instanceof Error && error.message === "FINANCE_ATTACHMENT_SIZE_INVALID") setNotice("原件必须小于等于 20 MB，且不能为空。");
-      else if (error instanceof Error && error.message === "FINANCE_ATTACHMENT_TYPE_INVALID") setNotice("仅支持真实 PDF、PNG 或 JPEG 原件。");
+      else if (error instanceof Error && error.message === "FINANCE_ATTACHMENT_TYPE_INVALID") setNotice("申请截图仅支持真实 PNG 或 JPEG 图片。");
       else if (uncertain(error)) setNotice("结果尚未确认。请保持内容不变并使用原按钮安全重试。");
       else setNotice(error instanceof ApiClientError && error.status === 409 ? "这笔申请已有新状态，旧输入已清空，请刷新后重新核对。" : "操作未完成，请检查当前权限和填写内容。");
     } finally { running.current = false; if (mounted.current) { setBusy(false); onBusyChange(false); reportPending(); } }
@@ -140,7 +130,7 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
     if (draft !== null) {
       const recovered = await client.listFinanceDocumentAttachments(draft.id);
       if (!mounted.current) return;
-      setAttachments(recovered.attachments); setChosen(defaultVersions(recovered.attachments)); setAttachmentRefreshRequired(false);
+      setAttachments(recovered.attachments); setAttachmentRefreshRequired(false);
     }
   };
   const createDraft = async (): Promise<void> => {
@@ -151,7 +141,7 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
     catch (error) { if (!uncertain(error)) { pendingCreate.current = null; reportPending(); } throw error; }
     if (!mounted.current) return;
     pendingCreate.current = null; clearForm(); setDraft(created); setDrafts((items) => [created, ...items.filter((item) => item.id !== created.id)]);
-    setReceipt("报销草稿已创建。请填写金额、原因并上传两份申请原件。"); reportPending();
+    setReceipt("报销草稿已创建。请填写金额、原因并上传至少一张完整申请截图。"); reportPending();
   };
   const openDraft = async (documentId: string): Promise<void> => {
     if (!canApply || locked) return;
@@ -160,30 +150,31 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
     const recovered = await client.listFinanceDocumentAttachments(documentId);
     if (metadata.kind !== "REIMBURSEMENT" || metadata.status !== "DRAFT") { setNotice("这笔记录已不能继续作为报销草稿，请刷新后核对。"); return; }
     if (!mounted.current) return;
-    setDraft(metadata); setAttachments(recovered.attachments); setChosen(defaultVersions(recovered.attachments));
+    setDraft(metadata); setAttachments(recovered.attachments);
   };
-  const pick = async (purpose: Purpose): Promise<void> => {
+  const pick = async (): Promise<void> => {
     if (draft === null || locked) { setNotice("请先打开报销草稿。"); return; }
-    const source = await Taro.showActionSheet({ itemList: ["选择原始图片", "选择 PDF 文件"] }); let path = ""; let name = "";
-    if (source.tapIndex === 0) { const result = await Taro.chooseImage({ count: 1, sizeType: ["original"], sourceType: ["album", "camera"] }); path = result.tempFilePaths[0] ?? ""; name = `${purpose.toLowerCase()}.image`; }
-    else { const result = await Taro.chooseMessageFile({ count: 1, type: "file", extension: ["pdf"] }); path = result.tempFiles[0]?.path ?? ""; name = result.tempFiles[0]?.name ?? ""; }
-    if (!path || !name) throw new Error("FINANCE_ATTACHMENT_SIZE_INVALID");
-    const file = createPickedFinanceAttachment(name, path, await readTemporaryFileBytes(path));
+    const result = await Taro.chooseImage({ count: 9, sizeType: ["original"], sourceType: ["album", "camera"] });
+    const paths = result.tempFilePaths.filter((path): path is string => typeof path === "string" && path.length > 0);
+    if (paths.length < 1) throw new Error("FINANCE_ATTACHMENT_SIZE_INVALID");
+    const files = await Promise.all(paths.map(async (path, index) => createPickedFinanceAttachment(`reimbursement-screenshot-${index + 1}.image`, path, await readTemporaryFileBytes(path))));
+    if (files.some((file) => file.mediaType !== "image/png" && file.mediaType !== "image/jpeg")) throw new Error("FINANCE_ATTACHMENT_TYPE_INVALID");
     const current = client.currentSession; if (current === null || !sameSessionScope(session, current)) throw new StaleResponseError();
-    const existing = attachments.find((item) => item.purpose === purpose);
-    const submission = existing === undefined
-      ? client.createFinanceAttachmentReservationSubmission({ documentId: draft.id, purpose, originalFilename: file.name, declaredMediaType: file.mediaType, declaredSizeBytes: file.bytes.byteLength })
-      : client.createFinanceAttachmentVersionSubmission({ attachmentId: existing.attachmentId, originalFilename: file.name, declaredMediaType: file.mediaType, declaredSizeBytes: file.bytes.byteLength });
-    pendingUploads.current[purpose] = { file, submission, attempted: false }; setNotice(existing === undefined ? "原件已选择，请上传。" : "原件已选择，将作为新版本上传。"); reportPending();
+    const next = { ...pendingUploads.current } as Record<string, PendingUpload>;
+    for (const file of files) {
+      const key = `screenshot-${++uploadSerial.current}`;
+      next[key] = { file, submission: client.createFinanceAttachmentReservationSubmission({ documentId: draft.id, purpose: SCREENSHOT_PURPOSE, originalFilename: file.name, declaredMediaType: file.mediaType, declaredSizeBytes: file.bytes.byteLength }), attempted: false };
+    }
+    pendingUploads.current = next; setNotice(`已选择 ${files.length} 张申请截图，可逐张预览后上传。`); reportPending();
   };
-  const upload = async (purpose: Purpose): Promise<void> => {
-    const item = pendingUploads.current[purpose]; if (item === undefined || draft === null) { setNotice("请先选择原件。"); return; }
-    let pending: PendingUpload = { ...item, attempted: true }; pendingUploads.current[purpose] = pending; reportPending();
+  const upload = async (key: string): Promise<void> => {
+    const item = pendingUploads.current[key]; if (item === undefined || draft === null) { setNotice("请先选择申请截图。"); return; }
+    let pending: PendingUpload = { ...item, attempted: true }; pendingUploads.current = { ...pendingUploads.current, [key]: pending }; reportPending();
     if (pending.versionId === undefined) {
       let reservation;
-      try { reservation = isVersionSubmission(pending.submission) ? await client.reserveFinanceAttachmentVersion(pending.submission) : await client.reserveFinanceAttachment(pending.submission); }
-      catch (error) { if (!uncertain(error)) { delete pendingUploads.current[purpose]; reportPending(); } throw error; }
-      pending = { ...pending, versionId: reservation.versionId }; pendingUploads.current[purpose] = pending;
+      try { reservation = await client.reserveFinanceAttachment(pending.submission); }
+      catch (error) { if (!uncertain(error)) { const next = { ...pendingUploads.current }; delete next[key]; pendingUploads.current = next; reportPending(); } throw error; }
+      pending = { ...pending, versionId: reservation.versionId }; pendingUploads.current = { ...pendingUploads.current, [key]: pending };
     }
     const versionId = pending.versionId;
     if (versionId === undefined) throw new Error("FINANCE_ATTACHMENT_RESERVATION_UNCONFIRMED");
@@ -193,26 +184,36 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
     if (uploaded.status === 401 || uploaded.status === 403) { client.logout(); throw new RoleSelectionRequiredError("FORBIDDEN_SCOPE"); }
     if (uploaded.status < 200 || uploaded.status >= 300) throw new Error("UPLOAD_UNCONFIRMED");
     const metadata = uploaded.metadata ?? await client.getOwnFinanceAttachmentVersion(versionId);
-    if (metadata.status === "FAILED") { delete pendingUploads.current[purpose]; reportPending(); setNotice("原件未通过校验，请重新选择正确文件。"); return; }
+    if (metadata.status === "FAILED") { const next = { ...pendingUploads.current }; delete next[key]; pendingUploads.current = next; reportPending(); setNotice("申请截图未通过校验，请重新选择正确图片。"); return; }
     if (metadata.status !== "READY") throw new Error("UPLOAD_UNCONFIRMED");
-    delete pendingUploads.current[purpose]; setAttachmentRefreshRequired(true); reportPending();
+    const next = { ...pendingUploads.current }; delete next[key]; pendingUploads.current = next; setAttachmentRefreshRequired(true); reportPending();
     try {
       const recovered = await client.listFinanceDocumentAttachments(draft.id); if (!mounted.current) return;
-      setAttachments(recovered.attachments); setChosen(defaultVersions(recovered.attachments)); setAttachmentRefreshRequired(false); setNotice("原件已完整上传，已选中最新修订版本。");
-    } catch (error) { if (isAccessLoss(error) || !client.hasRoleContext) { invalidate(); return; } setNotice("原件已上传，但版本列表刷新失败；请刷新记录后确认提交版本。"); }
+      setAttachments(recovered.attachments); setAttachmentRefreshRequired(false); setNotice("申请截图已完整上传。");
+    } catch (error) { if (isAccessLoss(error) || !client.hasRoleContext) { invalidate(); return; } setNotice("申请截图已上传，但版本列表刷新失败；请刷新记录后确认提交版本。"); }
+  };
+  const uploadAll = async (): Promise<void> => {
+    const keys = Object.keys(pendingUploads.current);
+    if (keys.length < 1) { setNotice("请先选择至少一张申请截图。"); return; }
+    for (const key of keys) await upload(key);
+  };
+  const previewPicked = async (key: string): Promise<void> => {
+    const item = pendingUploads.current[key]; if (item === undefined) return;
+    const paths = Object.values(pendingUploads.current).map((pending) => pending.file.temporaryPath);
+    await Taro.previewImage({ current: item.file.temporaryPath, urls: paths });
   };
   const submit = async (): Promise<void> => {
     if (!canApply || draft === null || pendingCreate.current !== null) { setNotice("请先新建并打开报销草稿。"); return; }
     let command = pendingCommand.current;
     if (command?.kind === "submit") { await execute(command); return; }
     if (locked || attachmentRefreshRequired) { setNotice("请先确认原件上传和版本列表，再提交报销申请。"); return; }
-    const supporting = chosen.SUPPORTING_DOCUMENT; const screenshot = chosen.APPLICATION_SCREENSHOT;
+    const screenshots = readyScreenshotVersions(attachments).map((version) => version.versionId);
     let cents: string;
     try { cents = parseBeanAmountToCents(amount); if (BigInt(cents) <= 0n) throw new Error("POSITIVE_REQUIRED"); }
     catch { setNotice("报销金额须为正数，最多保留两位小数。"); return; }
     if (!reason.trim() || reason.length > 1000 || /[\x00-\x1f\x7f]/.test(reason)) { setNotice("请填写报销原因，最多1000字，勿包含换行或控制字符。"); return; }
-    if (!supporting || !screenshot) { setNotice("请上传并选用已就绪的报销业务单据与申请截图。"); return; }
-    command = { kind: "submit", submission: client.createReimbursementSubmission({ documentId: draft.id, expectedVersion: draft.version, amountCents: cents, reason: reason.trim(), attachmentVersionIds: [supporting, screenshot] }) };
+    if (screenshots.length < 1) { setNotice("请上传至少一张已就绪的 PNG 或 JPEG 申请截图。"); return; }
+    command = { kind: "submit", submission: client.createReimbursementSubmission({ documentId: draft.id, expectedVersion: draft.version, amountCents: cents, reason: reason.trim(), attachmentVersionIds: screenshots }) };
     await execute(command);
   };
   const readDetail = async (id: string): Promise<void> => { if (locked) return; setDetail(null); setReviewReason(""); setReversalReason(""); setDetail(await client.getReimbursementDetail(id)); };
@@ -221,7 +222,7 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
     let command = pendingCommand.current;
     if (command?.kind === "review") { await execute(command); return; }
     const normalized = reviewReason.trim();
-    if (!normalized || normalized.length > 1000 || /[\x00-\x1f\x7f]/.test(normalized)) { setNotice("请填写审核原因，最多1000字，勿包含换行或控制字符。"); return; }
+    if (normalized.length > 1000 || /[\x00-\x1f\x7f]/.test(normalized)) { setNotice("审核意见最多1000字，勿包含换行或控制字符。"); return; }
     command = { kind: "review", submission: client.createReimbursementReviewSubmission({ documentId: detail.id, expectedVersion: detail.version, decision, reason: normalized }) };
     await execute(command);
   };
@@ -295,6 +296,8 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
 
   if (!canApply && !canReadManaged) return null;
   const pending = pendingCommand.current;
+  const pendingScreenshots = Object.entries(pendingUploads.current);
+  const readyScreenshots = readyScreenshotVersions(attachments);
   return <View className="panel finance-panel" data-reimbursement-module="reimbursement" data-mode={mode} data-render-revision={revision}>
     <Text className="panel-title">{personal ? "普通报销申请" : "普通报销管理"}</Text>
     <Text className="panel-description">{personal ? "提交完整原件后等待总部财务人工审核；申请本身不会划拨欢乐豆。" : "查看报销申请、办理结果与原件。总部财务负责审核与划拨；总部财务、管理员和系统所有者可撤销已完成的划拨。"}</Text>
@@ -306,14 +309,14 @@ export function ReimbursementPanel({ client, session, mode, onInvalidated, onBus
       {loaded && drafts.length === 0 && <Text className="panel-description">暂无报销草稿。</Text>}
       {drafts.map((item) => <View className="student-row" key={item.id}><View className="student-detail"><Text className="student-name">报销草稿</Text><Text className="student-meta">{item.id}</Text></View><Button className="quiet-button student-button" disabled={locked || draft?.id === item.id} onClick={() => void run(() => openDraft(item.id))}>{draft?.id === item.id ? "正在填写" : "继续填写报销"}</Button></View>)}
       {draft !== null && <View className="finance-detail"><Text className="field-label">填写报销申请</Text><Text className="field-label">报销金额 / 欢乐豆</Text><Input className="text-input" type="digit" value={amount} disabled={locked} placeholder="正数，最多两位小数" onInput={(event) => setAmount(event.detail.value)} /><Text className="field-label">报销原因</Text><Input className="text-input" value={reason} maxlength={1000} disabled={locked} placeholder="说明本次报销用途" onInput={(event) => setReason(event.detail.value)} />
-        {purposes.map((item) => { const versions = readyVersions(attachments, item.value); const chosenId = chosen[item.value]; const selected = Math.max(versions.findIndex((entry) => entry.version.versionId === chosenId), 0); const pendingUpload = pendingUploads.current[item.value]; return <View className="finance-upload" key={item.value}><Text className="field-label">{item.label}</Text><Text className="panel-description">PDF、PNG 或 JPEG，最大 20 MB。</Text><Button className="quiet-button" disabled={locked && !pendingUpload?.attempted} onClick={() => void run(() => pick(item.value))}>选择原件</Button><Button className="quiet-button" disabled={busy || pendingUpload === undefined || (locked && !pendingUpload.attempted)} onClick={() => void run(() => upload(item.value))}>{pendingUpload?.versionId ? `重试上传${item.label}` : `上传${item.label}`}</Button>{versions.length > 0 && <Picker mode="selector" range={versions.map((entry) => `修订版 ${entry.version.versionNo} · ${entry.version.originalFilename}`)} value={selected} disabled={locked} onChange={(event) => setChosen((current) => ({ ...current, [item.value]: versions[Number(event.detail.value)]?.version.versionId ?? chosenId }))}><View className="picker-value"><Text>{versions[selected] === undefined ? "请选择已上传版本" : `修订版 ${versions[selected].version.versionNo} · ${versions[selected].version.originalFilename}`}</Text><Text>⌄</Text></View></Picker>}</View>; })}
-        {attachmentRefreshRequired && <Text className="panel-description">原件已上传，请刷新记录确认提交版本。</Text>}<Button className="primary-button" disabled={busy || (locked && pending?.kind !== "submit")} onClick={() => void run(submit)}>{pendingCommand.current?.kind === "submit" ? "安全重试原报销申请" : "确认提交报销申请"}</Button>
+        <View className="finance-upload" data-reimbursement-screenshot-upload><Text className="field-label">申请截图</Text><Text className="panel-description">一次可选择多张完整图片。仅支持 PNG 或 JPEG，每张最大 20 MB；至少上传一张后才能提交。</Text><Button className="quiet-button" disabled={locked} onClick={() => void run(pick)}>选择申请截图</Button>{pendingScreenshots.length > 0 && <Button className="quiet-button" disabled={busy || (locked && !pendingScreenshots.some(([, item]) => item.attempted))} onClick={() => void run(uploadAll)}>上传已选图片（{pendingScreenshots.length}张）</Button>}{pendingScreenshots.map(([key, item]) => <View className="finance-upload" key={key}><Image className="finance-attachment-thumbnail" src={item.file.temporaryPath} mode="aspectFill" onClick={() => void run(() => previewPicked(key))} /><Text className="panel-description">{item.file.name}</Text><Button className="quiet-button" disabled={busy} onClick={() => void run(() => previewPicked(key))}>预览图片</Button></View>)}{readyScreenshots.length > 0 && <Text className="panel-description">已就绪申请截图 {readyScreenshots.length} 张。</Text>}</View>
+        {attachmentRefreshRequired && <Text className="panel-description">申请截图已上传，请刷新记录确认提交版本。</Text>}<Button className="primary-button" disabled={busy || (locked && pending?.kind !== "submit")} onClick={() => void run(submit)}>{pendingCommand.current?.kind === "submit" ? "安全重试原报销申请" : "确认提交报销申请"}</Button>
       </View>}
     </View>}
     {loaded && records.length === 0 && <Text className="panel-description">暂无报销申请记录。</Text>}
     {records.map((item) => <View className="student-row" key={item.id}><View className="student-detail"><Text className="student-name">{formatCentsAsBeans(item.amountCents)} 豆</Text><Text className="student-meta">{statusLabel[item.status]} · {item.applicantDisplayName}</Text>{item.status === "COMPLETED" && item.completedAt && <Text className="student-meta">内部划拨完成时间：{timeLabel(item.completedAt)}</Text>}{item.status === "REVERSED" && item.reversedAt && <Text className="student-meta">已撤销：{timeLabel(item.reversedAt)}</Text>}</View><Button className="quiet-button student-button" disabled={locked} onClick={() => void run(() => readDetail(item.id))}>查看报销详情</Button></View>)}
-    {detail !== null && <View className="finance-detail"><Text className="field-label">报销详情</Text><Text className="panel-description">{statusLabel[detail.status]} · {formatCentsAsBeans(detail.amountCents)} 豆</Text>{detail.completedAt && <Text className="panel-description">内部划拨完成时间：{timeLabel(detail.completedAt)}</Text>}{detail.status === "REVERSED" && detail.reversedAt && <Text className="panel-description">已撤销时间：{timeLabel(detail.reversedAt)}</Text>}{detail.status === "REVERSED" && detail.reversalReason && <Text className="panel-description">撤销原因：{detail.reversalReason}</Text>}<Text className="panel-description">报销原因：{detail.reason}</Text>{detail.decision && <><Text className="panel-description">审核决定：{detail.decision.decision === "APPROVED" ? "审核通过" : "已驳回"}</Text><Text className="panel-description">审核原因：{detail.decision.reason}</Text></>}{!personal && detail.management?.completion && <View className="panel-description"><Text>内部划拨来源账户：{detail.management.completion.sourceAccountId}</Text><Text>内部划拨目标账户：{detail.management.completion.destinationAccountId}</Text><Text>执行人编号：{detail.management.completion.executedByPersonId}</Text></View>}<Text className="panel-description">{detail.status === "COMPLETED" ? "内部欢乐豆划拨已完成；此记录不表示银行卡到账，原申请和原件保留。" : detail.status === "REVERSED" ? "原笔欢乐豆划拨已撤销并冲回；这不是银行退款，原申请和原件保留。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : detail.status === "REJECTED" ? "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。" : "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。"}</Text>{detail.attachments.map((item) => <View className="finance-upload" key={item.versionId}><Text className="panel-description">{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"} · {item.originalFilename}</Text><Button className="quiet-button" disabled={busy} onClick={() => void run(() => openAttachment(item.versionId, item.originalFilename, item.mediaType))}>打开{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"}</Button></View>)}
-      {canReview && detail.status === "PENDING_APPROVAL" && <View data-reimbursement-action="review"><Text className="field-label">人工审核</Text><Text className="panel-description">批准仅改变审核状态为待划拨，不会自动增加任何账户余额。</Text><Textarea className="text-input" value={reviewReason} maxlength={1000} disabled={locked} placeholder="填写审核依据或驳回原因" onInput={(event) => setReviewReason(event.detail.value)} /><Button className="primary-button" disabled={locked || reviewReason.trim() === ""} onClick={() => void run(() => review("APPROVE"))}>批准报销申请</Button><Button className="quiet-button" disabled={locked || reviewReason.trim() === ""} onClick={() => void run(() => review("REJECT"))}>驳回报销申请</Button></View>}
+    {detail !== null && <View className="finance-detail"><Text className="field-label">报销详情</Text><Text className="panel-description">{statusLabel[detail.status]} · {formatCentsAsBeans(detail.amountCents)} 豆</Text>{detail.completedAt && <Text className="panel-description">内部划拨完成时间：{timeLabel(detail.completedAt)}</Text>}{detail.status === "REVERSED" && detail.reversedAt && <Text className="panel-description">已撤销时间：{timeLabel(detail.reversedAt)}</Text>}{detail.status === "REVERSED" && detail.reversalReason && <Text className="panel-description">撤销原因：{detail.reversalReason}</Text>}<Text className="panel-description">报销原因：{detail.reason}</Text>{detail.decision && <><Text className="panel-description">审核决定：{detail.decision.decision === "APPROVED" ? "审核通过" : "已驳回"}</Text><Text className="panel-description">审核意见：{detail.decision.reason || "未填写"}</Text></>}{!personal && detail.management?.completion && <View className="panel-description"><Text>内部划拨来源账户：{detail.management.completion.sourceAccountId}</Text><Text>内部划拨目标账户：{detail.management.completion.destinationAccountId}</Text><Text>执行人编号：{detail.management.completion.executedByPersonId}</Text></View>}<Text className="panel-description">{detail.status === "COMPLETED" ? "内部欢乐豆划拨已完成；此记录不表示银行卡到账，原申请和原件保留。" : detail.status === "REVERSED" ? "原笔欢乐豆划拨已撤销并冲回；这不是银行退款，原申请和原件保留。" : detail.status === "APPROVED" ? "审核通过，等待财务划拨；尚未增加个人账户余额。" : detail.status === "REJECTED" ? "该申请已驳回，未发生欢乐豆划拨；原申请和原件保留。" : "该申请正在等待总部财务人工审核，尚未发生欢乐豆划拨。"}</Text>{detail.attachments.map((item) => <View className="finance-upload" key={item.versionId}><Text className="panel-description">{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"} · {item.originalFilename}</Text><Button className="quiet-button" disabled={busy} onClick={() => void run(() => openAttachment(item.versionId, item.originalFilename, item.mediaType))}>打开{item.purpose === "APPLICATION_SCREENSHOT" ? "报销申请截图" : "报销业务单据"}</Button></View>)}
+      {canReview && detail.status === "PENDING_APPROVAL" && <View data-reimbursement-action="review"><Text className="field-label">人工审核</Text><Text className="panel-description">审核意见可不填。批准仅改变审核状态为待划拨，不会自动增加任何账户余额。</Text><Textarea className="text-input" value={reviewReason} maxlength={1000} disabled={locked} placeholder="可选：填写审核依据或驳回原因" onInput={(event) => setReviewReason(event.detail.value)} /><Button className="primary-button" disabled={locked} onClick={() => void run(() => review("APPROVE"))}>批准报销申请</Button><Button className="quiet-button" disabled={locked} onClick={() => void run(() => review("REJECT"))}>驳回报销申请</Button></View>}
       {canReview && detail.status === "APPROVED" && <View data-reimbursement-action="execute"><Text className="field-label">执行内部欢乐豆划拨</Text><Text className="panel-description">此操作会按已审核记录从当前有效公司资金账户向申请人欢乐豆账户划拨；不表示银行卡到账。</Text><Button className="primary-button" disabled={locked} onClick={() => void run(executeTransfer)}>执行内部欢乐豆划拨</Button></View>}
       {canReverse && detail.status === "COMPLETED" && <View data-reimbursement-action="reverse"><Text className="field-label">撤销划拨</Text><Text className="panel-description">撤销会冲回原笔欢乐豆划拨，不是银行退款。</Text><Textarea className="text-input" value={reversalReason} maxlength={1000} disabled={locked} placeholder="填写撤销原因" onInput={(event) => setReversalReason(event.detail.value)} /><Button className="primary-button" disabled={locked || reversalReason.trim() === ""} onClick={() => void run(reverseTransfer)}>撤销划拨</Button></View>}
     </View>}

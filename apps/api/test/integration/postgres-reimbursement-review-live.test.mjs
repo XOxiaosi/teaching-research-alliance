@@ -76,6 +76,13 @@ test("总部财务人工批准冻结决定但不执行报销划拨，财务本�
     await db.pool.query("INSERT INTO role_assignment(id,person_id,subject_code,scope_type,scope_id,valid_from,valid_to,created_by,created_at) VALUES($1::uuid,$2::uuid,'HEADQUARTERS_FINANCE','GLOBAL',NULL,$3::timestamptz,NULL,$2::uuid,$3::timestamptz)", [randomUUID(), personId, at.toISOString()]);
     const selfReviewed = await submitted(db.pool, store, submissions, personId, "self-submit");
     assert.equal((await reviews.approve(hq(personId), selfReviewed.id, { expectedVersion: 2, reason: "切换总部职责人工自审" }, "self-approve", at)).status, "APPROVED");
+
+    const p43Document = await addDocument(db.pool, personId);
+    const p43Screenshot = await addReady(db.pool, store, p43Document, "APPLICATION_SCREENSHOT");
+    await submissions.submit(personal(personId), p43Document, { expectedVersion: 1, amountCents: "100", reason: "单图空意见审核", attachmentVersionIds: [p43Screenshot] }, "p43-submit", at);
+    assert.deepEqual(await reviews.approve(hq(hqId), p43Document, { expectedVersion: 2, reason: "  " }, "p43-approve", at),
+      { id: p43Document, status: "APPROVED", version: 3, replay: false });
+    assert.equal((await db.pool.query("SELECT reason FROM finance_reimbursement_decision WHERE finance_document_id=$1::uuid", [p43Document])).rows[0].reason, "");
   } finally { await db.close(); await rm(root, { recursive: true, force: true }); }
 });
 

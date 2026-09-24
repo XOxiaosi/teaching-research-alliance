@@ -16,7 +16,7 @@ type IdempotencyRow = Readonly<{ request_hash: string; finance_document_id: stri
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 const BIGINT_MAX = 9_223_372_036_854_775_807n;
-const REQUIRED_PURPOSES = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT"] as const;
+const REQUIRED_PURPOSE = "APPLICATION_SCREENSHOT";
 const PERSONAL_SUBJECTS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const PERSONAL_SCOPES = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"] as const;
 const fail = (code: string): never => { throw new Error(code); };
@@ -27,7 +27,7 @@ const validKey = (value: string): void => { if (!value.trim() || value.length > 
 const validAt = (value: Date): void => { if (!Number.isFinite(value.getTime())) fail("INVALID_INPUT"); };
 const expectedVersion = (value: number): number => { if (!Number.isSafeInteger(value) || value < 1 || value >= Number.MAX_SAFE_INTEGER) fail("INVALID_INPUT"); return value; };
 const versionOf = (value: string): number => { const number = Number(value); if (!Number.isSafeInteger(number) || number < 1 || number >= Number.MAX_SAFE_INTEGER) fail("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE"); return number; };
-const reasonOf = (value: string): string => { const reason = value.trim(); if (!reason || reason.length > 1_000 || /[\x00-\x1f\x7f]/.test(reason)) fail("INVALID_INPUT"); return reason; };
+const reasonOf = (value: string): string => { const reason = value.trim(); if (reason.length > 1_000 || /[\x00-\x1f\x7f]/.test(reason)) fail("INVALID_INPUT"); return reason; };
 const hash = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const exactObject = (value: unknown): Record<string, unknown> => { if (typeof value !== "object" || value === null || Array.isArray(value)) fail("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE"); return value as Record<string, unknown>; };
 const exactString = (record: Record<string, unknown>, key: string): string => {
@@ -173,8 +173,8 @@ export class PostgresReimbursementReviewService {
          JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
         WHERE binding.finance_document_id=$1::uuid AND binding.stage='SUBMISSION' FOR SHARE OF binding,version,attachment`, [document.id]
     )).rows;
-    if (rows.length < 2 || new Set(rows.map(row => row.attachment_id)).size !== rows.length
-      || REQUIRED_PURPOSES.some(purpose => !rows.some(row => row.purpose === purpose))
+    if (rows.length < 1 || new Set(rows.map(row => row.attachment_id)).size !== rows.length
+      || !rows.some(row => row.purpose === REQUIRED_PURPOSE)
       || rows.some(row => row.status !== "READY" || row.document_version !== submission.result_document_version || row.bound_by_person_id !== document.applicant_person_id)) fail("FINANCE_ATTACHMENT_NOT_READY");
     for (const row of rows) {
       const size = row.actual_size_bytes === null ? NaN : Number(row.actual_size_bytes);

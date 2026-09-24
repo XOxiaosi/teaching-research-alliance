@@ -74,7 +74,7 @@ const seed = async (pool, sourceBalance = 100) => {
   return { applicantId, financeId, secondFinanceId, fundId, fundAssignmentId, sourceAccountId, destinationAccountId, financePersonalAccountId };
 };
 
-const approve = async (pool, store, applicantId, financeId, { amountCents = "150", at: now = at } = {}) => {
+const approve = async (pool, store, applicantId, financeId, { amountCents = "150", at: now = at, singleScreenshot = false } = {}) => {
   const documentId = randomUUID();
   await pool.query("INSERT INTO finance_document(id,applicant_person_id,kind,status,version,created_at,updated_at) VALUES($1::uuid,$2::uuid,'REIMBURSEMENT','DRAFT',1,$3::timestamptz,$3::timestamptz)", [documentId, applicantId, now.toISOString()]);
   await pool.query(
@@ -82,10 +82,9 @@ const approve = async (pool, store, applicantId, financeId, { amountCents = "150
        VALUES($1::uuid,'CREATED',$2::uuid,1,$3::timestamptz)`,
     [documentId, applicantId, now.toISOString()],
   );
-  const attachmentVersionIds = await Promise.all([
-    addEvidence(pool, store, documentId, "SUPPORTING_DOCUMENT", now),
-    addEvidence(pool, store, documentId, "APPLICATION_SCREENSHOT", now)
-  ]);
+  const attachmentVersionIds = await Promise.all(singleScreenshot
+    ? [addEvidence(pool, store, documentId, "APPLICATION_SCREENSHOT", now)]
+    : [addEvidence(pool, store, documentId, "SUPPORTING_DOCUMENT", now), addEvidence(pool, store, documentId, "APPLICATION_SCREENSHOT", now)]);
   const submissions = new PostgresReimbursementSubmissionService(pool, store);
   const reviews = new PostgresReimbursementReviewService(pool, store);
   await submissions.submit(personal(applicantId), documentId, { expectedVersion: 1, amountCents, reason: "普通报销真实划拨" , attachmentVersionIds }, `submit-${documentId}`, now);
@@ -102,7 +101,7 @@ test("普通报销执行冻结审批链，允许负源余额且只入账一次",
     const store = await LocalAttachmentStore.create(root, resolve(import.meta.dirname, "../../../.."));
     const transfer = new PostgresReimbursementTransferService(db.pool, store);
     const personalReads = new PostgresPersonalReadService(db.pool);
-    const { documentId, attachmentVersionIds } = await approve(db.pool, store, accounts.applicantId, accounts.financeId);
+    const { documentId, attachmentVersionIds } = await approve(db.pool, store, accounts.applicantId, accounts.financeId, { singleScreenshot: true });
     assert.equal((await db.pool.query("SELECT count(*)::int AS count FROM ledger_event")).rows[0].count, 0, "批准本身不入账");
     assert.equal((await db.pool.query("SELECT balance_cents::text AS balance FROM account_balance_projection WHERE account_id=$1::uuid", [accounts.destinationAccountId])).rows[0].balance, "20");
     assert.deepEqual(await personalReads.getOwnOverview(personal(accounts.applicantId), at), {

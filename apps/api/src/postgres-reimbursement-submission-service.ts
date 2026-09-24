@@ -25,7 +25,8 @@ const BIGINT_MAX = 9_223_372_036_854_775_807n;
 const PERSONAL_SUBJECTS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const PERSONAL_SCOPES = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"] as const;
 const ALLOWED_PURPOSES = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT", "INVOICE"] as const;
-const REQUIRED_PURPOSES = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT"] as const;
+const REQUIRED_PURPOSE = "APPLICATION_SCREENSHOT";
+const SCREENSHOT_MEDIA_TYPES = ["image/png", "image/jpeg"] as const;
 const fail = (code: string): never => { throw new Error(code); };
 const scopeOf = (context: RoleContext): string | undefined => (context as RoleContext & { scope?: string }).scope;
 const canonicalUuid = (value: string): string => { if (!UUID.test(value)) fail("INVALID_INPUT"); return value.toLowerCase(); };
@@ -161,7 +162,9 @@ export class PostgresReimbursementSubmissionService {
     )).rows;
     if (rows.length !== ids.length || new Set(rows.map(row => row.attachment_id)).size !== rows.length
       || rows.some(row => row.status !== "READY" || !ALLOWED_PURPOSES.includes(row.purpose as (typeof ALLOWED_PURPOSES)[number]))
-      || REQUIRED_PURPOSES.some(purpose => !rows.some(row => row.purpose === purpose))) fail("FINANCE_ATTACHMENT_NOT_READY");
+      || rows.some(row => row.purpose === REQUIRED_PURPOSE
+        && !SCREENSHOT_MEDIA_TYPES.includes(row.detected_media_type as (typeof SCREENSHOT_MEDIA_TYPES)[number]))
+      || !rows.some(row => row.purpose === REQUIRED_PURPOSE)) fail("FINANCE_ATTACHMENT_NOT_READY");
     return rows;
   }
 

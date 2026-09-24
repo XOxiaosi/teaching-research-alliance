@@ -18,7 +18,7 @@ const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
 const draft = { id: "reimbursement-draft-1", kind: "REIMBURSEMENT", status: "DRAFT", version: 1, createdAt: "2026-09-21T00:00:00.000Z", updatedAt: "2026-09-21T00:00:00.000Z" };
 const summary = { id: "reimbursement-1", status: "PENDING_APPROVAL", version: 2, amountCents: "1200", reason: "合成教材", applicantPersonId: "person-1", applicantDisplayName: "合成老师", submittedAt: "2026-09-21T00:00:00.000Z" };
 const attachment = (attachmentId, purpose, versions) => ({ attachmentId, purpose, createdAt: "2026-09-21T00:00:00.000Z", versions });
-const ready = (versionId, versionNo, originalFilename) => ({ versionId, versionNo, status: "READY", originalFilename, declaredMediaType: "image/png", declaredSizeBytes: 8, createdAt: `2026-09-2${versionNo}T00:00:00.000Z` });
+const ready = (versionId, versionNo, originalFilename, mediaType = "image/png") => ({ versionId, versionNo, status: "READY", originalFilename, declaredMediaType: mediaType, declaredSizeBytes: 8, createdAt: `2026-09-2${versionNo}T00:00:00.000Z` });
 
 const snapshot = (subject, scope = "SELF") => ({
   sessionId: `mini-${subject}-${scope}`, accountId: "account-1", personId: "person-1",
@@ -38,6 +38,7 @@ const taroPlugin = {
         : `import React from "react";
            export const View=({children,...props})=>React.createElement("div",props,children);
            export const Text=({children,...props})=>React.createElement("span",props,children);
+           export const Image=({src,...props})=>React.createElement("img",{...props,src});
            export const Button=({children,...props})=>React.createElement("button",props,children);
            export const Input=({password,maxlength,onInput,...props})=>React.createElement("input",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});
            export const Textarea=({maxlength,onInput,...props})=>React.createElement("textarea",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});
@@ -79,24 +80,29 @@ const getBundled = async () => {
 };
 test.after(async () => { if (bundled !== undefined) await rm(bundled.directory, { recursive: true, force: true }); });
 
-const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, executeFirstUnknown = false, reverseFirstUnknown = false, submitStatus = 200, executeStatus = 200, reverseStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
+const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode = "personal", attachments = [], drafts = [draft], records = [], detailRecord = undefined, choosePaths = ["wxfile://reimbursement.png"], createFirstUnknown = false, submitFirstUnknown = false, reviewFirstUnknown = false, executeFirstUnknown = false, reverseFirstUnknown = false, submitStatus = 200, executeStatus = 200, reverseStatus = 200, attachmentStatus = 200, listFailsAfterUpload = false, failReadsAfterSuccess = false } = {}) => {
   const { ReimbursementPanel } = (await getBundled()).module;
   const currentSession = snapshot(subject, scope);
   const requests = [];
   let currentAttachments = attachments; let currentRecords = records; let currentDetail = detailRecord;
   let creates = 0; let submits = 0; let reviews = 0; let executions = 0; let reversals = 0; let uploadedAttachmentReads = 0; let invalidations = 0;
-  let busyChanges = 0; let unconfirmedChanges = 0; let dataChanges = 0;
+  let busyChanges = 0; let unconfirmedChanges = 0; let dataChanges = 0; let uploadReservations = 0; let previewCalls = 0; let openedPdfs = 0; const downloaded = [];
   const fallbackDetail = () => ({ ...summary, attachments: [
     { versionId: "support-v2", purpose: "SUPPORTING_DOCUMENT", originalFilename: "new-support.png", mediaType: "image/png", sizeBytes: 8, sha256: "a".repeat(64) },
     { versionId: "screenshot-v2", purpose: "APPLICATION_SCREENSHOT", originalFilename: "screen.png", mediaType: "image/png", sizeBytes: 8, sha256: "b".repeat(64) }
   ] });
   globalThis.__miniappTaro = {
-    showActionSheet: async () => ({ tapIndex: 0 }), chooseImage: async () => ({ tempFilePaths: ["wxfile://reimbursement.png"] }), chooseMessageFile: async () => ({ tempFiles: [] }),
+    chooseImage: async () => ({ tempFilePaths: choosePaths }),
     getFileSystemManager: () => ({ readFile: ({ success }) => success({ data: pngBytes }) }),
+    previewImage: async () => { previewCalls += 1; },
+    openDocument: async () => { openedPdfs += 1; },
+    downloadFile: async ({ url, header }) => { downloaded.push({ url, header }); return { statusCode: 200, tempFilePath: "wxfile://temporary-download" }; },
     request: async (request) => {
-      if (request.url.includes("/attachment-uploads/upload-version/content")) {
-        currentAttachments = [attachment("support-slot", "SUPPORTING_DOCUMENT", [ready("support-v1", 1, "support.png"), ready("upload-version", 2, "reimbursement.png")]), attachment("screenshot-slot", "APPLICATION_SCREENSHOT", [ready("screenshot-v1", 1, "screenshot.png")])];
-        return { statusCode: 200, data: { version: "test", data: { attachmentId: "support-slot", versionId: "upload-version", versionNo: 2, status: "READY", purpose: "SUPPORTING_DOCUMENT", originalFilename: "reimbursement.png", declaredMediaType: "image/png", declaredSizeBytes: 8, createdAt: "2026-09-22T00:00:00.000Z" } } };
+      const match = request.url.match(/attachment-uploads\/([^/]+)\/content$/);
+      if (match) {
+        const versionId = match[1];
+        currentAttachments = [...currentAttachments, attachment(`upload-slot-${versionId}`, "APPLICATION_SCREENSHOT", [ready(versionId, 1, `${versionId}.png`)])];
+        return { statusCode: 200, data: { version: "test", data: { attachmentId: `upload-slot-${versionId}`, versionId, versionNo: 1, status: "READY", purpose: "APPLICATION_SCREENSHOT", originalFilename: `${versionId}.png`, declaredMediaType: "image/png", declaredSizeBytes: 8, createdAt: "2026-09-22T00:00:00.000Z" } } };
       }
       throw new Error(`unexpected binary request ${request.url}`);
     }
@@ -121,7 +127,11 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
         if (listFailsAfterUpload && currentAttachments.some((item) => item.versions.some((version) => version.versionId === "upload-version")) && uploadedAttachmentReads++ === 0) throw new Error("attachment list unavailable");
         return success({ documentId: draft.id, attachments: currentAttachments });
       }
-      if (request.path === "/v1/finance/attachments/support-slot/versions") return success({ attachmentId: "support-slot", versionId: "upload-version", versionNo: 2, status: "UPLOADING", purpose: "SUPPORTING_DOCUMENT", originalFilename: "reimbursement.png", declaredMediaType: "image/png", declaredSizeBytes: 8, createdAt: "2026-09-22T00:00:00.000Z", replay: false });
+      if (request.path === `/v1/finance/drafts/${draft.id}/attachment-uploads`) {
+        uploadReservations += 1;
+        const versionId = uploadReservations === 1 ? "upload-version" : `upload-version-${uploadReservations}`;
+        return success({ attachmentId: `upload-slot-${versionId}`, versionId, versionNo: 1, status: "UPLOADING", purpose: "APPLICATION_SCREENSHOT", originalFilename: `${versionId}.png`, declaredMediaType: "image/png", declaredSizeBytes: 8, createdAt: "2026-09-22T00:00:00.000Z", replay: false });
+      }
       if (request.path === "/v1/finance/drafts") {
         creates += 1;
         if (createFirstUnknown && creates === 1) throw new Error("network uncertain");
@@ -162,7 +172,7 @@ const mountPanel = async ({ subject = "TEACHING_TEACHER", scope = "SELF", mode =
   });
   await client.login({ phoneNormalized: "13800000000", password: "password" });
   return {
-    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges, dataChanges: () => dataChanges, reversals: () => reversals,
+    client, currentSession, requests, invalidations: () => invalidations, busyChanges: () => busyChanges, unconfirmedChanges: () => unconfirmedChanges, dataChanges: () => dataChanges, reversals: () => reversals, previewCalls: () => previewCalls, openedPdfs: () => openedPdfs, downloaded: () => downloaded,
     mount: async (container) => {
       const root = createRoot(container);
       await act(async () => { root.render(React.createElement(ReimbursementPanel, {
@@ -189,7 +199,7 @@ test("三个个人身份都只读取自己的普通报销并可新建申请", as
   }
 });
 
-test("草稿恢复时默认选用每类最新 READY 原件；未知提交冻结原金额、原因、版本和请求键", async () => {
+test("草稿恢复只提交最新 READY 申请截图；未知提交冻结原金额、原因、版本和请求键", async () => {
   const fixture = await mountPanel({
     attachments: [
       attachment("support-slot", "SUPPORTING_DOCUMENT", [ready("support-v1", 1, "old-support.png"), ready("support-v2", 2, "new-support.png")]),
@@ -199,8 +209,7 @@ test("草稿恢复时默认选用每类最新 READY 原件；未知提交冻结�
   await withDom(async (container) => {
     const root = await fixture.mount(container);
     await click(button(container, "继续填写报销"));
-    assert.match(container.textContent, /new-support\.png/);
-    assert.match(container.textContent, /new-screen\.png/);
+    assert.match(container.textContent, /已就绪申请截图 1 张/);
     const fields = [...container.querySelectorAll("input")].filter((element) => element.type !== "radio");
     await input(fields[0], "12.00"); await input(fields[1], "合成教材报销");
     await click(button(container, "确认提交报销申请"));
@@ -209,8 +218,8 @@ test("草稿恢复时默认选用每类最新 READY 原件；未知提交冻结�
     await click(button(container, "安全重试原报销申请"));
     const submits = fixture.requests.filter((request) => request.path.endsWith("/reimbursement-submit"));
     assert.deepEqual(submits.map((request) => request.body), [
-      { expectedVersion: 1, amountCents: "1200", reason: "合成教材报销", attachmentVersionIds: ["support-v2", "screenshot-v2"], idempotencyKey: "reimbursement-key-1" },
-      { expectedVersion: 1, amountCents: "1200", reason: "合成教材报销", attachmentVersionIds: ["support-v2", "screenshot-v2"], idempotencyKey: "reimbursement-key-1" }
+      { expectedVersion: 1, amountCents: "1200", reason: "合成教材报销", attachmentVersionIds: ["screenshot-v2"], idempotencyKey: "reimbursement-key-1" },
+      { expectedVersion: 1, amountCents: "1200", reason: "合成教材报销", attachmentVersionIds: ["screenshot-v2"], idempotencyKey: "reimbursement-key-1" }
     ]);
     await act(async () => root.unmount());
   });
@@ -264,6 +273,38 @@ test("严格 GLOBAL 总部财务可审核且未知审核保持原键；管理员
   }
 });
 
+test("审核意见可为空并按原请求保存空字符串", async () => {
+  const fixture = await mountPanel({ subject: "HEADQUARTERS_FINANCE", scope: "GLOBAL", mode: "managed", records: [summary] });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container);
+    await click(button(container, "查看报销详情"));
+    assert.equal(button(container, "批准报销申请").disabled, false);
+    await click(button(container, "批准报销申请"));
+    const review = fixture.requests.find((request) => request.path.endsWith("/approve"));
+    assert.equal(review.body.reason, "");
+    await act(async () => root.unmount());
+  });
+});
+
+test("历史 PDF 原件仍通过带授权头的临时下载打开", async () => {
+  const detailRecord = { ...summary, status: "COMPLETED", version: 4, completedAt: "2026-09-21T00:00:00.000Z", attachments: [
+    { versionId: "legacy-pdf", purpose: "SUPPORTING_DOCUMENT", originalFilename: "legacy.pdf", mediaType: "application/pdf", sizeBytes: 8, sha256: "c".repeat(64) }
+  ], decision: { decision: "APPROVED", reason: "", decidedAt: "2026-09-20T00:00:00.000Z" } };
+  const fixture = await mountPanel({ records: [detailRecord], detailRecord });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container);
+    await click(button(container, "查看报销详情"));
+    assert.match(container.textContent, /审核意见：未填写/);
+    await click(button(container, "打开报销业务单据"));
+    assert.equal(fixture.openedPdfs(), 1);
+    assert.equal(fixture.downloaded().length, 1);
+    assert.match(fixture.downloaded()[0].url, /\/v1\/finance\/attachments\/legacy-pdf\/content$/);
+    assert.ok(fixture.downloaded()[0].header.authorization.startsWith("Bearer "));
+    assert.equal(fixture.downloaded()[0].url.includes("mini-"), false);
+    await act(async () => root.unmount());
+  });
+});
+
 test("原件读取 403 清除敏感草稿状态并向父层报告失效", async () => {
   const fixture = await mountPanel({ attachmentStatus: 403 });
   await withDom(async (container) => {
@@ -275,21 +316,25 @@ test("原件读取 403 清除敏感草稿状态并向父层报告失效", async 
   });
 });
 
-test("同一原件槽上传修订版后重新读取并提交该精确 READY 版本", async () => {
+test("可选择并上传多张申请截图，提交时只绑定 READY 图片", async () => {
   const fixture = await mountPanel({
-    attachments: [attachment("support-slot", "SUPPORTING_DOCUMENT", [ready("support-v1", 1, "support.png")]), attachment("screen-slot", "APPLICATION_SCREENSHOT", [ready("screen-v1", 1, "screen.png")])]
+    attachments: [attachment("support-slot", "SUPPORTING_DOCUMENT", [ready("support-v1", 1, "support.png")]), attachment("screen-slot", "APPLICATION_SCREENSHOT", [ready("screen-v1", 1, "screen.png")])],
+    choosePaths: ["wxfile://reimbursement-1.png", "wxfile://reimbursement-2.png"]
   });
   await withDom(async (container) => {
     const root = await fixture.mount(container);
     await click(button(container, "继续填写报销"));
-    await click(button(container, "选择原件"));
-    await click(button(container, "上传报销业务单据"));
-    assert.match(container.textContent, /修订版 2 · reimbursement\.png/);
+    await click(button(container, "选择申请截图"));
+    assert.equal(container.querySelectorAll("img.finance-attachment-thumbnail").length, 2);
+    await click(button(container, "预览图片"));
+    assert.equal(fixture.previewCalls(), 1);
+    await click(button(container, "上传已选图片（2张）"));
+    assert.match(container.textContent, /已就绪申请截图 3 张/);
     const fields = [...container.querySelectorAll("input")].filter((element) => element.type !== "radio");
     await input(fields[0], "20.00"); await input(fields[1], "新版本原件");
     await click(button(container, "确认提交报销申请"));
     const submit = fixture.requests.find((request) => request.path.endsWith("/reimbursement-submit"));
-    assert.deepEqual(submit.body.attachmentVersionIds, ["upload-version", "screenshot-v1"]);
+    assert.deepEqual(submit.body.attachmentVersionIds, ["screen-v1", "upload-version", "upload-version-2"]);
     await act(async () => root.unmount());
   });
 });
@@ -302,15 +347,15 @@ test("上传后原件列表首次读取失败时禁止提交，刷新后才恢�
   await withDom(async (container) => {
     const root = await fixture.mount(container);
     await click(button(container, "继续填写报销"));
-    await click(button(container, "选择原件"));
-    await click(button(container, "上传报销业务单据"));
-    assert.match(container.textContent, /原件已上传，但版本列表刷新失败/);
+    await click(button(container, "选择申请截图"));
+    await click(button(container, "上传已选图片（1张）"));
+    assert.match(container.textContent, /申请截图已上传，但版本列表刷新失败/);
     const fields = [...container.querySelectorAll("input")].filter((element) => element.type !== "radio");
     await input(fields[0], "20.00"); await input(fields[1], "须刷新后提交");
     await click(button(container, "确认提交报销申请"));
     assert.equal(fixture.requests.filter((request) => request.path.endsWith("/reimbursement-submit")).length, 0);
     await click(button(container, "刷新报销记录"));
-    assert.match(container.textContent, /修订版 2 · reimbursement\.png/);
+    assert.match(container.textContent, /已就绪申请截图 2 张/);
     await click(button(container, "确认提交报销申请"));
     assert.equal(fixture.requests.filter((request) => request.path.endsWith("/reimbursement-submit")).length, 1);
     await act(async () => root.unmount());

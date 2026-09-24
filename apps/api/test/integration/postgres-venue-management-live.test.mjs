@@ -45,6 +45,8 @@ test("场地创建建立独立账户，默认切换、权限历史和幂等均�
     await assert.rejects(reads.get(context(outsider), first.id, new Date(at.getTime() + 6000)), /VENUE_NOT_FOUND/);
     const revoked = await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: false, canWithdraw: false, expectedGrantId: grant.id }, "grant-2", new Date(at.getTime() + 7000));
     assert.equal(revoked.canView, false); assert.equal((await reads.list(context(guest), new Date(at.getTime() + 8000))).some(row => row.id === first.id), false);
+    const ownerHistory = (await reads.listOwned(context(owner), new Date(at.getTime() + 8000))).find(row => row.id === first.id).grants;
+    assert.equal(ownerHistory.some(item => item.id === grant.id && item.validTo !== null), true);
     await service.setStatus(context(owner), first.id, { status: "INACTIVE", expectedVersion: renamed.version }, "off-1", new Date(at.getTime() + 9000));
     assert.equal((await reads.listOwned(context(owner), new Date(at.getTime() + 10000))).find(row => row.id === first.id).status, "INACTIVE");
     const shared = await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: true, canWithdraw: true }, "grant-3", new Date(at.getTime() + 11000));
@@ -59,5 +61,14 @@ test("场地创建建立独立账户，默认切换、权限历史和幂等均�
     await service.setPermission(context(owner), first.id, { granteePersonId: guest, canView: false, canWithdraw: true, expectedGrantId: shared.id }, "withdraw-only", new Date(at.getTime() + 13000));
     assert.deepEqual(await reads.list(context(guest), new Date(at.getTime() + 14000)), []);
     await assert.rejects(reads.get(context(guest), first.id, new Date(at.getTime() + 14000)), /VENUE_NOT_FOUND/);
+    const sameAt = new Date(at.getTime() + 15000);
+    const firstGrant = await service.setPermission(context(owner), first.id, { granteePersonId: outsider, canView: true, canWithdraw: false }, "same-at-first", sameAt);
+    const upgradedGrant = await service.setPermission(context(owner), first.id, { granteePersonId: outsider, canView: true, canWithdraw: true, expectedGrantId: firstGrant.id }, "same-at-upgrade", sameAt);
+    assert.equal((await reads.list(context(outsider), sameAt))[0].canWithdraw, true);
+    await service.setPermission(context(owner), first.id, { granteePersonId: outsider, canView: false, canWithdraw: false, expectedGrantId: upgradedGrant.id }, "same-at-revoke", sameAt);
+    assert.deepEqual(await reads.list(context(outsider), sameAt), []);
+    const history = await pool.query("SELECT id::text AS id, valid_from=valid_to AS empty_interval, valid_to IS NULL AS active FROM venue_permission_grant WHERE venue_id=$1::uuid AND grantee_person_id=$2::uuid ORDER BY created_at,id", [first.id, outsider]);
+    assert.equal(history.rows.length, 2);
+    assert.equal(history.rows.every(row => row.empty_interval && !row.active), true);
   } finally { await db.close(); }
 });

@@ -27,11 +27,11 @@ const insertPersonAccount = async (pool, personId) => {
 };
 
 const seedReimbursement = async (pool, {
-  applicantId, destinationAccountId, applicantContext, submittedAt, status, reason, reviewerId, decisionReason
+  applicantId, destinationAccountId, applicantContext, submittedAt, status, reason, reviewerId, decisionReason,
+  purposes = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT", "INVOICE"], attachmentMediaType = "image/png"
 }) => {
   const documentId = randomUUID();
   const attachmentVersions = [];
-  const purposes = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT", "INVOICE"];
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -57,8 +57,8 @@ const seedReimbursement = async (pool, {
         `INSERT INTO finance_attachment_version(
            id,finance_attachment_id,version_no,status,original_filename,declared_media_type,declared_size_bytes,
            expected_sha256,detected_media_type,actual_size_bytes,sha256,failure_code,uploaded_by_person_id,created_at,ready_at
-         ) VALUES($1::uuid,$2::uuid,1,'READY',$3,'image/png',64,$4,'image/png',64,$4,NULL,$5::uuid,$6::timestamptz,$6::timestamptz)`,
-        [versionId, attachmentId, `${purpose}.png`, digest, applicantId, submittedAt.toISOString()]
+         ) VALUES($1::uuid,$2::uuid,1,'READY',$3,$4,64,$5,$4,64,$5,NULL,$6::uuid,$7::timestamptz,$7::timestamptz)`,
+        [versionId, attachmentId, `${purpose}.${attachmentMediaType === "application/pdf" ? "pdf" : "png"}`, attachmentMediaType, digest, applicantId, submittedAt.toISOString()]
       );
       attachmentVersions.push({ attachmentId, versionId, purpose });
     }
@@ -293,4 +293,42 @@ test("普通报销读取仅开放本人当前财年和严格全局管理，并�
   } finally {
     await db.close();
   }
+});
+
+test("P43 单图普通报销可读，空审核意见仍保留决定事实", async () => {
+  const db = await createTestDatabase(process.env.DATABASE_URL);
+  const { pool } = db;
+  try {
+    const [applicantId, reviewerId] = [randomUUID(), randomUUID()];
+    await insertPerson(pool, applicantId, "p43-applicant"); await insertPerson(pool, reviewerId, "p43-reviewer");
+    const destinationAccountId = await insertPersonAccount(pool, applicantId);
+    const context = personal(applicantId);
+    const document = await seedReimbursement(pool, {
+      applicantId, destinationAccountId, applicantContext: context, submittedAt: at,
+      status: "APPROVED", reason: "单图普通报销", reviewerId, decisionReason: "",
+      purposes: ["APPLICATION_SCREENSHOT"]
+    });
+    const detail = await new PostgresReimbursementReadService(pool).getDetail(context, document.documentId, at);
+    assert.deepEqual(detail.attachments.map((attachment) => attachment.purpose), ["APPLICATION_SCREENSHOT"]);
+    assert.deepEqual(detail.decision, {
+      decision: "APPROVED", reason: "", decidedAt: new Date(at.getTime() + 60_000).toISOString()
+    });
+  } finally { await db.close(); }
+});
+
+test("历史普通报销 PDF 附件在新规则下仍可读取", async () => {
+  const db = await createTestDatabase(process.env.DATABASE_URL);
+  const { pool } = db;
+  try {
+    const applicantId = randomUUID(); await insertPerson(pool, applicantId, "legacy-pdf-applicant");
+    const destinationAccountId = await insertPersonAccount(pool, applicantId);
+    const context = personal(applicantId);
+    const document = await seedReimbursement(pool, {
+      applicantId, destinationAccountId, applicantContext: context, submittedAt: at,
+      status: "PENDING_APPROVAL", reason: "旧版双附件报销", reviewerId: randomUUID(),
+      purposes: ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT"], attachmentMediaType: "application/pdf"
+    });
+    const detail = await new PostgresReimbursementReadService(pool).getDetail(context, document.documentId, at);
+    assert.deepEqual(detail.attachments.map((attachment) => attachment.mediaType), ["application/pdf", "application/pdf"]);
+  } finally { await db.close(); }
 });

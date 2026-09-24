@@ -22,7 +22,7 @@ export function financeError(error: unknown): string {
 }
 
 /** Binary originals use the same in-memory session as JSON requests. Never expose tokens in URLs. */
-async function attachmentFetch(client: TeacherApiClient, path: string, options: RequestInit = {}): Promise<Response> {
+export async function attachmentFetch(client: TeacherApiClient, path: string, options: RequestInit = {}): Promise<Response> {
   const session = client.currentSession;
   if (!session?.currentRoleContext) throw new ApiClientError(401, "UNAUTHENTICATED");
   const response = await fetch(path, { ...options, cache: "no-store", headers: { ...options.headers, authorization: `Bearer ${session.sessionId}` } });
@@ -35,10 +35,10 @@ async function attachmentFetch(client: TeacherApiClient, path: string, options: 
 }
 
 type Upload = { file: File; submission: FinanceAttachmentReservationSubmission; reservation?: FinanceAttachmentReservation };
-type PickerProps = { client: TeacherApiClient; documentId: string; purpose: FinanceAttachmentPurpose; label: string; disabled: boolean; run: FinancePanelProps["run"]; onReady: (versionId: string) => void; onPendingChange: (pending: boolean) => void };
+type PickerProps = { client: TeacherApiClient; documentId: string; purpose: FinanceAttachmentPurpose; label: string; disabled: boolean; run: FinancePanelProps["run"]; onReady: (versionId: string) => void; onPendingChange: (pending: boolean) => void; initialFile?: File; hideFileInput?: boolean; imageOnly?: boolean };
 
-export function AttachmentPicker({ client, documentId, purpose, label, disabled, run, onReady, onPendingChange }: PickerProps): ReactNode {
-  const [file, setFile] = useState<File | null>(null);
+export function AttachmentPicker({ client, documentId, purpose, label, disabled, run, onReady, onPendingChange, initialFile, hideFileInput = false, imageOnly = false }: PickerProps): ReactNode {
+  const [file, setFile] = useState<File | null>(initialFile ?? null);
   const [pending, setPending] = useState<Upload | null>(null);
   const [message, setMessage] = useState("");
   const [ready, setReady] = useState(false);
@@ -48,8 +48,8 @@ export function AttachmentPicker({ client, documentId, purpose, label, disabled,
     let frozen = pending;
     try {
       if (frozen === null) {
-        if (!file || file.size === 0 || file.size > 20 * 1024 * 1024 || !["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
-          setMessage("请选择不超过 20 MB 的非空 PDF、PNG 或 JPEG 文件。"); return;
+        if (!file || file.size === 0 || file.size > 20 * 1024 * 1024 || !(imageOnly ? ["image/png", "image/jpeg"] : ["application/pdf", "image/png", "image/jpeg"]).includes(file.type)) {
+          setMessage(imageOnly ? "请选择不超过 20 MB 的非空 PNG 或 JPEG 图片。" : "请选择不超过 20 MB 的非空 PDF、PNG 或 JPEG 文件。"); return;
         }
         const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
         const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -83,8 +83,8 @@ export function AttachmentPicker({ client, documentId, purpose, label, disabled,
   };
 
   return <div className="finance-upload">
-    <label>{label}<input aria-label={label} type="file" accept="application/pdf,image/png,image/jpeg" disabled={disabled || pending !== null || ready} onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(""); }} /></label>
-    <p className="finance-muted">PDF、PNG 或 JPEG，最大 20 MB。原件将随申请保留。</p>
+    {hideFileInput ? <p>{file?.name ?? label}</p> : <label>{label}<input aria-label={label} type="file" accept={imageOnly ? "image/png,image/jpeg" : "application/pdf,image/png,image/jpeg"} disabled={disabled || pending !== null || ready} onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(""); }} /></label>}
+    <p className="finance-muted">{imageOnly ? "PNG 或 JPEG" : "PDF、PNG 或 JPEG"}，最大 20 MB。原件将随申请保留。</p>
     {!ready && <Button type="button" variant="outline" disabled={disabled || (!file && !pending)} onClick={() => void run(upload)}>{pending ? `安全重试上传${label}` : `上传${label}`}</Button>}
     {message && <p role="status">{message}</p>}
   </div>;

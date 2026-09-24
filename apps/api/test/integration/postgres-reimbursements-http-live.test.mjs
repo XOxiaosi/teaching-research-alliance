@@ -60,12 +60,13 @@ test('普通报销真实HTTP：提交锁定原件，财务审核不划豆，管�
     const attachmentList=await success(await request(`/documents/${draft.id}/attachments`));
     assert.deepEqual(attachmentList.attachments.flatMap(slot=>slot.versions).map(version=>version.binding.stage),['SUBMISSION','SUBMISSION']);
     const download=await fetch(`${base}/attachments/${versions[0]}/content`,{headers:{authorization:'Bearer reimbursement-token-2'}});assert.equal(download.status,200);assert.deepEqual(Buffer.from(await download.arrayBuffer()),bytes);
-    const review={expectedVersion:2,reason:'原件核对通过',idempotencyKey:'approve'};
+    const review={expectedVersion:2,reason:'',idempotencyKey:'approve'};
     const approvePath=`/reimbursements/${draft.id}/approve`;
     assert.equal((await request(approvePath,review)).status,403);
     assert.equal((await request(approvePath,review,3)).status,403);
     assert.equal((await request(approvePath,{...review,amountCents:'1'},2)).status,400);
     const approved=await success(await request(approvePath,review,2));assert.equal(approved.status,'APPROVED');
+    assert.equal((await success(await request(`/reimbursements/${draft.id}`,undefined,3))).decision.reason,'');
     assert.equal((await success(await request(approvePath,review,2))).replay,true);
     assert.equal((await request(`/reimbursements/${draft.id}/reject`,{...review,idempotencyKey:'late-reject'},2)).status,409);
     const rejectedCase=await create('reject-draft');

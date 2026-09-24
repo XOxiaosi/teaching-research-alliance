@@ -590,8 +590,8 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
     || row.applicant_display_name === null || !row.applicant_display_name.trim() || row.reason === null || !row.reason.trim()
     || row.reason.length > 1000 || CONTROL_CHARACTERS.test(row.reason) || submissionCreatedAt !== submittedAt
     || new Date(submittedAt).getTime() < new Date(documentCreatedAt).getTime()
-    || count(row.binding_count) < 2 || count(row.binding_count) !== count(row.binding_slot_count)
-    || count(row.supporting_count) < 1 || count(row.screenshot_count) < 1 || count(row.invalid_binding_count) !== 0
+    || count(row.binding_count) < 1 || count(row.binding_count) !== count(row.binding_slot_count)
+    || count(row.screenshot_count) < 1 || count(row.invalid_binding_count) !== 0
     || count(row.created_event_count) !== 1 || count(row.submitted_event_count) !== 1 || count(row.submit_command_count) !== 1) {
     invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
   }
@@ -625,7 +625,7 @@ const toParsedSummary = (row: SummaryRow): ParsedSummary => {
     if (row.decision_document_id !== row.id || decisionSourceVersion !== submissionVersion
       || decisionResultVersion !== decisionSourceVersion + 1 || decisionResultVersion !== expectedDecisionVersion
       || row.decision !== expectedDecision || row.actor_subject_code !== "HEADQUARTERS_FINANCE" || row.actor_scope_type !== "GLOBAL"
-      || row.decision_reason === null || !row.decision_reason.trim() || row.decision_reason.length > 1000
+      || row.decision_reason === null || row.decision_reason.length > 1000
       || CONTROL_CHARACTERS.test(row.decision_reason) || decisionCreatedAt !== decidedAt
       || new Date(decidedAt).getTime() < new Date(submittedAt).getTime() || count(row.decision_event_count) !== 1
       || count(row.decision_command_count) !== 1) {
@@ -888,7 +888,7 @@ const toAttachments = (rows: readonly AttachmentRow[], row: SummaryRow): Reimbur
       sizeBytes: Number(attachment.size_bytes), sha256: attachment.sha256
     };
   });
-  if (!purposes.has("SUPPORTING_DOCUMENT") || !purposes.has("APPLICATION_SCREENSHOT")) {
+  if (!purposes.has("APPLICATION_SCREENSHOT")) {
     invalid("FINANCE_REIMBURSEMENT_DATA_UNAVAILABLE");
   }
   return attachments;

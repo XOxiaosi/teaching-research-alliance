@@ -23,6 +23,7 @@ import { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-
 import { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
 import { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
 import { PostgresBonusProjectCatalogService } from "./postgres-bonus-project-catalog-service.js";
+import { PostgresProjectBonusReadService } from "./postgres-project-bonus-read-service.js";
 import { PostgresSelfPurchaseService } from "./postgres-self-purchase-service.js";
 import { PostgresSelfPurchaseReversalService } from "./postgres-self-purchase-reversal-service.js";
 import { PostgresSelfPurchaseReadService } from "./postgres-self-purchase-read-service.js";
@@ -88,6 +89,7 @@ const server = createApiServer({
   financeDrafts: new PostgresFinanceDraftService(pool),
   companyFunds: new PostgresCompanyFundService(pool),
   bonusProjects: new PostgresBonusProjectCatalogService(pool),
+  projectBonusReads: new PostgresProjectBonusReadService(pool),
   refundReads: new PostgresRefundReadService(pool),
   ...(attachmentStore
     ? {

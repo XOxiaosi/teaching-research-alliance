@@ -1278,7 +1278,7 @@ test("福利扣费业务账户目录拒绝普通角色和窄范围角色，并�
   assert.equal(forbiddenServer.currentSession?.currentRoleContext, null);
 });
 
-test("普通报销冻结金额理由和两份原件，未知结果以同键重试且不发送伪造字段", async () => {
+test("普通报销冻结金额理由和图片原件，未知结果以同键重试且不发送伪造字段", async () => {
   const bodies = [];
   let attempts = 0;
   const attachmentVersionIds = ["receipt-1", "screenshot-1"];
@@ -1315,8 +1315,11 @@ test("普通报销冻结金额理由和两份原件，未知结果以同键重�
   ]);
   assert.equal(bodies[0].applicantPersonId, undefined);
   assert.equal(bodies[0].destinationAccountId, undefined);
+  assert.deepEqual(client.createReimbursementSubmission({
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "单张图片", attachmentVersionIds: ["screenshot-1"]
+  }).draft.attachmentVersionIds, ["screenshot-1"]);
   assert.throws(() => client.createReimbursementSubmission({
-    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "缺附件", attachmentVersionIds: ["only-one"]
+    documentId: "draft-1", expectedVersion: 1, amountCents: "1", reason: "缺附件", attachmentVersionIds: []
   }), ApiClientError);
 });
 
@@ -1379,6 +1382,7 @@ test("普通报销审核冻结动作和会话范围，只允许严格GLOBAL总�
   await client.login({ phoneNormalized: "13800000000", password: "password" });
   const oldRead = client.listManagedReimbursements();
   const review = client.createReimbursementReviewSubmission(input);
+  assert.equal(client.createReimbursementReviewSubmission({ documentId: 'draft-1', expectedVersion: 2, reason: '', decision: 'REJECT' }).draft.reason, '');
   input.decision = "REJECT";
   input.reason = "篡改";
   assert.equal(Object.isFrozen(review), true);

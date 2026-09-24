@@ -8,7 +8,7 @@ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4A
 const nav=(page,name)=>page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name,exact:true});
 const mine=page=>page.locator('[data-finance-module="reimbursement"][data-mode="personal"]');
 const managed=page=>page.locator('[data-finance-module="reimbursement"][data-mode="managed"]');
-const headers=token=>({authorization:`Bearer ${token}`});
+const headers=token=>token===undefined?{}:{authorization:`Bearer ${token}`};
 
 async function request(api,path,token,data){
  const response=data===undefined?await api.get(path,{headers:headers(token)}):await api.post(path,{headers:headers(token),data});
@@ -31,17 +31,19 @@ async function login(page,phone,subject){
   await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
  }
 }
-async function upload(page,label,name){
- await page.getByLabel(label,{exact:true}).setInputFiles({name,mimeType:'image/png',buffer:png});
- await page.getByRole('button',{name:`上传${label}`,exact:true}).click();
- await expect(page.getByText(`${name} 已完整上传。`,{exact:true})).toBeVisible();
+async function uploadApplicationImages(page,names){
+ await page.getByLabel('上传申请截图',{exact:true}).setInputFiles(names.map(name=>({name,mimeType:'image/png',buffer:png})));
+ for(const name of names){
+  await mine(page).getByRole('button',{name:`上传${name}`,exact:true}).click();
+  await expect(mine(page).getByText(`${name} 已完整上传。`,{exact:true})).toBeVisible();
+ }
 }
-async function createApiReimbursement(api,token,amountCents,reason){
+async function createApiReimbursement(api,token,amountCents,reason,screenshotCount=1){
  const draft=await request(api,'/v1/finance/drafts',token,{kind:'REIMBURSEMENT',idempotencyKey:randomUUID()});
  const attachmentVersionIds=[];
- for(const purpose of ['SUPPORTING_DOCUMENT','APPLICATION_SCREENSHOT']){
+ for(let index=0;index<screenshotCount;index++){
   const reserved=await request(api,`/v1/finance/drafts/${draft.id}/attachment-uploads`,token,{
-   purpose,originalFilename:`${reason}-${purpose}.png`,declaredMediaType:'image/png',declaredSizeBytes:png.length,
+   purpose:'APPLICATION_SCREENSHOT',originalFilename:`${reason}-application-${index+1}.png`,declaredMediaType:'image/png',declaredSizeBytes:png.length,
    expectedSha256:createHash('sha256').update(png).digest('hex'),idempotencyKey:randomUUID()
   });
   const uploaded=await api.post(`/v1/finance/attachment-uploads/${reserved.versionId}/content`,{headers:{...headers(token),'content-type':'image/png'},data:png});
@@ -54,7 +56,7 @@ async function openManaged(page,reason){
  await managed(page).locator('.finance-list-row').filter({hasText:reason}).getByRole('button',{name:'查看报销详情',exact:true}).click();
 }
 
-test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且不改余额',async({page})=>{
+test('教师单图申请、未知提交同键恢复，HQ空意见批准待划拨且不改余额',async({page})=>{
  await mkdir(evidence,{recursive:true});
  const reason=`WEB_REIMBURSE_APPROVE_${randomUUID()}`;
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -66,8 +68,9 @@ test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且
  await page.getByRole('button',{name:'新建报销申请',exact:true}).click();
  await page.getByLabel('报销金额（欢乐豆）',{exact:true}).fill('43.21');
  await page.getByLabel('报销原因',{exact:true}).fill(reason);
- await upload(page,'报销业务单据','reimbursement-document.png');
- await upload(page,'报销申请截图','reimbursement-application.png');
+ await expect(mine(page).getByRole('button',{name:'确认提交报销申请',exact:true})).toBeDisabled();
+ await uploadApplicationImages(page,['reimbursement-application.png']);
+ await expect(mine(page).getByText('已选用 1 张申请截图。',{exact:true})).toBeVisible();
  await page.setViewportSize({width:390,height:844});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
  await page.screenshot({path:resolve(evidence,'reimbursement-submit-mobile.png'),fullPage:true});
@@ -84,19 +87,23 @@ test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且
  await expect(mine(page).getByRole('alert')).toContainText('尚不能确认');
  await expect(nav(page,'周费用录入')).toBeDisabled();
  await expect(nav(page,'教师工作台')).toBeDisabled();
- await page.getByRole('button',{name:'退出登录',exact:true}).click();
- await expect(page.locator('.message')).toContainText('结果待确认');
+ await expect(page.getByRole('button',{name:'退出登录',exact:true})).toBeDisabled();
  await page.route('**/v1/finance/reimbursements/mine',route=>route.abort('failed'),{times:1});
  await mine(page).getByRole('button',{name:'安全重试原报销申请',exact:true}).click();
  await expect(mine(page).locator('.finance-success')).toContainText('报销申请已提交');
  await expect(mine(page).getByRole('alert')).toContainText('刷新失败');
  await expect(nav(page,'周费用录入')).toBeEnabled();
- expect(submitBodies).toHaveLength(2);expect(submitBodies[1]).toEqual(submitBodies[0]);
+ expect(submitBodies).toHaveLength(2);expect(submitBodies[1]).toEqual(submitBodies[0]);expect(submitBodies[0].attachmentVersionIds).toHaveLength(1);
  expect(Object.keys(submitBodies[0]).sort()).toEqual(['amountCents','attachmentVersionIds','expectedVersion','idempotencyKey','reason']);
  await page.getByRole('button',{name:'刷新报销记录',exact:true}).click();
  await mine(page).locator('.finance-list-row').filter({hasText:reason}).getByRole('button',{name:'查看报销详情',exact:true}).click();
  await expect(mine(page).locator('dl.finance-detail')).toContainText('待审核');
  await expect(mine(page).getByRole('button',{name:'批准报销申请',exact:true})).toHaveCount(0);
+ const preview=mine(page).getByRole('button',{name:'放大查看reimbursement-application.png',exact:true});
+ await expect(preview).toBeVisible();await preview.click();
+ const dialog=page.getByRole('dialog',{name:'reimbursement-application.png大图预览',exact:true});
+ await expect(dialog).toBeVisible();await dialog.getByRole('button',{name:'关闭图片预览',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
  const downloaded=page.waitForEvent('download');
  await mine(page).getByRole('button',{name:'下载原件',exact:true}).first().click();
  expect(await readFile(await (await downloaded).path())).toEqual(png);
@@ -112,18 +119,16 @@ test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且
  await page.getByRole('button',{name:'退出登录',exact:true}).click();
  await login(page,'13800000003','HEADQUARTERS_FINANCE'); await openManaged(page,reason);
  await expect(managed(page)).toContainText('申请人：演示授课老师');
- await expect(managed(page).getByRole('button',{name:'批准报销申请',exact:true})).toBeDisabled();
- const reviewReason=`${reason}_REVIEW`;
- await page.getByRole('textbox',{name:'审核原因',exact:true}).fill(reviewReason);
+ await expect(managed(page).getByRole('button',{name:'批准报销申请',exact:true})).toBeEnabled();
  const approvalBodies=[];
  await page.route('**/v1/finance/reimbursements/*/approve',async route=>{
   approvalBodies.push(route.request().postDataJSON());
-  if(approvalBodies.length===1){const response=await route.fetch();expect(response.ok()).toBeTruthy();await route.abort('failed');}
+  if(approvalBodies.length===1){const response=await route.fetch();expect(response.ok(),`approve ${response.status()} ${await response.text()}`).toBeTruthy();await route.abort('failed');}
   else await route.continue();
  });
  await page.getByRole('button',{name:'批准报销申请',exact:true}).click();
  await expect(managed(page).getByRole('button',{name:'安全重试原审核操作',exact:true})).toBeEnabled();
- await expect(page.getByRole('textbox',{name:'审核原因',exact:true})).toBeDisabled();
+ await expect(page.getByRole('textbox',{name:'审核意见（选填）',exact:true})).toBeDisabled();
  await expect(managed(page).getByRole('button',{name:'驳回报销申请',exact:true})).toBeDisabled();
  await expect(nav(page,'提现办理')).toBeDisabled();
  await expect(nav(page,'报销记录')).toBeDisabled();
@@ -132,10 +137,10 @@ test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且
  await expect(managed(page).locator('.finance-success')).toContainText('审核已通过');
  await expect(managed(page).getByRole('alert')).toContainText('刷新失败');
  await expect(nav(page,'提现办理')).toBeEnabled();
- expect(approvalBodies).toHaveLength(2);expect(approvalBodies[1]).toEqual(approvalBodies[0]);
+ expect(approvalBodies).toHaveLength(2);expect(approvalBodies[1]).toEqual(approvalBodies[0]);expect(approvalBodies[0].reason).toBe('');
  await page.getByRole('button',{name:'刷新报销记录',exact:true}).click();await openManaged(page,reason);
  await expect(managed(page).locator('dl.finance-detail')).toContainText('审核通过');
- await expect(managed(page)).toContainText(reviewReason);
+ await expect(managed(page).getByText('审核意见',{exact:true})).toHaveCount(0);
  await expect(managed(page).locator('dl.finance-detail')).not.toContainText('已完成');
  await expect(managed(page).getByRole('button',{name:'执行内部欢乐豆划拨',exact:true})).toBeEnabled();
  await page.screenshot({path:resolve(evidence,'reimbursement-approved.png'),fullPage:true});
@@ -144,14 +149,41 @@ test('教师真实原件申请、未知提交同键恢复，HQ批准待划拨且
  expect(afterApprove.currentYearIncomeByCategory.reimbursementIncome??'0').toBe(before.currentYearIncomeByCategory.reimbursementIncome??'0');
  const own=(await request(page.request,'/v1/finance/reimbursements/mine',teacherRead)).documents;
  const approved=own.find(item=>item.reason===reason);expect(approved).toBeDefined();
+ const applicantDetail=await request(page.request,`/v1/finance/reimbursements/${approved.id}`,teacherRead);
+ const applicationImage=applicantDetail.attachments.find(item=>item.purpose==='APPLICATION_SCREENSHOT');expect(applicationImage).toBeDefined();
  const admin=await session(page.request,'13800000004','SYSTEM_ADMIN');
  const denied=await page.request.post('/v1/finance/reimbursements/'+encodeURIComponent(approved.id)+'/approve',{headers:headers(admin),data:{expectedVersion:approved.version,reason:'管理员越权验收',idempotencyKey:randomUUID()}});
  expect(denied.status()).toBe(403);
+ const unrelated=await session(page.request,'13800000002','ACADEMIC_PLANNER');
+ const deniedOriginal=await page.request.get(`/v1/finance/attachments/${applicationImage.versionId}/content`,{headers:headers(unrelated)});
+ expect(deniedOriginal.status()).toBe(404);
+ expect((await deniedOriginal.json()).error.code).toBe('FINANCE_ATTACHMENT_NOT_FOUND');
  await page.getByRole('button',{name:'退出登录',exact:true}).click();
  await login(page,'13800000004','SYSTEM_ADMIN');await openManaged(page,reason);
  await expect(managed(page).getByRole('button',{name:'批准报销申请',exact:true})).toHaveCount(0);
  await expect(managed(page).getByRole('button',{name:'驳回报销申请',exact:true})).toHaveCount(0);
  expect(errors).toEqual([]);
+});
+
+test('教师可一次选用多张申请截图，提交请求只携带申请截图版本',async({page})=>{
+ const teacher=await session(page.request,'13800000001','TEACHING_TEACHER');
+ const reason=`WEB_REIMBURSE_MULTI_${randomUUID()}`;
+ await login(page,'13800000001','TEACHING_TEACHER');await nav(page,'我的报销').click();
+ await page.getByRole('button',{name:'新建报销申请',exact:true}).click();
+ await page.getByLabel('报销金额（欢乐豆）',{exact:true}).fill('12.34');
+ await page.getByLabel('报销原因',{exact:true}).fill(reason);
+ await expect(mine(page).getByRole('button',{name:'确认提交报销申请',exact:true})).toBeDisabled();
+ await uploadApplicationImages(page,['reimbursement-multi-1.png','reimbursement-multi-2.png']);
+ await expect(mine(page).getByText('已选用 2 张申请截图。',{exact:true})).toBeVisible();
+ const submissions=[];page.on('request',request=>{if(request.url().includes('/reimbursement-submit')&&request.method()==='POST')submissions.push(request.postDataJSON());});
+ await mine(page).getByRole('button',{name:'确认提交报销申请',exact:true}).click();
+ await expect(mine(page).locator('.finance-success')).toContainText('报销申请已提交');
+ expect(submissions).toHaveLength(1);expect(submissions[0].attachmentVersionIds).toHaveLength(2);
+ const own=(await request(page.request,'/v1/finance/reimbursements/mine',teacher)).documents;
+ const submitted=own.find(item=>item.reason===reason);expect(submitted).toBeDefined();
+ const detail=await request(page.request,`/v1/finance/reimbursements/${submitted.id}`,teacher);
+ expect(detail.attachments.filter(item=>item.purpose==='APPLICATION_SCREENSHOT')).toHaveLength(2);
+ expect(detail.attachments.some(item=>item.purpose==='SUPPORTING_DOCUMENT')).toBeFalsy();
 });
 
 test('另一总部会话先驳回时真实409重读，旧审核不自动再次提交',async({page})=>{
@@ -165,7 +197,7 @@ test('另一总部会话先驳回时真实409重读，旧审核不自动再次�
  await expect(managed(page).getByRole('button',{name:'驳回报销申请',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'退出登录',exact:true}).click();
  await login(page,'13800000003','HEADQUARTERS_FINANCE'); await openManaged(page,reason);
- await page.getByRole('textbox',{name:'审核原因',exact:true}).fill('旧审核原因，应该在冲突后清除');
+ await page.getByRole('textbox',{name:'审核意见（选填）',exact:true}).fill('旧审核意见，应该在冲突后清除');
  const reviewReason=`${reason}_REVIEW`;
  const other=await request(page.request,`/v1/finance/reimbursements/${created.id}/reject`,otherHq,{expectedVersion:created.version,reason:reviewReason,idempotencyKey:randomUUID()});
  expect(other.status).toBe('REJECTED');
@@ -174,7 +206,7 @@ test('另一总部会话先驳回时真实409重读，旧审核不自动再次�
  await page.getByRole('button',{name:'批准报销申请',exact:true}).click();await conflict;
  await expect(managed(page).getByRole('alert')).toContainText('状态已发生变化');
  await expect(managed(page)).toContainText('已驳回');
- await expect(page.getByRole('textbox',{name:'审核原因',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('textbox',{name:'审核意见（选填）',exact:true})).toHaveCount(0);
  await expect(managed(page).getByRole('button',{name:'批准报销申请',exact:true})).toHaveCount(0);
  expect(reviewPosts).toHaveLength(1);
  await page.getByRole('button',{name:'刷新报销记录',exact:true}).click();await openManaged(page,reason);

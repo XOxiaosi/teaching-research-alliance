@@ -40,6 +40,8 @@ test('推荐创建固定来源身份，同名独立、幂等并发且拒绝无�
   const directory=await service.listReceivingTeachers(context);
   assert.equal(directory.some(r=>r.personId===planner),false);
   assert.ok(directory.every(r=>Object.keys(r).sort().join(',')==='nickname,personId'));
+  assert.deepEqual(await service.listReceivingTeachers({personId:planner,subject:'TEACHER'}),directory);
+  await assert.rejects(service.create({personId:planner,subject:'TEACHER'},draft,'basic-not-yet-authorized',at),/FORBIDDEN_SCOPE/);
   await assert.rejects(service.create({personId:teacher,subject:'REGION_FINANCE'},draft,'forbidden',at),/FORBIDDEN_SCOPE/);
 
   let sessionNumber=0;

@@ -289,6 +289,10 @@ export type ApiServices = Readonly<{
       at: Date,
     ) => unknown | Promise<unknown>;
   }>;
+  projectBonusReads?: Readonly<{
+    list: (context: RoleContext, input: { cursor?: string; limit?: number }) => unknown | Promise<unknown>;
+    getDetail: (context: RoleContext, id: string) => unknown | Promise<unknown>;
+  }>;
   selfPurchases?: Readonly<{
     submit: (
       context: RoleContext,
@@ -1497,6 +1501,40 @@ export const handleRequest = async (
         throw new Error("FINANCE_SERVICE_UNAVAILABLE");
       return success(await services.bonusProjects.list(context));
     }
+    if (
+      request.method === "GET" &&
+      request.path === "/v1/finance/project-bonuses"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId"))
+        throw new Error("INVALID_INPUT");
+      const query = request.query ?? {};
+      if (Object.keys(query).some((field) => !["cursor", "limit"].includes(field)))
+        throw new Error("INVALID_INPUT");
+      let limit: number | undefined;
+      if (query.limit !== undefined) {
+        limit = Number(query.limit);
+        if (!/^\d+$/.test(query.limit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+          throw new Error("INVALID_INPUT");
+      }
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.projectBonusReads) throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      return success(await services.projectBonusReads.list(context, {
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(limit === undefined ? {} : { limit }),
+      }));
+    }
+    const projectBonusDetailPath = request.path.match(/^\/v1\/finance\/project-bonuses\/([^/]+)$/);
+    if (request.method === "GET" && projectBonusDetailPath !== null) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim())
+        throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId") || Object.keys(request.query ?? {}).length > 0)
+        throw new Error("INVALID_INPUT");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      if (!services.projectBonusReads) throw new Error("FINANCE_SERVICE_UNAVAILABLE");
+      return success(await services.projectBonusReads.getDetail(context, projectBonusDetailPath[1]!));
+    }
     const bonusProjectRenamePath = request.path.match(
       /^\/v1\/admin\/bonus-projects\/([^/]+)\/name$/,
     );
@@ -2375,7 +2413,8 @@ export const handleRequest = async (
         ) ||
         typeof body.expectedVersion !== "number" ||
         !Number.isSafeInteger(body.expectedVersion) ||
-        body.expectedVersion < 1
+        body.expectedVersion < 1 ||
+        typeof body.reason !== "string"
       )
         throw new Error("INVALID_INPUT");
       return success(
@@ -2386,7 +2425,7 @@ export const handleRequest = async (
           reimbursementReviewPath[1]!,
           {
             expectedVersion: body.expectedVersion,
-            reason: requiredString(body, "reason"),
+            reason: body.reason,
           },
           requiredString(body, "idempotencyKey"),
           at,

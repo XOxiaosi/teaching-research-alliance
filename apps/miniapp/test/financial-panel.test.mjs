@@ -38,6 +38,7 @@ const taroPlugin = {
         : `import React from "react";
            export const View=({children,...props})=>React.createElement("div",props,children);
            export const Text=({children,...props})=>React.createElement("span",props,children);
+           export const Image=({src,...props})=>React.createElement("img",{...props,src});
            export const Button=({children,...props})=>React.createElement("button",props,children);
            export const Input=({password,maxlength,onInput,...props})=>React.createElement("input",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});
            export const Textarea=({maxlength,onInput,...props})=>React.createElement("textarea",{...props,...(maxlength===undefined?{}:{maxLength:maxlength}),onInput:(event)=>onInput?.({detail:{value:event.currentTarget.value}})});

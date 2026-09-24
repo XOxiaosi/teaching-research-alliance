@@ -50,7 +50,9 @@ export class PostgresReferralCreationService {
   public constructor(private readonly pool: PostgresPool) {}
 
   public async listReceivingTeachers(context: RoleContext): Promise<readonly {personId:string;nickname:string}[]> {
-    assertContext(context);
+    // Basic teachers can choose a receiver or invite a teacher to their own venue.
+    // This directory read does not grant the separate referral creation permission.
+    if (context.subject !== "TEACHER") assertContext(context);
     const client = await this.pool.connect();
     try {
       const result = await client.query<{person_id:string;nickname:string}>(

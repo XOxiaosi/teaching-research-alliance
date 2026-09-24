@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { PDFDocument } from "pdf-lib";
 import { LocalAttachmentStore } from "../../dist/local-attachment-store.js";
 import { PostgresReimbursementSubmissionService } from "../../dist/postgres-reimbursement-submission-service.js";
 import { createTestDatabase } from "./postgres-test-database.mjs";
@@ -38,6 +39,19 @@ const addReadyAttachment = async (pool, store, documentId, purpose, slotId = ran
     [versionId, slotId, versionNo, `${purpose}-${versionNo}.png`, png.length, sha, at.toISOString(), documentId]
   );
   return { slotId, versionId };
+};
+const addReadyPdfScreenshot = async (pool, store, documentId) => {
+  const attachmentId = randomUUID(), versionId = randomUUID();
+  const pdf = await PDFDocument.create(); pdf.addPage([8, 8]);
+  const bytes = await pdf.save(); const sha = digest(bytes);
+  await store.put({ versionId, originalFilename: "application-screenshot.pdf", declaredMediaType: "application/pdf", declaredSizeBytes: bytes.length, expectedSha256: sha }, chunks(bytes));
+  await pool.query("INSERT INTO finance_attachment(id,finance_document_id,purpose,created_by_person_id,created_at) SELECT $1::uuid,$2::uuid,'APPLICATION_SCREENSHOT',applicant_person_id,$3::timestamptz FROM finance_document WHERE id=$2::uuid", [attachmentId, documentId, at.toISOString()]);
+  await pool.query(
+    `INSERT INTO finance_attachment_version(id,finance_attachment_id,version_no,status,original_filename,declared_media_type,declared_size_bytes,expected_sha256,detected_media_type,actual_size_bytes,sha256,uploaded_by_person_id,created_at,ready_at)
+     SELECT $1::uuid,$2::uuid,1,'READY','application-screenshot.pdf','application/pdf',$3::bigint,$4,'application/pdf',$3::bigint,$4,applicant_person_id,$5::timestamptz,$5::timestamptz FROM finance_document WHERE id=$6::uuid`,
+    [versionId, attachmentId, bytes.length, sha, at.toISOString(), documentId]
+  );
+  return versionId;
 };
 const addRequiredEvidence = async (pool, store, documentId) => {
   const supporting = await addReadyAttachment(pool, store, documentId, "SUPPORTING_DOCUMENT");
@@ -74,6 +88,37 @@ test("普通报销提交冻结本人目的账户、证据和上下文，不改�
     await assert.rejects(db.pool.query("UPDATE finance_reimbursement_submission SET amount_cents=101 WHERE finance_document_id=$1::uuid", [documentId]), /FINANCE_REIMBURSEMENT_IMMUTABLE/);
     await assert.rejects(db.pool.query("INSERT INTO finance_reimbursement_attachment_binding(finance_document_id,stage,purpose,finance_attachment_version_id,document_version,bound_by_person_id,bound_at,created_at) VALUES($1::uuid,'SUBMISSION','SUPPORTING_DOCUMENT',$2::uuid,2,$3::uuid,$4::timestamptz,$4::timestamptz)", [documentId, evidence[0], personId, at.toISOString()]), /FINANCE_REIMBURSEMENT_ATTACHMENT_INVALID/);
     await assert.rejects(service.submit(applicant(otherId), documentId, draft(evidence), "other", at), /FINANCE_DOCUMENT_NOT_FOUND/);
+  } finally { await db.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("普通报销只需一张完整申请截图，也可冻结多张截图", async () => {
+  const db = await createTestDatabase(process.env.DATABASE_URL);
+  const root = await mkdtemp(join(tmpdir(), "alliance-reimbursement-submit-p43-"));
+  try {
+    const personId = randomUUID(); await addPerson(db.pool, personId, "reimbursement-p43"); await addAccount(db.pool, personId);
+    const store = await LocalAttachmentStore.create(root, resolve(import.meta.dirname, "../../../.."));
+    const service = new PostgresReimbursementSubmissionService(db.pool, store), context = applicant(personId, "SELF");
+    const singleDocument = await addDocument(db.pool, personId);
+    const single = await addReadyAttachment(db.pool, store, singleDocument, "APPLICATION_SCREENSHOT");
+    assert.equal((await service.submit(context, singleDocument, draft([single.versionId]), "p43-single", at)).status, "PENDING_APPROVAL");
+    assert.equal((await db.pool.query("SELECT count(*)::int AS count FROM finance_reimbursement_attachment_binding WHERE finance_document_id=$1::uuid", [singleDocument])).rows[0].count, 1);
+
+    const multipleDocument = await addDocument(db.pool, personId);
+    const screenshots = await Promise.all([
+      addReadyAttachment(db.pool, store, multipleDocument, "APPLICATION_SCREENSHOT"),
+      addReadyAttachment(db.pool, store, multipleDocument, "APPLICATION_SCREENSHOT"),
+    ]);
+    assert.equal((await service.submit(context, multipleDocument, draft(screenshots.map((attachment) => attachment.versionId)), "p43-multiple", at)).status, "PENDING_APPROVAL");
+    const bindings = await db.pool.query(
+      "SELECT purpose FROM finance_reimbursement_attachment_binding WHERE finance_document_id=$1::uuid ORDER BY purpose",
+      [multipleDocument]
+    );
+    assert.deepEqual(bindings.rows.map((binding) => binding.purpose), ["APPLICATION_SCREENSHOT", "APPLICATION_SCREENSHOT"]);
+
+    const pdfDocument = await addDocument(db.pool, personId);
+    const pdfScreenshot = await addReadyPdfScreenshot(db.pool, store, pdfDocument);
+    await assert.rejects(service.submit(context, pdfDocument, draft([pdfScreenshot]), "p43-pdf", at), /FINANCE_ATTACHMENT_NOT_READY/);
+    assert.equal((await db.pool.query("SELECT status FROM finance_document WHERE id=$1::uuid", [pdfDocument])).rows[0].status, "DRAFT");
   } finally { await db.close(); await rm(root, { recursive: true, force: true }); }
 });
 

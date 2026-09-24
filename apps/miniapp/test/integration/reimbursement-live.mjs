@@ -65,6 +65,7 @@ const adapter = { name: 'live-taro-adapter', setup(plugin) {
     : `import React from 'react';
        export const View=({children,...props})=>React.createElement('div',props,children);
        export const Text=({children,...props})=>React.createElement('span',props,children);
+       export const Image=({src,...props})=>React.createElement('img',{...props,src});
        export const Button=({children,...props})=>React.createElement('button',props,children);
        export const Input=({maxlength,onInput,...props})=>React.createElement('input',{...props,onInput:e=>onInput?.({detail:{value:e.currentTarget.value}})});
        export const Textarea=({maxlength,onInput,...props})=>React.createElement('textarea',{...props,maxLength:maxlength,onInput:e=>onInput?.({detail:{value:e.currentTarget.value}})});
@@ -116,11 +117,9 @@ try {
   await input(container.querySelector('input'), '39.17');
   const reason = `MINI_REIMBURSE_LIVE_${Date.now()}`;
   await input(container.querySelector('[placeholder="说明本次报销用途"]'), reason);
-  for (const label of ['报销业务单据', '报销申请截图']) {
-    const slot = [...container.querySelectorAll('.finance-upload')].find(node => node.textContent.includes(label));
-    await click(button('选择原件', slot)); await click(button(`上传${label}`, slot));
-    await wait(() => Boolean(slot.querySelector('select')), `READY ${label}`);
-  }
+  await click(button('选择申请截图'));
+  await click(button('上传已选图片（1张）'));
+  await wait(() => container.textContent.includes('已就绪申请截图 1 张'), 'READY application screenshot');
   await click(button('确认提交报销申请'));
   assert.equal(unknown, true); assert.equal(container.querySelector('input').disabled, true);
   assert.equal(button('刷新报销记录').disabled, true);
@@ -143,11 +142,10 @@ try {
   const row = [...container.querySelectorAll('.student-row')][index];
   await click(button('查看报销详情', row));
   assert.ok(container.textContent.includes(reason));
-  await click(button('打开报销业务单据'));
+  await click(button('打开报销申请截图'));
   assert.equal(trace.downloadedVersions.length, 1);
-  await input(container.querySelector('[placeholder="填写审核依据或驳回原因"]'), 'MINI_LIVE_APPROVE');
   await click(button('批准报销申请'));
-  assert.equal(unknown, true); assert.equal(container.querySelector('[placeholder="填写审核依据或驳回原因"]').disabled, true);
+  assert.equal(unknown, true); assert.equal(container.querySelector('[placeholder="可选：填写审核依据或驳回原因"]').disabled, true);
   await click(button('安全重试原审核操作'));
   assert.equal(unknown, false); assert.equal(trace.reviews.length, 2);
   assert.deepEqual(trace.reviews[0].body, trace.reviews[1].body); assert.equal(trace.reviews[1].result.replay, true);

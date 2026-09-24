@@ -25,6 +25,7 @@ const taroPlugin = {
     buildApi.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ loader: "js", resolveDir: resolve(import.meta.dirname, ".."), contents: `import React from 'react';
       export const View=({children,...props})=>React.createElement('div',props,children);
       export const Text=({children,...props})=>React.createElement('span',props,children);
+      export const Image=({src,...props})=>React.createElement('img',{...props,src});
       export const Button=({children,...props})=>React.createElement('button',props,children);
       export const Input=({onInput,...props})=>React.createElement('input',{...props,onInput});
       export const Textarea=({onInput,...props})=>React.createElement('textarea',{...props,onInput});

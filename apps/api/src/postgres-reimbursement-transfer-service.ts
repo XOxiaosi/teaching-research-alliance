@@ -32,7 +32,7 @@ type HistoricalCommandRow = Readonly<{ actor_person_id: string; result_status: s
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 const BIGINT_MAX = 9_223_372_036_854_775_807n;
-const REQUIRED_PURPOSES = ["SUPPORTING_DOCUMENT", "APPLICATION_SCREENSHOT"] as const;
+const REQUIRED_PURPOSE = "APPLICATION_SCREENSHOT";
 const PERSONAL_SUBJECTS = ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR"] as const;
 const PERSONAL_SCOPES = ["SELF", "REGION", "CAMPUS", "ASSOCIATED_TEACHERS", "MENTEES", "VENUE", "GLOBAL"] as const;
 
@@ -305,8 +305,8 @@ export class PostgresReimbursementTransferService {
          JOIN finance_attachment attachment ON attachment.id=version.finance_attachment_id
         WHERE binding.finance_document_id=$1::uuid AND binding.stage='SUBMISSION' FOR SHARE OF binding,version,attachment`, [document.id]
     )).rows;
-    if (rows.length < 2 || new Set(rows.map(row => row.attachment_id)).size !== rows.length
-      || REQUIRED_PURPOSES.some(purpose => !rows.some(row => row.purpose === purpose))
+    if (rows.length < 1 || new Set(rows.map(row => row.attachment_id)).size !== rows.length
+      || !rows.some(row => row.purpose === REQUIRED_PURPOSE && ["image/png", "image/jpeg"].includes(row.detected_media_type ?? ""))
       || rows.some(row => row.status !== "READY" || row.document_version !== submission.result_document_version || row.bound_by_person_id !== document.applicant_person_id)) fail("FINANCE_ATTACHMENT_NOT_READY");
     for (const row of rows) {
       const size = row.actual_size_bytes === null ? NaN : Number(row.actual_size_bytes);

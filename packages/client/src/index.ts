@@ -15,7 +15,7 @@ export type ApiEnvelope<T> = Readonly<{
 }>;
 
 export type TransportRequest = Readonly<{
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH";
   path: string;
   headers: Readonly<Record<string, string>>;
   body?: unknown;
@@ -52,6 +52,56 @@ export type AccountRegistrationInput = Readonly<{
 }>;
 
 export type AccountRegistrationResult = SessionSnapshot & Readonly<{ nickname: string }>;
+
+export type VenueGrant = Readonly<{
+  id: string;
+  granteePersonId: string;
+  granteeNickname: string;
+  canView: boolean;
+  canWithdraw: boolean;
+  validFrom: string;
+  validTo: string | null;
+  version: number;
+}>;
+
+export type VenueView = Readonly<{
+  id: string;
+  ownerPersonId: string;
+  ownerNickname: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  defaultForOwner: boolean;
+  version: number;
+  canView: boolean;
+  canWithdraw: boolean;
+  accountId?: string;
+  balanceCents?: string;
+  grants?: readonly VenueGrant[];
+}>;
+
+export type VenueCommandResult = Readonly<{
+  id: string;
+  ownerPersonId: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  defaultForOwner: boolean;
+  version: number;
+  accountId: string;
+  accountCode: string;
+  replay: boolean;
+  previousDefaultVenueId?: string | null;
+}>;
+
+export type VenuePermissionResult = Readonly<{
+  id: string | null;
+  venueId: string;
+  granteePersonId: string;
+  canView: boolean;
+  canWithdraw: boolean;
+  validFrom: string | null;
+  validTo: string | null;
+  version: number;
+}>;
 
 export type AccountDirectoryItem = Readonly<{
   accountId: string;
@@ -1062,6 +1112,79 @@ export type BonusProjectCatalog = Readonly<{
   projects: readonly BonusProjectSummary[];
 }>;
 
+export type ProjectBonusAttachment = Readonly<{
+  versionId: string;
+  purpose: "SUPPORTING_DOCUMENT" | "APPLICATION_SCREENSHOT";
+  originalFilename: string;
+  mediaType: "application/pdf" | "image/png" | "image/jpeg";
+  sizeBytes: number;
+  sha256: string;
+}>;
+
+/** Current person nickname is display-only; the project name and ledger amount are historical facts. */
+export type ProjectBonusRecipient = Readonly<{
+  personId: string;
+  currentDisplayName: string | null;
+  accountId: string;
+  accountCode: string;
+}>;
+
+/** Current fund labels are display-only; the account identifies the original debit subject. */
+export type ProjectBonusSource = Readonly<{
+  fundId: string;
+  currentFundCode: string | null;
+  currentDisplayName: string | null;
+  accountId: string;
+  accountCode: string;
+}>;
+
+export type ProjectBonusReversal = Readonly<{
+  documentId: string;
+  version: number;
+  reason: string;
+  reversedAt: string;
+  reversedByPersonId: string;
+  reversedByCurrentDisplayName: string | null;
+  attachments: readonly ProjectBonusAttachment[];
+}>;
+
+export type ProjectBonusPostingSummary = Readonly<{
+  documentId: string;
+  status: "COMPLETED" | "REVERSED";
+  version: number;
+  projectNo: number;
+  projectName: string;
+  amountCents: string;
+  reason: string;
+  grantedAt: string;
+  grantedByPersonId: string;
+  grantedByCurrentDisplayName: string | null;
+  recipient: ProjectBonusRecipient;
+  source: ProjectBonusSource;
+  reversal: Omit<ProjectBonusReversal, "attachments"> | null;
+  /** Eligibility hint only; callers must read the detail before issuing a reversal. */
+  canReverse: boolean;
+}>;
+
+export type ProjectBonusPostingDetail = Omit<
+  ProjectBonusPostingSummary,
+  "reversal"
+> &
+  Readonly<{
+    reversal: ProjectBonusReversal | null;
+    originalAttachments: readonly ProjectBonusAttachment[];
+  }>;
+
+export type ProjectBonusHistoryInput = Readonly<{
+  cursor?: string;
+  limit?: number;
+}>;
+
+export type ProjectBonusHistoryPage = Readonly<{
+  items: readonly ProjectBonusPostingSummary[];
+  nextCursor: string | null;
+}>;
+
 export type BonusProjectRenameDraft = Readonly<{
   projectNo: number;
   expectedVersion: number;
@@ -1271,6 +1394,11 @@ const isSuccess = (status: number): boolean => status >= 200 && status < 300;
 const requireNonBlank = (value: string, field: string): void => {
   if (value.trim() === "")
     throw new ApiClientError(400, "INVALID_INPUT", `INVALID_INPUT:${field}`);
+};
+
+const requireVenueVersion = (version: number): void => {
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:expectedVersion");
 };
 
 const invalidBeanAmount = (): never => {
@@ -1670,7 +1798,7 @@ const validateReimbursementSubmissionDraft = (
   validateExpectedWithdrawalVersion(draft.expectedVersion);
   validateWithdrawalAmount(draft.amountCents);
   validateFinancialText(draft.reason, "reason", 1_000);
-  freezeAttachmentVersionIds(draft.attachmentVersionIds, 2);
+  freezeAttachmentVersionIds(draft.attachmentVersionIds);
 };
 
 const validateReimbursementReviewDraft = (
@@ -1678,7 +1806,8 @@ const validateReimbursementReviewDraft = (
 ): void => {
   requireNonBlank(draft.documentId, "documentId");
   validateExpectedWithdrawalVersion(draft.expectedVersion);
-  validateFinancialText(draft.reason, "reason", 1_000);
+  if (typeof draft.reason !== "string" || draft.reason.length > 1_000 || /[\x00-\x1f\x7f]/.test(draft.reason))
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:reason");
   if (draft.decision !== "APPROVE" && draft.decision !== "REJECT") {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:decision");
   }
@@ -2095,6 +2224,110 @@ export class TeacherApiClient {
     return this.authenticatedRequest<T>("GET", "/v1/venues/mine");
   }
 
+  public async getVenue(venueId: string): Promise<VenueView> {
+    requireNonBlank(venueId, "venueId");
+    return this.authenticatedRequest<VenueView>(
+      "GET",
+      `/v1/venues/${encodeURIComponent(venueId)}`,
+    );
+  }
+
+  /** Keep the same key when retrying an uncertain venue write. */
+  public async createVenue(
+    draft: Readonly<{ name: string; makeDefault?: boolean }>,
+    idempotencyKey: string,
+  ): Promise<VenueCommandResult> {
+    requireNonBlank(draft.name, "name");
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const result = await this.authenticatedRequest<VenueCommandResult>(
+      "POST",
+      "/v1/venues",
+      { ...draft, idempotencyKey },
+    );
+    this.advanceResponseGeneration();
+    return result;
+  }
+
+  public async renameVenue(
+    venueId: string,
+    draft: Readonly<{ name: string; expectedVersion: number }>,
+    idempotencyKey: string,
+  ): Promise<VenueCommandResult> {
+    requireNonBlank(venueId, "venueId");
+    requireNonBlank(draft.name, "name");
+    requireVenueVersion(draft.expectedVersion);
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const result = await this.authenticatedRequest<VenueCommandResult>(
+      "PATCH",
+      `/v1/venues/${encodeURIComponent(venueId)}`,
+      { ...draft, idempotencyKey },
+    );
+    this.advanceResponseGeneration();
+    return result;
+  }
+
+  public async setVenueStatus(
+    venueId: string,
+    draft: Readonly<{ status: "ACTIVE" | "INACTIVE"; expectedVersion: number }>,
+    idempotencyKey: string,
+  ): Promise<VenueCommandResult> {
+    requireNonBlank(venueId, "venueId");
+    requireVenueVersion(draft.expectedVersion);
+    if (draft.status !== "ACTIVE" && draft.status !== "INACTIVE")
+      throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:status");
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const result = await this.authenticatedRequest<VenueCommandResult>(
+      "PATCH",
+      `/v1/venues/${encodeURIComponent(venueId)}`,
+      { ...draft, idempotencyKey },
+    );
+    this.advanceResponseGeneration();
+    return result;
+  }
+
+  public async setDefaultVenue(
+    venueId: string,
+    draft: Readonly<{ expectedVersion: number }>,
+    idempotencyKey: string,
+  ): Promise<VenueCommandResult> {
+    requireNonBlank(venueId, "venueId");
+    requireVenueVersion(draft.expectedVersion);
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const result = await this.authenticatedRequest<VenueCommandResult>(
+      "POST",
+      `/v1/venues/${encodeURIComponent(venueId)}/default`,
+      { ...draft, idempotencyKey },
+    );
+    this.advanceResponseGeneration();
+    return result;
+  }
+
+  public async setVenuePermission(
+    venueId: string,
+    draft: Readonly<{
+      granteePersonId: string;
+      canView: boolean;
+      canWithdraw: boolean;
+      expectedGrantId?: string | null;
+    }>,
+    idempotencyKey: string,
+  ): Promise<VenuePermissionResult> {
+    requireNonBlank(venueId, "venueId");
+    requireNonBlank(draft.granteePersonId, "granteePersonId");
+    if (typeof draft.canView !== "boolean" || typeof draft.canWithdraw !== "boolean")
+      throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:permission");
+    if (draft.expectedGrantId !== undefined && draft.expectedGrantId !== null)
+      requireNonBlank(draft.expectedGrantId, "expectedGrantId");
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const result = await this.authenticatedRequest<VenuePermissionResult>(
+      "POST",
+      `/v1/venues/${encodeURIComponent(venueId)}/permissions`,
+      { ...draft, idempotencyKey },
+    );
+    this.advanceResponseGeneration();
+    return result;
+  }
+
   /** Own venues plus venues shared to the active person through VIEW. WITHDRAW alone does not grant board visibility. */
   public async listVisibleVenues<T = unknown>(): Promise<T> {
     return this.authenticatedRequest<T>("GET", "/v1/venues/visible");
@@ -2337,6 +2570,45 @@ export class TeacherApiClient {
     return this.authenticatedRequest<BonusProjectCatalog>(
       "GET",
       "/v1/finance/bonus-projects",
+    );
+  }
+
+  public async listManagedProjectBonuses(
+    input: ProjectBonusHistoryInput = {},
+  ): Promise<ProjectBonusHistoryPage> {
+    if (input.cursor !== undefined) {
+      requireNonBlank(input.cursor, "cursor");
+      if (input.cursor.length > 400) {
+        throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:cursor");
+      }
+    }
+    if (
+      input.limit !== undefined &&
+      (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
+    ) {
+      throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:limit");
+    }
+    this.requireSalaryBenefitsManager();
+    const query = [
+      ...(input.cursor === undefined
+        ? []
+        : [`cursor=${encodeURIComponent(input.cursor)}`]),
+      ...(input.limit === undefined ? [] : [`limit=${input.limit}`]),
+    ].join("&");
+    return this.authenticatedRequest<ProjectBonusHistoryPage>(
+      "GET",
+      `/v1/finance/project-bonuses${query === "" ? "" : `?${query}`}`,
+    );
+  }
+
+  public async getManagedProjectBonusDetail(
+    documentId: string,
+  ): Promise<ProjectBonusPostingDetail> {
+    requireNonBlank(documentId, "documentId");
+    this.requireSalaryBenefitsManager();
+    return this.authenticatedRequest<ProjectBonusPostingDetail>(
+      "GET",
+      `/v1/finance/project-bonuses/${encodeURIComponent(documentId)}`,
     );
   }
 
@@ -2766,7 +3038,6 @@ export class TeacherApiClient {
         reason: draft.reason,
         attachmentVersionIds: freezeAttachmentVersionIds(
           draft.attachmentVersionIds,
-          2,
         ),
       }),
       idempotencyKey,
@@ -4061,7 +4332,7 @@ export class TeacherApiClient {
   }
 
   private async authenticatedRequest<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     body?: unknown,
   ): Promise<T> {
