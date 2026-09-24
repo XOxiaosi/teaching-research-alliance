@@ -104,6 +104,12 @@ test('真实奖金划拨：丢失响应原命令重试，业务账户扣、收�
   await expect(panel.getByLabel('奖金金额', { exact: true })).toBeDisabled();
   await retry.click();
   await expect(panel).toContainText('项目奖金已发放，来源业务账户已扣减，收款成员个人账户已增加。');
+  const history = page.getByRole('region', { name: '项目奖金历史', exact: true });
+  const historyRow = history.locator('.finance-list-row').filter({ hasText: '123.45 欢乐豆' });
+  await expect(historyRow).toHaveCount(1);
+  await historyRow.getByRole('button', { name: '查看详情', exact: true }).click();
+  await expect(history).toContainText('奖金详情');
+  await expect(history).toContainText('本地合成项目奖金验收');
   expect(commands).toHaveLength(2); expect(commands[1]).toEqual(commands[0]);
   expect(results.map(item => item.replay)).toEqual([false, true]);
   expect(results[1].id).toBe(results[0].id);

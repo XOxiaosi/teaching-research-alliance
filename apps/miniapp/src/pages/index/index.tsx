@@ -17,6 +17,7 @@ import { FinancialPanel } from "./financial-panel";
 import { ReimbursementPanel } from "./reimbursement-panel";
 import { RefundPanel, type RefundFeeCandidate } from "./refund-panel";
 import { VenueBoardPanel } from "./venue-board-panel";
+import { VenueManagementPanel } from "./venue-management-panel";
 import { OrganizationRevenuePanel, canReadMiniOrganizationRevenue } from "./organization-revenue-panel";
 import { CashWagePanel } from "./cash-wage-panel";
 import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel";
@@ -176,7 +177,8 @@ export default function IndexPage(): ReactNode {
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
   const [accountAccessUnconfirmed, setAccountAccessUnconfirmed] = useState(false);
-  const financeUnconfirmed = accountAccessUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [venueUnconfirmed, setVenueUnconfirmed] = useState(false);
+  const financeUnconfirmed = venueUnconfirmed || accountAccessUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -187,6 +189,7 @@ export default function IndexPage(): ReactNode {
     setWithdrawalBusy(false);setWithdrawalUnconfirmed(false);
     setReimbursementBusy(false);setReimbursementUnconfirmed(false);
     setRefundBusy(false);setRefundUnconfirmed(false);
+    setVenueUnconfirmed(false);
     setOverview(null);
     setReferrals([]);
     setShowArchived(false);
@@ -367,6 +370,7 @@ export default function IndexPage(): ReactNode {
   const canManageAccountAccess = session !== null && canManageMiniAccountAccess(session);
   const canManageRelationships = currentContext !== null && currentContext?.scope === "GLOBAL" && currentContext?.regionId === undefined && currentContext?.campusId === undefined && currentContext?.venueId === undefined && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext?.subject ?? "");
   const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER", "TEACHER"].includes(String(currentContext?.subject ?? ""));
+  const canManageVenue = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const managedFinance = currentContext?.scope === "GLOBAL" && currentContext.regionId === undefined
     && currentContext.campusId === undefined && currentContext.venueId === undefined
@@ -726,6 +730,8 @@ export default function IndexPage(): ReactNode {
           {canReadSalary && <ProjectBonusGrantPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy || bonusUnconfirmed} onUnconfirmedChange={setBonusGrantUnconfirmed} onInvalidated={() => { clearTeachingState(); setSession(null); setNotice("登录或身份已失效，请重新登录。"); }} />}
           {canReadSalary && <BonusProjectPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy || bonusGrantUnconfirmed} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadSalary && <><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} /></>}
+
+          {canManageVenue && <VenueManagementPanel client={client} busy={busy} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setVenueUnconfirmed} onSaved={() => { void load().catch(() => setNotice("场地已保存，请刷新后查看最新场地列表。")); }} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
 
           {canReadVenueBoard && (
             <VenueBoardPanel

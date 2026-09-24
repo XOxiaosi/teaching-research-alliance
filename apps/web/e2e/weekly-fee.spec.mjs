@@ -4,11 +4,12 @@ import { resolve } from 'node:path';
 
 const evidence=process.env.ALLIANCE_EVIDENCE_DIR ?? resolve(import.meta.dirname,'../../../product-log/evidence/DEV-010-weekly-first');
 const feePath='**/v1/referrals/*/weekly-fees';
+const refresh=page=>page.locator('.rolebar').getByRole('button',{name:'刷新',exact:true});
 const login=async(page,phone='13800000001')=>{
   await page.getByLabel('手机号',{exact:true}).fill(phone);
   await page.getByLabel('密码',{exact:true}).fill('Local-demo-only-2026');
   await page.getByRole('button',{name:'登录',exact:true}).click();
-  await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  await expect(refresh(page)).toBeEnabled();
 };
 const choose=async(page)=>{
   await page.getByLabel('教学期间',{exact:true}).selectOption({index:1});
@@ -113,8 +114,8 @@ test('首屏录费、累计更正、故障安全重试、推荐回归与手机�
   const res=await page.request.post(`/v1/referrals/${referralId}/weekly-fees`,{headers:auth,data:{referralCaseId:referralId,teachingWeekId,venueId,settlementMonth:previous.settlementMonth,grossAmountCents:'140000',expectedVersion:previous.version,idempotencyKey:crypto.randomUUID()}});
   expect(res.ok()).toBeTruthy();
   // Refresh changes props but must never upgrade the version captured with an old draft.
-  await page.getByRole('button',{name:'刷新',exact:true}).click();
-  await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  await refresh(page).click();
+  await expect(refresh(page)).toBeEnabled();
   await page.getByLabel('本期间累计金额',{exact:true}).fill('1500');
   await page.getByRole('button',{name:'更新累计费用'}).click();
   await expect(page.locator('.fee-notice')).toContainText('核对服务器金额');
@@ -155,11 +156,11 @@ test('首屏录费、累计更正、故障安全重试、推荐回归与手机�
   await page.getByLabel('本期间累计金额',{exact:true}).fill('1600');
   await page.getByRole('button',{name:'更新累计费用'}).click();
   await expect(page.locator('.fee-panel')).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  await expect(refresh(page)).toBeEnabled();
   await expect(page.getByRole('button',{name:'安全重试这次保存'})).toHaveCount(0);
   await page.unroute(feePath);
   await page.getByLabel('当前身份',{exact:true}).selectOption('TEACHING_TEACHER');
-  await expect(page.getByRole('button',{name:'刷新',exact:true})).toBeEnabled();
+  await expect(refresh(page)).toBeEnabled();
   // Real server revocation clears scoped data on the next write.
   await choose(page);
   await page.request.post('/v1/session/logout',{headers:auth});
@@ -181,10 +182,10 @@ test('读取失败不伪装空记录，真正无期间时明确提示',async({pa
   await expect(page.getByText('暂无分配给你的学生课程记录',{exact:false})).toHaveCount(0);
   await page.unroute('**/v1/teaching/weeks');
   await page.route('**/v1/teaching/weeks',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:[]})}));
-  await page.getByRole('button',{name:'刷新',exact:true}).click();
+  await refresh(page).click();
   await expect(page.locator('.fee-empty')).toContainText('暂无开放的教学期间');
   await expect(page.getByRole('button',{name:'保存累计费用'})).toHaveCount(0);
   await page.unroute('**/v1/teaching/weeks');
-  await page.getByRole('button',{name:'刷新',exact:true}).click();
+  await refresh(page).click();
   await expect(page.getByLabel('教学期间',{exact:true})).toBeEnabled();
 });

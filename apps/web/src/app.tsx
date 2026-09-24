@@ -8,7 +8,6 @@ import {
   TeacherApiClient,
   type ReceivingTeacher,
   type ReferralCreationSubmission,
-  type SentReferral,
   type SessionSnapshot
 } from "@teaching-research-alliance/client";
 import { SelfPurchasePanel } from "./self-purchase-panel.js";
@@ -26,6 +25,8 @@ import { CashWageConfirmationPanel } from "./cash-wage-confirmation-panel.js";
 import { CashWagePlanPanel } from "./cash-wage-plan-panel.js";
 import { BonusProjectPanel } from "./bonus-project-panel.js";
 import { ProjectBonusGrantPanel } from "./project-bonus-grant-panel.js";
+import { ProjectBonusHistoryPanel } from "./project-bonus-history-panel.js";
+import { ReferralManagementPanel } from "./referral-management-panel.js";
 import { BenefitPlanPanel } from "./benefit-plan-panel.js";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
@@ -174,7 +175,6 @@ export function App(): ReactNode {
   const [overviewFresh, setOverviewFresh] = useState(false);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [receivedReferrals, setReceivedReferrals] = useState<readonly ReceivedReferral[]>([]);
-  const [sentReferrals, setSentReferrals] = useState<readonly SentReferral[]>([]);
   const [weeks, setWeeks] = useState<readonly Week[]>([]);
   const [venues, setVenues] = useState<readonly Venue[]>([]);
   const [boardVenues, setBoardVenues] = useState<readonly Venue[]>([]);
@@ -191,6 +191,7 @@ export function App(): ReactNode {
   const [wageConfirmationUnconfirmed, setWageConfirmationUnconfirmed] = useState(false);
   const [bonusUnconfirmed, setBonusUnconfirmed] = useState(false);
   const [grantUnconfirmed, setGrantUnconfirmed] = useState(false);
+  const [bonusHistoryRevision, setBonusHistoryRevision] = useState(0);
   const [wagePlanUnconfirmed, setWagePlanUnconfirmed] = useState(false);
   const [wageRevision, setWageRevision] = useState(0);
   const [benefitPlanUnconfirmed, setBenefitPlanUnconfirmed] = useState(false);
@@ -199,7 +200,9 @@ export function App(): ReactNode {
   const [benefitConfirmationUnconfirmed, setBenefitConfirmationUnconfirmed] = useState(false);
   const [relationshipUnconfirmed, setRelationshipUnconfirmed] = useState(false);
   const [accountUnconfirmed, setAccountUnconfirmed] = useState(false);
-  const financeUnconfirmed = relationshipUnconfirmed || accountUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || grantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || venueUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const [referralUnconfirmed, setReferralUnconfirmed] = useState(false);
+  const [referralRevision, setReferralRevision] = useState(0);
+  const financeUnconfirmed = referralUnconfirmed || relationshipUnconfirmed || accountUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || grantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || purchaseUnconfirmed || fundUnconfirmed || venueUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [feeUnconfirmed, setFeeUnconfirmed] = useState(false);
   const [receiverPersonId, setReceiverPersonId] = useState("");
   const [studentDisplayName, setStudentDisplayName] = useState("");
@@ -216,7 +219,6 @@ export function App(): ReactNode {
     setOverview(null);
     setOverviewFresh(false);
     setReceivedReferrals([]);
-    setSentReferrals([]);
     setWeeks([]);
     setVenues([]);
     setBoardVenues([]);
@@ -228,6 +230,7 @@ export function App(): ReactNode {
     setVenueUnconfirmed(false);
     setReimbursementUnconfirmed(false);
     setRefundUnconfirmed(false);
+    setReferralUnconfirmed(false);
     setAccountUnconfirmed(false);
     setBonusUnconfirmed(false);
     setGrantUnconfirmed(false);
@@ -261,14 +264,13 @@ export function App(): ReactNode {
     if (!loadOverview && !loadReferrals && !loadVenueBoard) return;
 
     const loadBoardVenues = loadVenueBoard && role !== "VENUE_OWNER" ? readBoardVenues(client, currentSession?.personId) : Promise.resolve([] as readonly Venue[]);
-    const [nextOverview, nextReceived, nextWeeks, nextVenues, nextBoardVenues, nextTeachers, nextSent] = await Promise.all([
+    const [nextOverview, nextReceived, nextWeeks, nextVenues, nextBoardVenues, nextTeachers] = await Promise.all([
       loadOverview ? client.getOwnOverview<Overview>() : Promise.resolve(null),
       loadTeaching ? client.listReceivedReferrals<readonly ReceivedReferral[]>() : Promise.resolve([]),
       loadTeaching ? client.listOpenTeachingWeeks<readonly Week[]>() : Promise.resolve([]),
       loadTeaching ? client.listAvailableVenues<readonly Venue[]>() : Promise.resolve([]),
       loadBoardVenues,
-      loadReferrals ? client.listReceivingTeachers() : Promise.resolve([]),
-      loadReferrals ? client.listSentReferrals() : Promise.resolve([])
+      loadReferrals ? client.listReceivingTeachers() : Promise.resolve([])
     ]);
     const latestSession = client.currentSession;
     const latestKey = `${latestSession?.accountId ?? ""}:${latestSession?.personId ?? ""}:${latestSession?.currentRoleContext?.subject ?? ""}:${latestSession?.currentRoleContext?.scope ?? ""}`;
@@ -281,7 +283,6 @@ export function App(): ReactNode {
     setVenues(nextVenues);
     setBoardVenues(nextBoardVenues);
     setReceivingTeachers(nextTeachers);
-    setSentReferrals(nextSent);
   };
 
   const run = async (action: () => Promise<void>): Promise<void> => {
@@ -359,6 +360,7 @@ export function App(): ReactNode {
     await load();
     pendingReferrals.current.delete(signature);
     setPendingReferralCount(pendingReferrals.current.size);
+    setReferralRevision(value => value + 1);
     setMessage(result.replay ? "推荐已确认，未重复创建。" : "推荐已提交，等待接收老师处理。");
   };
 
@@ -484,7 +486,7 @@ export function App(): ReactNode {
             {canReadOrg && <div hidden={page !== "organization-revenue"}><OrganizationRevenuePanel client={client} session={session} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary"}><CashWagePlanPanel client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><CashWagePanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "salary-confirmation"}><CashWageConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
-            {canReadSalary && <div hidden={page !== "bonus-projects"}><ProjectBonusGrantPanel client={client} session={session} sessionKey={financeKey} busy={busy || bonusUnconfirmed} onUnconfirmedChange={setGrantUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BonusProjectPanel client={client} session={session} sessionKey={financeKey} externalBusy={busy || grantUnconfirmed} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
+            {canReadSalary && <div hidden={page !== "bonus-projects"}><ProjectBonusGrantPanel client={client} session={session} sessionKey={financeKey} busy={busy || bonusUnconfirmed} onUnconfirmedChange={setGrantUnconfirmed} onSaved={() => { setOverviewFresh(false); setBonusHistoryRevision(value => value + 1); }} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BonusProjectPanel client={client} session={session} sessionKey={financeKey} externalBusy={busy || grantUnconfirmed} onUnconfirmedChange={setBonusUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><ProjectBonusHistoryPanel client={client} session={session} sessionKey={financeKey} active={page === "bonus-projects"} busy={busy || grantUnconfirmed || bonusUnconfirmed} revision={bonusHistoryRevision} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadSalary && <div hidden={page !== "benefits"}><BenefitPlanPanel busy={busy || benefitConfirmationUnconfirmed} client={client} session={session} sessionKey={financeKey} onUnconfirmedChange={setBenefitPlanUnconfirmed} onSaved={() => setBenefitRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitConfirmationPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}`} busy={busy || benefitPlanUnconfirmed} onUnconfirmedChange={setBenefitConfirmationUnconfirmed} onSaved={() => setBenefitExecutionRevision(value => value + 1)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /><BenefitPanel client={client} session={session} sessionKey={`${financeKey}:${benefitRevision}:${benefitExecutionRevision}`} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canReadVenueBoard && <div hidden={page !== "venue-board"}><VenueBoardPanel client={client} venues={boardVenues} weeks={weeks} initialVenueId={currentRole === "VENUE_OWNER" ? context?.venueId : undefined} sessionKey={financeKey} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {page === "venue-management" && canManageVenue && <VenueManagementPanel client={client} busy={busy} onUnconfirmedChange={setVenueUnconfirmed} onSaved={() => void load().catch(() => setMessage("场地已保存，请刷新场地看板以查看最新数据。"))} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} />}
@@ -535,13 +537,7 @@ export function App(): ReactNode {
                 <button disabled={busy || receivingTeachers.length === 0} onClick={() => void run(saveReferral)}>{busy ? "正在提交…" : "提交推荐"}</button>
               </section>
 
-              <section className="panel sent-referrals">
-                <div className="section-title"><h2>我推荐的学生</h2><span>{sentReferrals.length} 条记录</span></div>
-                {sentReferrals.length === 0 ? <p>暂无推荐记录</p> : sentReferrals.map((referral) => <article key={referral.referralId}>
-                  <div><h3>{referral.studentDisplayName}</h3><p>{referral.receiverNickname} · {referral.courseContextId} · {statusLabels[referral.referralStatus] ?? referral.referralStatus}</p><small>{referral.submittedAt.slice(0, 10)} 提交</small></div>
-                  <div className="sent-fees">{referral.weeklyFees.length === 0 ? <small>暂无周费用</small> : referral.weeklyFees.map((fee) => <span key={fee.entryId}>{fee.weekStartsOn}：{formatCentsAsBeans(fee.grossAmountCents)} 豆</span>)}</div>
-                </article>)}
-              </section>
+              <ReferralManagementPanel client={client} venues={venues} sessionKey={financeKey} canReceive={currentRole === "TEACHING_TEACHER"} revision={referralRevision} busy={busy} onUnconfirmedChange={setReferralUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} />
             </div>}
 
 
