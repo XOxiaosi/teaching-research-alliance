@@ -207,11 +207,16 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
     await addAccount(pool, "PERSON", ids.regionFinance, `person:region-finance:${suffix}`);
     await addAccount(pool, "COMPANY", ids.campus, `company:campus:${suffix}`);
     await addAccount(pool, "VENUE", ids.venue, `venue:${suffix}`);
+    const policyNine = { ...DEFAULT_RATE_POLICY_VALUES, groupLeaderRateBasisPoints: 100n };
+    const policyTen = { ...DEFAULT_RATE_POLICY_VALUES, groupLeaderRateBasisPoints: 200n };
     await pool.query(
       `INSERT INTO rate_policy_version (version, effective_from, policy_json, reason, published_by)
-       VALUES (1, $1::date, $2::jsonb, 'SYSTEM_DEFAULT', $3::uuid)`,
-      [effectiveFrom, stringifyPolicy(DEFAULT_RATE_POLICY_VALUES), ids.admin]
+       VALUES (9, $1::date, $2::jsonb, '排序回归版本9', $5::uuid),
+              (10, $1::date, $3::jsonb, '排序回归版本10', $5::uuid),
+              (11, $1::date, $4::jsonb, '排序回归版本11', $5::uuid)`,
+      [effectiveFrom, stringifyPolicy(policyNine), stringifyPolicy(policyTen), stringifyPolicy(DEFAULT_RATE_POLICY_VALUES), ids.admin]
     );
+    const policyElevenId = (await pool.query("SELECT id::text AS id FROM rate_policy_version WHERE version=11")).rows[0].id;
 
     const referral = await addReferral(pool, {
       referralId: ids.referral,
@@ -234,6 +239,14 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
     const first = await service.recordAndSettle(ids.teacher, draft, `settle:first:${suffix}`);
     assert.equal(first.status, "POSTED");
     assert.equal(first.replay, false);
+    const firstPolicy = await pool.query(
+      `SELECT policy_version_id::text AS policy_version_id,snapshot_json::text AS snapshot_json,context_json::text AS context_json
+         FROM weekly_fee_allocation_snapshot WHERE weekly_fee_entry_id=$1::uuid ORDER BY sequence_no DESC LIMIT 1`,
+      [first.fee.id]
+    );
+    assert.equal(firstPolicy.rows[0].policy_version_id, policyElevenId);
+    assert.equal(JSON.parse(firstPolicy.rows[0].context_json).policy.version, "11");
+    assert.equal(Object.fromEntries(JSON.parse(firstPolicy.rows[0].snapshot_json).lines.map((line) => [line.key, line.cents])).groupLeader, "6000");
     assert.deepEqual(await balancesFor(pool, ownerIds), [8000n, 2000n, 6000n, 7000n, 72000n, 2000n, 1000n, 2000n, 0n]);
 
     const replay = await service.recordAndSettle(ids.teacher, draft, `settle:first:${suffix}`);

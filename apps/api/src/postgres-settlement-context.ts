@@ -252,11 +252,11 @@ export const resolveSettlementContext = async (
   const businessAt = `${entry.week_starts_on}T00:00:00+08:00`;
 
   const policyResult = await client.query<PolicyRow>(
-    `SELECT id::text AS id, version::text AS version, effective_from::text AS effective_from,
+    `SELECT policy.id::text AS id, policy.version::text AS version, policy.effective_from::text AS effective_from,
             policy_json, reason
-       FROM rate_policy_version
-      WHERE effective_from <= $1::date
-      ORDER BY effective_from DESC, version DESC
+       FROM rate_policy_version policy
+      WHERE policy.effective_from <= $1::date
+      ORDER BY policy.effective_from DESC, policy.version DESC
       LIMIT 1`,
     [entry.week_starts_on]
   );
