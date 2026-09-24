@@ -60,6 +60,7 @@ const fingerprintColumns = new Set([
   "teacher_profile_identity_change.idempotency_key",
   "person_relationship_change.idempotency_key",
   "person_campus_assignment_change.idempotency_key",
+  "campus_region_assignment_change.idempotency_key",
   "admin_planning_mentor_relationship_change.idempotency_key",
   "planning_mentor_relationship_change.idempotency_key",
   "teaching_mentor_relationship_change.idempotency_key",

@@ -451,6 +451,14 @@ export const API_ERROR_CODES = [
   "PERSON_CAMPUS_PERSON_NOT_ELIGIBLE",
   "PERSON_CAMPUS_EFFECTIVE_RANGE_INVALID",
   "PERSON_CAMPUS_SETTLEMENT_DATA_UNAVAILABLE",
+  "CAMPUS_REGION_PREVIEW_NOT_FOUND",
+  "CAMPUS_REGION_PREVIEW_STALE",
+  "CAMPUS_REGION_ASSIGNMENT_NO_CHANGE",
+  "CAMPUS_REGION_ASSIGNMENT_SOURCE_INVALID",
+  "CAMPUS_REGION_CAMPUS_NOT_FOUND",
+  "CAMPUS_REGION_TARGET_NOT_FOUND",
+  "CAMPUS_REGION_EFFECTIVE_RANGE_INVALID",
+  "CAMPUS_REGION_SETTLEMENT_DATA_UNAVAILABLE",
   "INTERNAL_ERROR",
   "FORBIDDEN_SCOPE",
   "ROLE_CONTEXT_REQUIRED",
@@ -647,6 +655,22 @@ export type PersonCampusAssignmentPreviewDto = Readonly<{
 export type PersonCampusAssignmentChangeDto = Readonly<{
   changeId: string; previewId: string; assignmentVersion: number; resultAssignmentId: string | null; resultCampusPrincipalRelationshipId: string;
   postingStatus: "POSTED" | "NO_BALANCE_CHANGE"; consideredFeeCount: number; changedFeeCount: number; excludedRefundCount: number; replay: boolean;
+}>;
+
+export type CampusRegionAssignmentCandidateDirectoryDto = Readonly<{
+  campuses: readonly Readonly<{ campusId: string; campusName: string; currentRegionId: string | null; currentRegionName: string | null }>[];
+  regions: readonly Readonly<{ regionId: string; regionName: string }>[];
+}>;
+export type CampusRegionAssignmentPreviewDto = Readonly<{
+  previewId: string; campusId: string; sourceRegionId: string; targetRegionId: string; effectiveFrom: string; effectiveTo: string | null;
+  affectedPersonCount: number; affectedAssignmentCount: number; consideredFeeCount: number; changedFeeCount: number; excludedRefundCount: number;
+  organizationImpact: Readonly<{ sourceRegionId: string; targetRegionId: string; recordedGrossRevenueCents: string; refundedGrossRevenueCents: string; effectiveGrossRevenueCents: string; campusManagementFeeCents: string }>;
+  accountDeltas: readonly Readonly<{ accountCode: string; categoryKey: string; amountCents: string }>[];
+}>;
+export type CampusRegionAssignmentChangeDto = Readonly<{
+  changeId: string; previewId: string; campusVersion: number; resultCampusRegionAssignmentId: string;
+  affectedPersonCount: number; affectedAssignmentCount: number; postingStatus: "POSTED" | "NO_BALANCE_CHANGE";
+  consideredFeeCount: number; changedFeeCount: number; excludedRefundCount: number; replay: boolean;
 }>;
 
 export type GroupLeaderRelationshipPersonDto = Readonly<{
@@ -854,6 +878,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/organization/person-campus-candidates",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "person-campus-assignment-candidates.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/organization/campus-region-candidates",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "campus-region-assignment-candidates.v1",
     requiresRoleContext: true,
   },
   {
@@ -1480,6 +1511,20 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/organization/person-campus",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "person-campus-assignment-change.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/organization/campus-region/preview",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "campus-region-assignment-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/organization/campus-region",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "campus-region-assignment-change.v1",
     requiresRoleContext: true,
   },
   {

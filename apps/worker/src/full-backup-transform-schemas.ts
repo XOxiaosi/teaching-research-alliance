@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v10";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v11";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -224,6 +224,26 @@ const personCampusResultAssignmentShape: RelationshipJsonShape = { fields: {
   id: "text", personId: "text", campusId: "text", regionId: "text", validFrom: "text", validTo: "nullableText",
 } };
 const personCampusResultPrincipalShape: RelationshipJsonShape = { fields: { id: "text", relatedPersonId: "text" } };
+const campusRegionAssignmentShape: RelationshipJsonShape = { fields: {
+  id: "text", campusId: "text", regionId: "text", validFrom: "text", validTo: "nullableText",
+  createdByPersonId: "text", createdAt: "text",
+} };
+const campusRegionResultAssignmentShape: RelationshipJsonShape = { fields: {
+  id: "text", campusId: "text", regionId: "text", validFrom: "text", validTo: "nullableText",
+} };
+const campusRegionAssignmentImpactShape: RelationshipJsonShape = { fields: {
+  schemaVersion: "text", campusId: "text", sourceAssignment: campusRegionAssignmentShape,
+  targetRegionId: "text", effectiveFrom: "text", effectiveTo: "nullableText",
+  people: { items: { fields: { sourceAssignment: personCampusAssignmentShape, effectiveFrom: "text", effectiveTo: "nullableText" } } },
+  fees: { items: { fields: { feeId: "text", version: "text", teachingWeekId: "text", settlementMonth: "text", refunded: "boolean", snapshotId: "nullableText", receiverAtCampus: "boolean", referrerAtCampus: "boolean" } } },
+  reason: "text",
+  financial: { fields: {
+    consideredFeeCount: "count", changedFeeCount: "count", excludedRefundCount: "count",
+    accountDeltas: { items: { fields: { accountCode: "text", categoryKey: "text", amountCents: "text" } } },
+    fees: { items: { fields: { feeId: "text", version: "text", refundId: "nullableText", snapshotHash: "nullableText", disposition: "text", nextContextHash: "nullableText" } } },
+    organizationImpact: { fields: { sourceRegionId: "text", targetRegionId: "text", recordedGrossRevenueCents: "text", refundedGrossRevenueCents: "text", effectiveGrossRevenueCents: "text", campusManagementFeeCents: "text" } },
+  } },
+} };
 const personCampusAssignmentImpactShape: RelationshipJsonShape = { fields: {
   schemaVersion: "text", action: "text", personId: "text", sourceAssignment: personCampusAssignmentShape,
   sourceCampusPrincipalRelationship: { ...personCampusPrincipalShape, nullable: true }, targetCampusId: "text", targetRegionId: "text",
@@ -437,6 +457,36 @@ const validatePersonCampusAssignmentDelta = (input: JsonTransformInput, root: Re
   return anomalies;
 };
 
+const validateCampusRegionAssignment = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.raw === null) gap();
+  const root = parseObject(input);
+  const shape: RelationshipJsonShape = { fields: { campusRegionAssignment: input.columnName === "before_json" ? campusRegionAssignmentShape : campusRegionResultAssignmentShape } };
+  return validateRelationshipJson(input, root, shape);
+};
+
+const validateCampusRegionPersonEffect = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.raw === null) gap();
+  return validateRelationshipJson(input, parseObject(input), input.columnName === "before_json" ? personCampusAssignmentShape : personCampusResultAssignmentShape);
+};
+
+const validateCampusRegionAssignmentImpact = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, campusRegionAssignmentImpactShape);
+  if (root.schemaVersion !== "campus-region-assignment-preview.v1") anomalies.push(anomaly(input, "schemaVersion"));
+  const financial = object(root.financial);
+  if (financial !== undefined) {
+    for (const collection of [financial.accountDeltas, financial.fees]) if (Array.isArray(collection)) {
+      for (const item of collection) {
+        const fact = object(item);
+        if (fact !== undefined && typeof fact.amountCents === "string" && !/^-?\d+$/.test(fact.amountCents)) anomalies.push(anomaly(input, "amountCents"));
+      }
+    }
+  }
+  return anomalies;
+};
+
+const validateCampusRegionAssignmentDelta = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] =>
+  validatePersonCampusAssignmentDelta(input, root);
+
 const validateTeachingMentorRelationship = (input: JsonTransformInput): TransformAnomaly[] => {
   const action = input.row.action;
   if (action !== "ADD" && action !== "REPLACE") gap();
@@ -528,6 +578,14 @@ const validateRelationshipJson = (input: JsonTransformInput, value: unknown, sha
 };
 
 const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.tableName === "campus_region_assignment_change_preview" && input.columnName === "impact_json")
+    return validateCampusRegionAssignmentImpact(input, parseObject(input));
+  if (input.tableName === "campus_region_assignment_change" && (input.columnName === "before_json" || input.columnName === "after_json"))
+    return validateCampusRegionAssignment(input);
+  if (input.tableName === "campus_region_assignment_person_effect" && (input.columnName === "before_json" || input.columnName === "after_json"))
+    return validateCampusRegionPersonEffect(input);
+  if (input.tableName === "campus_region_assignment_settlement_effect" && input.columnName === "delta_json")
+    return validateCampusRegionAssignmentDelta(input, parseObject(input));
   if (input.tableName === "person_campus_assignment_change_preview" && input.columnName === "impact_json")
     return validatePersonCampusAssignmentImpact(input, parseObject(input));
   if (input.tableName === "person_campus_assignment_change" && (input.columnName === "before_json" || input.columnName === "after_json"))
@@ -643,6 +701,10 @@ const auditExact = (input: JsonTransformInput, value: Record<string, unknown>, a
 };
 
 const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  if (input.row.action_code === "CAMPUS_REGION_ASSIGNMENT_CHANGED" && input.row.subject_type === "CAMPUS_REGION_ASSIGNMENT_CHANGE") {
+    if (input.raw === null) return [];
+    return validateCampusRegionAssignment(input);
+  }
   if (input.row.action_code === "PERSON_CAMPUS_ASSIGNMENT_CHANGED"
     && (input.row.subject_type === "PERSON_CAMPUS_ASSIGNMENT_CHANGE" || input.row.subject_type === "PERSON_CAMPUS_ASSIGNMENT")) {
     if (input.raw === null) return [];

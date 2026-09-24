@@ -79,7 +79,7 @@ const transformer = (options = {}) => ({
   },
 });
 
-test("固定101表按多批稳定NDJSON流式写入，摘要和异常清单不含原始敏感输入", async () => {
+test("固定105表按多批稳定NDJSON流式写入，摘要和异常清单不含原始敏感输入", async () => {
   await withTemp(async (root) => {
     const rowsByTable = {
       person: [

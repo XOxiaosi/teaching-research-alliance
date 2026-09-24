@@ -70,6 +70,7 @@ export { PostgresAdminPlanningMentorRelationshipService } from "./postgres-admin
 export { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
 export { PostgresPersonRelationshipAuditService } from "./postgres-person-relationship-audit-service.js";
 export { PostgresPersonCampusAssignmentService } from "./postgres-person-campus-assignment-service.js";
+export { PostgresCampusRegionAssignmentService } from "./postgres-campus-region-assignment-service.js";
 
 export { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";
 

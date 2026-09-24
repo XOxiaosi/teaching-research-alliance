@@ -5,6 +5,9 @@ import type {
   PersonCampusAssignmentCandidateDirectoryDto,
   PersonCampusAssignmentPreviewDto,
   PersonCampusAssignmentChangeDto,
+  CampusRegionAssignmentCandidateDirectoryDto,
+  CampusRegionAssignmentPreviewDto,
+  CampusRegionAssignmentChangeDto,
   GroupLeaderRelationshipCandidatesDto,
   TeachingMentorRelationshipCandidatesDto,
   TeachingMentorRelationshipPreviewDto,
@@ -242,6 +245,8 @@ export type AdminPlanningMentorRelationshipPreviewDraft = Readonly<{
 export type AdminPlanningMentorRelationshipChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
 export type PersonCampusAssignmentPreviewDraft = Readonly<{ personId: string; targetCampusId: string; effectiveFrom: string; effectiveTo?: string | null; reason: string }>;
 export type PersonCampusAssignmentChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
+export type CampusRegionAssignmentPreviewDraft = Readonly<{ campusId: string; targetRegionId: string; effectiveFrom: string; effectiveTo?: string | null; reason: string }>;
+export type CampusRegionAssignmentChangeSubmission = Readonly<{ draft: Readonly<{ previewId: string }>; idempotencyKey: string }>;
 
 export type GroupLeaderRelationshipPreviewDraft = Readonly<{
   teacherPersonId: string;
@@ -1467,6 +1472,7 @@ type Submission =
   | TeachingMentorRelationshipChangeSubmission
   | AdminPlanningMentorRelationshipChangeSubmission
   | PersonCampusAssignmentChangeSubmission
+  | CampusRegionAssignmentChangeSubmission
   | PlanningMentorRelationshipChangeSubmission
   | ReferralCreationSubmission
   | ReferralCopySubmission
@@ -1595,6 +1601,12 @@ const validateAdminPlanningMentorRelationshipPreviewDraft = (
 };
 const validatePersonCampusAssignmentPreviewDraft = (draft: PersonCampusAssignmentPreviewDraft): void => {
   requireNonBlank(draft.personId, "personId"); requireNonBlank(draft.targetCampusId, "targetCampusId");
+  requireNonBlank(draft.effectiveFrom, "effectiveFrom");
+  if (draft.effectiveTo !== undefined && draft.effectiveTo !== null) requireNonBlank(draft.effectiveTo, "effectiveTo");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+const validateCampusRegionAssignmentPreviewDraft = (draft: CampusRegionAssignmentPreviewDraft): void => {
+  requireNonBlank(draft.campusId, "campusId"); requireNonBlank(draft.targetRegionId, "targetRegionId");
   requireNonBlank(draft.effectiveFrom, "effectiveFrom");
   if (draft.effectiveTo !== undefined && draft.effectiveTo !== null) requireNonBlank(draft.effectiveTo, "effectiveTo");
   validateFinancialText(draft.reason, "reason", 1_000);
@@ -2855,6 +2867,19 @@ export class TeacherApiClient {
     });
   }
 
+  public async listCampusRegionAssignmentCandidates(): Promise<CampusRegionAssignmentCandidateDirectoryDto> {
+    this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<CampusRegionAssignmentCandidateDirectoryDto>("GET", "/v1/admin/organization/campus-region-candidates");
+  }
+
+  public async previewCampusRegionAssignmentChange(draft: CampusRegionAssignmentPreviewDraft): Promise<CampusRegionAssignmentPreviewDto> {
+    validateCampusRegionAssignmentPreviewDraft(draft); this.requireGroupLeaderRelationshipManager();
+    return this.authenticatedRequest<CampusRegionAssignmentPreviewDto>("POST", "/v1/admin/organization/campus-region/preview", {
+      campusId: draft.campusId, targetRegionId: draft.targetRegionId, effectiveFrom: draft.effectiveFrom,
+      effectiveTo: draft.effectiveTo, reason: draft.reason,
+    });
+  }
+
   public async previewAdminPlanningMentorRelationshipChange(
     draft: AdminPlanningMentorRelationshipPreviewDraft,
   ): Promise<AdminPlanningMentorRelationshipPreviewDto> {
@@ -3126,6 +3151,14 @@ export class TeacherApiClient {
   }
 
   public createPersonCampusAssignmentChangeSubmission(previewId: string): PersonCampusAssignmentChangeSubmission {
+    requireNonBlank(previewId, "previewId"); this.requireGroupLeaderRelationshipManager();
+    const scope = this.captureSubmissionScope(); const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({ draft: Object.freeze({ previewId }), idempotencyKey });
+    this.submissionStatuses.set(submission, "READY"); this.submissionScopes.set(submission, scope); return submission;
+  }
+
+  public createCampusRegionAssignmentChangeSubmission(previewId: string): CampusRegionAssignmentChangeSubmission {
     requireNonBlank(previewId, "previewId"); this.requireGroupLeaderRelationshipManager();
     const scope = this.captureSubmissionScope(); const idempotencyKey = (this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory)();
     requireNonBlank(idempotencyKey, "idempotencyKey");
@@ -3842,6 +3875,13 @@ export class TeacherApiClient {
     const previous = this.submissionStatus(submission); if (previous === "SUBMITTING") throw new SubmissionInProgressError();
     this.requireCurrentSubmissionScope(submission); this.requireGroupLeaderRelationshipManager(); this.submissionStatuses.set(submission, "SUBMITTING");
     try { const result = await this.authenticatedRequest<PersonCampusAssignmentChangeDto>("POST", "/v1/admin/organization/person-campus", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey }); this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result; }
+    catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
+  }
+
+  public async publishCampusRegionAssignmentChange(submission: CampusRegionAssignmentChangeSubmission): Promise<CampusRegionAssignmentChangeDto> {
+    const previous = this.submissionStatus(submission); if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission); this.requireGroupLeaderRelationshipManager(); this.submissionStatuses.set(submission, "SUBMITTING");
+    try { const result = await this.authenticatedRequest<CampusRegionAssignmentChangeDto>("POST", "/v1/admin/organization/campus-region", { previewId: submission.draft.previewId, idempotencyKey: submission.idempotencyKey }); this.submissionStatuses.set(submission, "SUCCEEDED"); this.advanceResponseGeneration(); return result; }
     catch (error) { this.submissionStatuses.set(submission, "FAILED"); throw error; }
   }
 

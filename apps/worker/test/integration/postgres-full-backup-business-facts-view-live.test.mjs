@@ -114,7 +114,7 @@ test("real ordinary-reimbursement spool projects each table-4 source independent
     const description = view.describe(4);
     assert.equal(description.mode, "BUSINESS_FACTS_VIEW");
     assert.equal(description.complete, false);
-    assert.equal(description.schemaVersion, "full-backup-business-schema.v10");
+    assert.equal(description.schemaVersion, "full-backup-business-schema.v11");
     assert.equal(description.rowModel, "SOURCE_ROWS_ONLY");
     assert.equal(JSON.stringify(description).includes(root), false);
     assert.equal(new Set(description.sources.map((source) => source.sourceTable)).size, description.sources.length, "sources are independent, never joined");

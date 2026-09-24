@@ -33,6 +33,7 @@ export const GroupLeaderChangePanel = Empty;
 export const TeachingMentorChangePanel = Empty;
 export const AdminPlanningMentorRelationshipPanel = Empty;
 export const PersonCampusAssignmentPanel = Empty;
+export const CampusRegionAssignmentPanel = Empty;
 export const PersonRelationshipAuditPanel = Empty;
 export const PlanningMentorRelationshipPanel = Empty;
 export const AccountAccessPanel = Empty;

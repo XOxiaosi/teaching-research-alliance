@@ -7,7 +7,7 @@ import { fullBackupOutputColumns } from "./full-backup-transformer.js";
  * deliberately does not assemble rows, join source tables, or calculate
  * amounts.  Raw-source workbooks remain the authoritative stored-fact export.
  */
-export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v10";
+export const FULL_BACKUP_BUSINESS_SCHEMA_VERSION = "full-backup-business-schema.v11";
 
 export type BusinessBackupSheetMode = "STORED_FACTS" | "DERIVED_REQUIRED";
 export type BusinessBackupRowModel = "SOURCE_ROWS_ONLY" | "DERIVED_NOT_GENERATED";
@@ -68,6 +68,13 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     key("user_account", "id", "user_account.person_id 关联自然人；认证秘密未映射"),
     key("teacher_profile", "person_id", "teacher_profile.person_id 关联自然人"),
     key("person_campus_assignment", "id", "person_campus_assignment.person_id 关联自然人"),
+    key("campus_region_assignment", "id", "校区大区归属历史主键"),
+    key("campus_region_assignment_change_preview", "id", "校区大区归属纠正预览主键"),
+    key("campus_region_assignment_change", "id", "校区大区归属纠正发布批次主键"),
+    key("campus_region_assignment_person_effect", "change_id", "校区大区归属纠正批次与人员归属共同定位影响"),
+    key("campus_region_assignment_person_effect", "source_assignment_id", "校区大区归属纠正批次与人员原归属共同定位影响"),
+    key("campus_region_assignment_settlement_effect", "change_id", "校区大区归属纠正批次与周费用共同定位影响"),
+    key("campus_region_assignment_settlement_effect", "weekly_fee_entry_id", "校区大区归属纠正批次与周费用共同定位影响"),
     key("person_campus_assignment_change_preview", "id", "人员校区归属纠正预览主键"),
     key("person_campus_assignment_change", "id", "人员校区归属纠正发布批次主键"),
     key("person_campus_assignment_change_effect", "change_id", "归属纠正批次与周费用共同定位迁移影响"),
@@ -122,6 +129,27 @@ export const BUSINESS_BACKUP_SHEETS: readonly BusinessBackupSheet[] = Object.fre
     source("teacher_profile", "business_identity", "业务身份", "teacher_profile.person_id 关联 person.id"),
     source("teacher_profile", "campus_id", "当前校区", "teacher_profile.person_id 关联 person.id"),
     source("person_campus_assignment", "valid_from", "校区归属生效日", "person_campus_assignment.person_id 与 campus_id 关联"),
+    source("campus_region_assignment", "superseded_by_campus_region_change_id", "大区归属纠正批次", "校区大区记录由校区大区纠正批次关联"),
+    source("campus_region_assignment", "campus_region_change_id", "大区归属生成批次", "纠正生成或续接的校区大区记录由发布批次关联"),
+    source("person_campus_assignment", "campus_region_change_id", "大区归属纠正批次", "受影响人员归属由校区大区纠正批次关联"),
+    source("person_campus_assignment", "superseded_by_campus_region_change_id", "大区归属替代批次", "被校区大区纠正截断的人员归属由发布批次关联"),
+    source("campus_region_assignment_change_preview", "id", "大区归属纠正预览ID", "校区大区归属纠正预览稳定主键"),
+    source("campus_region_assignment_change_preview", "campus_id", "调整校区", "关联 organization_unit.id"),
+    source("campus_region_assignment_change_preview", "target_region_id", "目标大区", "关联 organization_unit.id"),
+    source("campus_region_assignment_change_preview", "impact_json", "冻结大区归属影响", "严格白名单转换的校区、人员与费用影响事实"),
+    source("campus_region_assignment_change", "id", "大区归属纠正批次ID", "校区大区归属纠正发布稳定主键"),
+    source("campus_region_assignment_change", "assignment_version", "校区大区归属版本", "同一校区大区归属纠正版本"),
+    source("campus_region_assignment_change", "idempotency_key_fingerprint", "请求幂等指纹", "仅导出不可逆指纹"),
+    source("campus_region_assignment_change", "before_json", "校区大区纠正前快照", "严格白名单转换的发布前校区大区事实"),
+    source("campus_region_assignment_change", "after_json", "校区大区纠正后快照", "严格白名单转换的发布后校区大区事实"),
+    source("campus_region_assignment_person_effect", "change_id", "大区归属纠正批次", "关联校区大区归属纠正发布批次"),
+    source("campus_region_assignment_person_effect", "source_assignment_id", "人员原归属", "关联纠正前 person_campus_assignment.id"),
+    source("campus_region_assignment_person_effect", "person_id", "受影响人员", "关联 person.id"),
+    source("campus_region_assignment_person_effect", "before_json", "人员归属纠正前快照", "严格白名单转换的人员归属事实"),
+    source("campus_region_assignment_person_effect", "after_json", "人员归属纠正后快照", "严格白名单转换的人员归属事实"),
+    source("campus_region_assignment_settlement_effect", "change_id", "大区归属纠正批次", "关联校区大区归属纠正发布批次"),
+    source("campus_region_assignment_settlement_effect", "weekly_fee_entry_id", "受影响周费用", "关联 weekly_fee_entry.id"),
+    source("campus_region_assignment_settlement_effect", "delta_json", "账户差额", "严格白名单转换的账户与分类差额事实"),
     source("person_campus_assignment", "superseded_by_person_campus_change_id", "归属纠正批次", "被替代归属由人员校区纠正批次关联"),
     source("person_relationship", "person_campus_change_id", "归属纠正批次", "校区校长关系由人员校区纠正批次关联"),
     source("person_campus_assignment_change_preview", "action", "归属纠正操作", "TRANSFER 或 PRINCIPAL_REPAIR 的冻结预览"),

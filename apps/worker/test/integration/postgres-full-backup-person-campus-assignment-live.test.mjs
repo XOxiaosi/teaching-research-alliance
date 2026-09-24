@@ -49,7 +49,7 @@ const rows = async (root, spool, tableName) => {
   return output;
 };
 
-test("真实 PostgreSQL：P27 人员校区归属纠正的 101 表备份非空回读且不泄露幂等键", async (t) => {
+test("真实 PostgreSQL：P27 人员校区归属纠正的 105 表备份非空回读且不泄露幂等键", async (t) => {
   if (!connectionString) return t.skip("DATABASE_URL_REQUIRED");
   const database = await createTestDatabase(connectionString);
   const root = await mkdtemp(join(tmpdir(), "alliance-p27-campus-backup-pg-"));
@@ -59,7 +59,7 @@ test("真实 PostgreSQL：P27 人员校区归属纠正的 101 表备份非空回
     const preview = await service.preview(context(ids.admin), { personId: ids.teacher, targetCampusId: ids.campusB, effectiveFrom: "2026-09-23T00:00:00.000Z", reason: "备份验收归属纠正" }, at);
     const published = await service.publish(context(ids.admin), preview.previewId, "p27-backup-idempotency", at);
     const spool = await new FullBackupSpool({ source: new PostgresFullBackupSource(database.pool), transformer: new FullBackupTransformer({ fingerprint: ({ domain, value }) => createHash("sha256").update(`${domain}:${value}`).digest("hex") }), tempRoot: join(root, "spool"), batchSize: 1 }).create();
-    assert.equal(spool.datasets.length, 101);
+    assert.equal(spool.datasets.length, 105);
     for (const tableName of ["person_campus_assignment_change_preview", "person_campus_assignment_change", "person_campus_assignment_change_effect"]) assert.ok((await rows(root, spool, tableName)).length > 0, tableName);
     const changes = await rows(root, spool, "person_campus_assignment_change");
     assert.equal(changes.length, 1);

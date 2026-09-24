@@ -33,7 +33,7 @@ const rows = async (root, spool, name) => {
   return result;
 };
 
-test("真实 PostgreSQL：管理员规划导师 ADD 的 101 表 RAW 备份可非空回读且不泄露幂等键", async (t) => {
+test("真实 PostgreSQL：管理员规划导师 ADD 的 105 表 RAW 备份可非空回读且不泄露幂等键", async (t) => {
   if (!connectionString) return t.skip("DATABASE_URL_REQUIRED");
   const database = await createTestDatabase(connectionString);
   const root = await mkdtemp(join(tmpdir(), "alliance-admin-planning-mentor-backup-pg-"));

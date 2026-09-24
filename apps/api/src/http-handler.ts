@@ -18,6 +18,9 @@ import {
   type PersonCampusAssignmentCandidateDirectoryDto,
   type PersonCampusAssignmentPreviewDto,
   type PersonCampusAssignmentChangeDto,
+  type CampusRegionAssignmentCandidateDirectoryDto,
+  type CampusRegionAssignmentPreviewDto,
+  type CampusRegionAssignmentChangeDto,
   type PlanningMentorRelationshipDirectoryDto,
   type PlanningMentorRelationshipPreviewDto,
   type PlanningMentorRelationshipPublishDto,
@@ -54,6 +57,12 @@ import type {
   PersonCampusAssignmentPreview,
   PersonCampusAssignmentChangeResult,
 } from "./postgres-person-campus-assignment-service.js";
+import type {
+  CampusRegionAssignmentCandidateDirectory,
+  CampusRegionAssignmentPreviewDraft,
+  CampusRegionAssignmentPreview,
+  CampusRegionAssignmentChange,
+} from "./postgres-campus-region-assignment-service.js";
 import type {
   PlanningMentorRelationshipDirectory,
   PlanningMentorRelationshipPreviewDraft,
@@ -171,6 +180,11 @@ export type ApiServices = Readonly<{
     listDirectory: (context: RoleContext, at: Date) => PersonCampusAssignmentCandidateDirectory | Promise<PersonCampusAssignmentCandidateDirectory>;
     preview: (context: RoleContext, draft: PersonCampusAssignmentPreviewDraft, at: Date) => PersonCampusAssignmentPreview | Promise<PersonCampusAssignmentPreview>;
     publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => PersonCampusAssignmentChangeResult | Promise<PersonCampusAssignmentChangeResult>;
+  }>;
+  campusRegionAssignments?: Readonly<{
+    directory: (context: RoleContext, at: Date) => CampusRegionAssignmentCandidateDirectory | Promise<CampusRegionAssignmentCandidateDirectory>;
+    preview: (context: RoleContext, draft: CampusRegionAssignmentPreviewDraft, at: Date) => CampusRegionAssignmentPreview | Promise<CampusRegionAssignmentPreview>;
+    publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => CampusRegionAssignmentChange | Promise<CampusRegionAssignmentChange>;
   }>;
   planningMentorRelationships?: Readonly<{
     listDirectory: (context: RoleContext, at: Date) => PlanningMentorRelationshipDirectory | Promise<PlanningMentorRelationshipDirectory>;
@@ -796,7 +810,7 @@ const errorStatus = (code: string): number => {
     code === "PROFILE_NICKNAME_CONFLICT"
   ) return 409;
   if (code === "RELATIONSHIP_SERVICE_UNAVAILABLE") return 503;
-  if (code === "ORGANIZATION_REVENUE_DATA_UNAVAILABLE" || code === "PERSON_CAMPUS_SETTLEMENT_DATA_UNAVAILABLE") return 500;
+  if (code === "ORGANIZATION_REVENUE_DATA_UNAVAILABLE" || code === "PERSON_CAMPUS_SETTLEMENT_DATA_UNAVAILABLE" || code === "CAMPUS_REGION_SETTLEMENT_DATA_UNAVAILABLE") return 500;
   if (code === "ORGANIZATION_REVENUE_SERVICE_UNAVAILABLE") return 503;
   if (code === "VENUE_SERVICE_UNAVAILABLE") return 503;
   if (code === "VENUE_DATA_UNAVAILABLE") return 500;
@@ -835,6 +849,10 @@ const errorStatus = (code: string): number => {
       "PERSON_CAMPUS_TARGET_REGION_NOT_UNIQUE",
       "PERSON_CAMPUS_TARGET_PRINCIPAL_INVALID",
       "PERSON_CAMPUS_PRINCIPAL_RELATIONSHIP_AMBIGUOUS",
+      "CAMPUS_REGION_PREVIEW_STALE",
+      "CAMPUS_REGION_ASSIGNMENT_NO_CHANGE",
+      "CAMPUS_REGION_ASSIGNMENT_SOURCE_INVALID",
+      "CAMPUS_REGION_EFFECTIVE_RANGE_INVALID",
       "RELATIONSHIP_EFFECTIVE_WEEK_NOT_CURRENT",
       "RELATIONSHIP_SPECIAL_PERIOD_SCOPE_REQUIRED",
       "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
@@ -1117,6 +1135,17 @@ const personCampusPreviewResponse = (result: PersonCampusAssignmentPreview): Per
   accountDeltas: result.accountDeltas.map((delta) => ({ ...delta })),
 });
 const personCampusPublishResponse = (result: PersonCampusAssignmentChangeResult): PersonCampusAssignmentChangeDto => ({ ...result });
+const campusRegionDirectoryResponse = (directory: CampusRegionAssignmentCandidateDirectory): CampusRegionAssignmentCandidateDirectoryDto => ({
+  campuses: directory.campuses.map((campus) => ({ ...campus })), regions: directory.regions.map((region) => ({ ...region })),
+});
+const campusRegionPreviewResponse = (result: CampusRegionAssignmentPreview): CampusRegionAssignmentPreviewDto => ({
+  previewId: result.previewId, campusId: result.campusId, sourceRegionId: result.sourceRegionId, targetRegionId: result.targetRegionId,
+  effectiveFrom: result.effectiveFrom, effectiveTo: result.effectiveTo, affectedPersonCount: result.affectedPersonCount,
+  affectedAssignmentCount: result.affectedAssignmentCount, consideredFeeCount: result.consideredFeeCount,
+  changedFeeCount: result.changedFeeCount, excludedRefundCount: result.excludedRefundCount,
+  organizationImpact: result.organizationImpact, accountDeltas: result.accountDeltas.map((delta) => ({ ...delta })),
+});
+const campusRegionPublishResponse = (result: CampusRegionAssignmentChange): CampusRegionAssignmentChangeDto => ({ ...result });
 
 const planningMentorDirectoryResponse = (
   directory: PlanningMentorRelationshipDirectory,
@@ -1762,6 +1791,14 @@ export const handleRequest = async (
       assertRelationshipManager(context);
       return success(personCampusDirectoryResponse(await services.personCampusAssignments.listDirectory(context, at)));
     }
+    if (request.method === "GET" && request.path === "/v1/admin/organization/campus-region-candidates") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId") || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.campusRegionAssignments) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(campusRegionDirectoryResponse(await services.campusRegionAssignments.directory(context, at)));
+    }
     if (request.method === "GET" && request.path === "/v1/admin/person-relationships/audit") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       if (Object.keys(body).some((field) => field !== "sessionId")) throw new Error("INVALID_INPUT");
@@ -1896,6 +1933,27 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       assertRelationshipManager(context);
       return success(personCampusPublishResponse(await services.personCampusAssignments.publish(context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at)));
+    }
+    if (request.method === "POST" && request.path === "/v1/admin/organization/campus-region/preview") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "campusId", "targetRegionId", "effectiveFrom", "effectiveTo", "reason"].includes(field)) || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (body.effectiveTo !== undefined && body.effectiveTo !== null && (typeof body.effectiveTo !== "string" || !body.effectiveTo.trim())) throw new Error("INVALID_INPUT");
+      if (!services.campusRegionAssignments) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(campusRegionPreviewResponse(await services.campusRegionAssignments.preview(context, {
+        campusId: requiredString(body, "campusId"), targetRegionId: requiredString(body, "targetRegionId"),
+        effectiveFrom: requiredString(body, "effectiveFrom"), ...(body.effectiveTo === undefined ? {} : { effectiveTo: body.effectiveTo as string | null }),
+        reason: requiredString(body, "reason"),
+      }, at)));
+    }
+    if (request.method === "POST" && request.path === "/v1/admin/organization/campus-region") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "previewId", "idempotencyKey"].includes(field)) || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.campusRegionAssignments) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(campusRegionPublishResponse(await services.campusRegionAssignments.publish(context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at)));
     }
     if (request.method === "GET" && request.path === "/v1/planning-mentor/relationships") {
       if (typeof request.sessionId !== "string" || !request.sessionId.trim()) throw new Error("UNAUTHENTICATED");

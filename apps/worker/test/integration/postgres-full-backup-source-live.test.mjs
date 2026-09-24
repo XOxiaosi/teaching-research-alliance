@@ -79,7 +79,7 @@ const nextBatch = async (stream) => {
   return result.value;
 };
 
-test("全量备份数据源以注册的 101 表、固定主键和统一快照打开", async () => {
+test("全量备份数据源以注册的 105 表、固定主键和统一快照打开", async () => {
   await withDatabase(async (database) => {
     const at = new Date("2026-09-23T02:00:00.000Z");
     const access = new PostgresAccountAccessService(database.pool);
@@ -101,7 +101,7 @@ test("全量备份数据源以注册的 101 表、固定主键和统一快照打
       assert.equal(source.snapshotId.length > 0, true);
       assert.equal(source.asOf.length > 0, true);
       assert.deepEqual(source.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
-      assert.equal(source.datasets.length, 101);
+      assert.equal(source.datasets.length, 105);
       assert.equal(await source.countRows("person_profile_change"), 1n);
       const stream = await source.openStream("person_profile_change", 10);
       const batch = await nextBatch(stream);
