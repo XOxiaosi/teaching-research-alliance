@@ -219,6 +219,10 @@ test("提现提交、财务办理和凭证查阅各自授权，分区不取得�
 test("端点契约包含分区汇总、关系预览和全正常场地目录", () => {
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/regions/:regionId/person-summaries"), true);
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/admin/person-relationships/preview"), true);
+  assert.deepEqual(ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/admin/person-relationships/audit"), {
+    method: "GET", path: "/v1/admin/person-relationships/audit", action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "person-relationship-audit.v1", requiresRoleContext: true,
+  });
   assert.equal(ENDPOINT_CONTRACTS.some((item) => item.path === "/v1/venues/available"), true);
   assert.equal(ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/venues/visible")?.action, "READ_OWN_VENUES");
 });

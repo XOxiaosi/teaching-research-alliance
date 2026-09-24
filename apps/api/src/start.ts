@@ -45,6 +45,7 @@ import { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-te
 import { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
 import { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
 import { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
+import { PostgresPersonRelationshipAuditService } from "./postgres-person-relationship-audit-service.js";
 
 const port = Number(process.env.PORT ?? "3100");
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
@@ -139,6 +140,7 @@ const server = createApiServer({
   groupLeaderRelationships,
   groupLeaderDirectory: new PostgresGroupLeaderDirectoryService(pool, groupLeaderRelationships),
   planningMentorRelationships,
+  personRelationshipAudit: new PostgresPersonRelationshipAuditService(pool),
   financeAttachments: new PostgresFinanceAttachmentService(pool),
   ...(attachmentStore
     ? {

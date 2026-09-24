@@ -1,0 +1,138 @@
+import type { RoleContext } from "@teaching-research-alliance/contracts";
+import { type PostgresClient, type PostgresPool } from "./postgres-ledger-repository.js";
+import { createHash } from "node:crypto";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TYPES = ["CAMPUS_PRINCIPAL", "GROUP_LEADER", "TEACHING_MENTOR", "PLANNING_MENTOR"] as const;
+const STATUSES = ["CURRENT", "FUTURE", "ENDED", "SUPERSEDED", "ANOMALOUS"] as const;
+const ANOMALIES = ["RELATIONSHIP_INTERVAL_INVALID", "RELATIONSHIP_OVERLAP", "MEMBER_PERSON_INACTIVE", "RELATED_PERSON_INACTIVE", "RELATED_ROLE_INVALID", "RELATED_ROLE_SCOPE_MISMATCH", "SUBJECT_IDENTITY_INVALID", "RECIPIENT_ACCOUNT_INVALID", "NONZERO_RECIPIENT_MISSING", "CAMPUS_PRINCIPAL_MISSING", "CAMPUS_PRINCIPAL_MISMATCH", "SPECIAL_PERIOD_SCOPE_REQUIRED", "HISTORICAL_REFERENCE_MISSING", "SUPERSESSION_SOURCE_INVALID"] as const;
+const REPAIRABILITIES = ["GROUP_LEADER_REGULAR_WEEK_PREVIEW", "READ_ONLY", "REQUIRES_RELATIONSHIP_CORRECTION", "REQUIRES_P27", "REQUIRES_SPECIAL_PERIOD_SCOPE"] as const;
+export type PersonRelationshipAuditType = (typeof TYPES)[number];
+export type PersonRelationshipAuditStatus = (typeof STATUSES)[number];
+export type PersonRelationshipAnomalyCode = (typeof ANOMALIES)[number];
+export type PersonRelationshipAuditRepairability = (typeof REPAIRABILITIES)[number];
+export type PersonRelationshipAuditPerson = Readonly<{ personId: string; nickname: string; personStatus: "ACTIVE" | "INACTIVE" }>;
+export type PersonRelationshipAuditItem = Readonly<{
+  auditItemId: string; relationshipId: string | null; relationshipFingerprint: string; relationshipType: PersonRelationshipAuditType;
+  member: PersonRelationshipAuditPerson; relatedPerson: PersonRelationshipAuditPerson | null;
+  validFrom: string; validTo: string | null; effectiveScope: string | null; status: PersonRelationshipAuditStatus;
+  matchingRoleAssignmentIds: readonly string[];
+  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "PLANNING_MENTOR_CHANGE"; changeId: string }> | null;
+  referenceCounts: Readonly<{ weeklyFees: number; allocationSnapshots: number; referrals: number }>;
+  anomalyCodes: readonly PersonRelationshipAnomalyCode[]; repairability: PersonRelationshipAuditRepairability;
+  repairBlockedReason: string | null; createdBy: Readonly<{ personId: string; nickname: string }> | null; createdAt: string | null;
+}>;
+export type PersonRelationshipAuditPage = Readonly<{ snapshotAt: string; dataVersion: string; items: readonly PersonRelationshipAuditItem[]; nextCursor: string | null }>;
+export type PersonRelationshipAuditFilter = Readonly<{
+  personId?: string | undefined; relationshipType?: PersonRelationshipAuditType | undefined; status?: PersonRelationshipAuditStatus | undefined;
+  anomalyCode?: PersonRelationshipAnomalyCode | undefined; repairability?: PersonRelationshipAuditRepairability | undefined; limit?: number | undefined; cursor?: string | undefined;
+}>;
+type Row = {
+  audit_item_id: string; relationship_id: string | null; relationship_fingerprint: string; relationship_type: PersonRelationshipAuditType; member_id: string; member_nickname: string; member_status: "ACTIVE" | "INACTIVE";
+  related_id: string | null; related_nickname: string | null; related_status: "ACTIVE" | "INACTIVE" | null; valid_from: string; valid_to: string | null; effective_scope: string | null;
+  created_by_id: string | null; created_by_nickname: string | null; created_at: string | null; superseded_by_change_id: string | null; superseded_by_planning_mentor_change_id: string | null;
+  role_ids: string[]; status: PersonRelationshipAuditStatus; anomaly_codes: PersonRelationshipAnomalyCode[];
+  source_change_kind: "GROUP_LEADER_CHANGE" | "PLANNING_MENTOR_CHANGE" | null; source_change_id: string | null;
+  weekly_fee_count: string; snapshot_count: string; referral_count: string; repairability: PersonRelationshipAuditRepairability;
+};
+const fail = (code: string): never => { throw new Error(code); };
+const filterFingerprint = (filter: PersonRelationshipAuditFilter): string => createHash("sha256").update(JSON.stringify({ personId: filter.personId ?? null, relationshipType: filter.relationshipType ?? null, status: filter.status ?? null, anomalyCode: filter.anomalyCode ?? null, repairability: filter.repairability ?? null, limit: filter.limit ?? 50 })).digest("hex");
+const encodeCursor = (snapshotAt: string, fingerprint: string, collectionHash: string, from: string, id: string): string => Buffer.from(JSON.stringify({ snapshotAt, fingerprint, collectionHash, from, id }), "utf8").toString("base64url");
+const decodeCursor = (value: string | undefined): { snapshotAt: string; fingerprint: string; collectionHash: string; from: string; id: string } | null => {
+  if (value === undefined) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { snapshotAt?: unknown; from?: unknown; id?: unknown };
+    const snapshotAt = parsed.snapshotAt; const fingerprint = (parsed as { fingerprint?: unknown }).fingerprint; const collectionHash = (parsed as { collectionHash?: unknown }).collectionHash; const from = parsed.from; const id = parsed.id;
+    if (typeof snapshotAt !== "string" || typeof fingerprint !== "string" || typeof collectionHash !== "string" || !/^[0-9a-f]{64}$/i.test(fingerprint) || !/^[0-9a-f]{64}$/i.test(collectionHash) || typeof from !== "string" || typeof id !== "string") fail("INVALID_INPUT");
+    const snapshotText = snapshotAt as string; const fingerprintText = fingerprint as string; const collectionHashText = collectionHash as string; const fromText = from as string; const idText = id as string;
+    if ((!UUID.test(idText) && !/^[0-9a-f]{64}$/i.test(idText)) || !Number.isFinite(Date.parse(snapshotText)) || !Number.isFinite(Date.parse(fromText))) fail("INVALID_INPUT");
+    return { snapshotAt: new Date(snapshotText).toISOString(), fingerprint: fingerprintText.toLowerCase(), collectionHash: collectionHashText.toLowerCase(), from: new Date(fromText).toISOString(), id: idText.toLowerCase() };
+  } catch { fail("INVALID_INPUT"); }
+  return null;
+};
+const assertGlobal = (context: RoleContext): void => {
+  if (!UUID.test(context.personId) || !["SYSTEM_OWNER", "SYSTEM_ADMIN"].includes(context.subject) || context.scope !== "GLOBAL" || context.regionId !== undefined || context.campusId !== undefined || context.venueId !== undefined) fail("FORBIDDEN_SCOPE");
+};
+
+export class PostgresPersonRelationshipAuditService {
+  public constructor(private readonly pool: PostgresPool) {}
+  public async list(context: RoleContext, filter: PersonRelationshipAuditFilter, at: Date): Promise<PersonRelationshipAuditPage> {
+    assertGlobal(context); const requestAtIso = at.toISOString();
+    if (filter.personId !== undefined && !UUID.test(filter.personId)) fail("INVALID_INPUT");
+    if (filter.relationshipType !== undefined && !TYPES.includes(filter.relationshipType)) fail("INVALID_INPUT");
+    if (filter.status !== undefined && !STATUSES.includes(filter.status)) fail("INVALID_INPUT");
+    if (filter.anomalyCode !== undefined && !ANOMALIES.includes(filter.anomalyCode)) fail("INVALID_INPUT");
+    if (filter.repairability !== undefined && !REPAIRABILITIES.includes(filter.repairability)) fail("INVALID_INPUT");
+    const limit = filter.limit ?? 50; if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) fail("INVALID_INPUT");
+    const fingerprint = filterFingerprint(filter); const cursor = decodeCursor(filter.cursor); if (cursor !== null && cursor.fingerprint !== fingerprint) fail("INVALID_INPUT"); const snapshotAtIso = cursor?.snapshotAt ?? requestAtIso; const client: PostgresClient = await this.pool.connect();
+    try {
+      await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      const authorized = await client.query(`SELECT 1 FROM role_assignment WHERE person_id=$1::uuid AND subject_code=$2 AND scope_type='GLOBAL' AND scope_id IS NULL AND valid_from <= $3::timestamptz AND (valid_to IS NULL OR $3::timestamptz < valid_to) AND (valid_to IS NULL OR valid_to > valid_from) LIMIT 1`, [context.personId, context.subject, requestAtIso]);
+      if (authorized.rows.length !== 1) fail("FORBIDDEN_SCOPE");
+      const values: unknown[] = [snapshotAtIso]; const where: string[] = ["r.created_at <= $1::timestamptz"];
+      if (filter.personId !== undefined) { values.push(filter.personId.toLowerCase()); where.push(`(r.teacher_id=$${values.length}::uuid OR r.related_person_id=$${values.length}::uuid)`); }
+      if (filter.relationshipType !== undefined) { values.push(filter.relationshipType); where.push(`r.relationship_type=$${values.length}`); }
+      const status = `(CASE WHEN r.superseded_at IS NOT NULL AND r.superseded_at <= $1::timestamptz THEN 'SUPERSEDED' WHEN r.valid_from > $1::timestamptz THEN 'FUTURE' WHEN r.valid_to IS NOT NULL AND r.valid_to <= $1::timestamptz THEN 'ENDED' ELSE 'CURRENT' END)`;
+      const expectedScope = `(CASE r.relationship_type WHEN 'GROUP_LEADER' THEN 'ASSOCIATED_TEACHERS' WHEN 'TEACHING_MENTOR' THEN 'MENTEES' WHEN 'PLANNING_MENTOR' THEN 'SELF' WHEN 'CAMPUS_PRINCIPAL' THEN 'CAMPUS' END)`;
+      const expectedScopeId = `(CASE WHEN r.relationship_type IN ('GROUP_LEADER','TEACHING_MENTOR') THEN r.teacher_id END)`;
+      const scopeMatches = `(r.relationship_type IN ('GROUP_LEADER','TEACHING_MENTOR') AND (duty.scope_id IS NULL OR duty.scope_id IS NOT DISTINCT FROM ${expectedScopeId})) OR (r.relationship_type='PLANNING_MENTOR' AND duty.scope_id IS NULL)`;
+      const overlap = `(duty.created_at <= $1::timestamptz AND duty.valid_from < COALESCE(r.valid_to,'infinity'::timestamptz) AND (duty.valid_to IS NULL OR r.valid_from < duty.valid_to))`;
+      const cover = `(duty.valid_from <= r.valid_from AND (duty.valid_to IS NULL OR (r.valid_to IS NOT NULL AND r.valid_to <= duty.valid_to)))`;
+      const active = `(${status} IN ('CURRENT','FUTURE'))`;
+      const campusAssignmentOverlap = `assignment.person_id=r.teacher_id AND assignment.created_at <= $1::timestamptz AND assignment.valid_from < COALESCE(r.valid_to,'infinity'::timestamptz) AND (assignment.valid_to IS NULL OR r.valid_from < assignment.valid_to)`;
+      const campusDutyOverlap = `duty.created_at <= $1::timestamptz AND duty.valid_from < LEAST(COALESCE(r.valid_to,'infinity'::timestamptz),COALESCE(assignment.valid_to,'infinity'::timestamptz)) AND (duty.valid_to IS NULL OR GREATEST(r.valid_from,assignment.valid_from) < duty.valid_to)`;
+      const campusDutyCover = `duty.valid_from <= GREATEST(r.valid_from,assignment.valid_from) AND (duty.valid_to IS NULL OR LEAST(COALESCE(r.valid_to,'infinity'::timestamptz),COALESCE(assignment.valid_to,'infinity'::timestamptz)) <= duty.valid_to)`;
+      const campusCoverageMismatch = `(NOT EXISTS (SELECT 1 FROM person_campus_assignment assignment WHERE ${campusAssignmentOverlap}) OR EXISTS (SELECT 1 FROM person_campus_assignment assignment WHERE ${campusAssignmentOverlap} AND NOT EXISTS (SELECT 1 FROM role_assignment duty WHERE duty.person_id=r.related_person_id AND duty.subject_code='CAMPUS_PRINCIPAL' AND duty.scope_type='CAMPUS' AND duty.scope_id=assignment.campus_id AND ${campusDutyOverlap} AND ${campusDutyCover})))`;
+      const nonCampusRole = `duty.person_id=r.related_person_id AND duty.subject_code=r.relationship_type AND duty.scope_type=${expectedScope} AND ${scopeMatches} AND ${overlap}`;
+      const campusRole = `duty.person_id=r.related_person_id AND duty.subject_code='CAMPUS_PRINCIPAL' AND duty.scope_type='CAMPUS' AND EXISTS (SELECT 1 FROM person_campus_assignment assignment WHERE ${campusAssignmentOverlap} AND duty.scope_id=assignment.campus_id AND ${campusDutyOverlap})`;
+      const hasMatchingRole = `EXISTS (SELECT 1 FROM role_assignment duty WHERE (r.relationship_type='CAMPUS_PRINCIPAL' AND ${campusRole}) OR (r.relationship_type<>'CAMPUS_PRINCIPAL' AND ${nonCampusRole}))`;
+      const roleIds = `ARRAY(SELECT DISTINCT duty.id::text FROM role_assignment duty WHERE (r.relationship_type='CAMPUS_PRINCIPAL' AND ${campusRole}) OR (r.relationship_type<>'CAMPUS_PRINCIPAL' AND ${nonCampusRole}) ORDER BY duty.id::text)`;
+      const anomalies = `array_remove(ARRAY[
+        CASE WHEN ${active} AND p.status <> 'ACTIVE' THEN 'MEMBER_PERSON_INACTIVE' END,
+        CASE WHEN ${active} AND related.status <> 'ACTIVE' THEN 'RELATED_PERSON_INACTIVE' END,
+        CASE WHEN ${active} AND ((r.relationship_type='PLANNING_MENTOR' AND COALESCE(profile.business_identity,'') <> 'ACADEMIC_PLANNER') OR (r.relationship_type IN ('GROUP_LEADER','TEACHING_MENTOR') AND COALESCE(profile.business_identity,'') <> 'TEACHING_TEACHER')) THEN 'SUBJECT_IDENTITY_INVALID' END,
+        CASE WHEN ${active} AND r.relationship_type<>'CAMPUS_PRINCIPAL' AND NOT EXISTS (SELECT 1 FROM settlement_account account WHERE account.owner_type='PERSON' AND account.owner_id=r.related_person_id AND account.created_at <= $1::timestamptz AND account.status='ACTIVE') THEN 'RECIPIENT_ACCOUNT_INVALID' END,
+        CASE WHEN NOT ${hasMatchingRole} THEN 'RELATED_ROLE_INVALID' END,
+        CASE WHEN ${hasMatchingRole} AND ((r.relationship_type='CAMPUS_PRINCIPAL' AND ${campusCoverageMismatch}) OR (r.relationship_type<>'CAMPUS_PRINCIPAL' AND NOT EXISTS (SELECT 1 FROM role_assignment duty WHERE ${nonCampusRole} AND ${cover}))) THEN 'RELATED_ROLE_SCOPE_MISMATCH' END,
+        CASE WHEN r.relationship_type='CAMPUS_PRINCIPAL' AND (r.effective_scope IS DISTINCT FROM 'CAMPUS' OR ${campusCoverageMismatch}) THEN 'CAMPUS_PRINCIPAL_MISMATCH' END,
+        CASE WHEN r.effective_scope LIKE 'REGULAR_WEEK:%' AND NOT (substring(r.effective_scope from 14) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' AND EXISTS (SELECT 1 FROM teaching_week week WHERE week.id::text=substring(r.effective_scope from 14) AND week.created_at <= $1::timestamptz AND week.week_kind='REGULAR')) THEN 'SPECIAL_PERIOD_SCOPE_REQUIRED' END,
+        CASE WHEN r.effective_scope IS NOT NULL AND r.effective_scope NOT LIKE 'REGULAR_WEEK:%' AND r.effective_scope NOT IN ('REGULAR_WEEK','ASSOCIATED_TEACHERS','MENTEES','SELF','CAMPUS') THEN 'SPECIAL_PERIOD_SCOPE_REQUIRED' END,
+        CASE WHEN r.superseded_at IS NOT NULL AND r.superseded_at <= $1::timestamptz AND ((r.relationship_type='PLANNING_MENTOR' AND NOT EXISTS (SELECT 1 FROM planning_mentor_relationship_change c WHERE c.id=r.superseded_by_planning_mentor_change_id AND c.source_relationship_id=r.id)) OR (r.relationship_type<>'PLANNING_MENTOR' AND NOT EXISTS (SELECT 1 FROM person_relationship_change c WHERE c.id=r.superseded_by_change_id AND c.source_relationship_id=r.id))) THEN 'HISTORICAL_REFERENCE_MISSING' END
+      ]::text[], NULL)`;
+      const base = `SELECT r.id::text audit_item_id,r.id::text relationship_id,encode(digest(concat_ws('|',r.id::text,r.relationship_type,r.teacher_id::text,r.related_person_id::text,r.valid_from::text,COALESCE(r.valid_to::text,''),COALESCE(r.effective_scope,''),CASE WHEN r.superseded_at <= $1::timestamptz THEN r.superseded_at::text ELSE '' END),'sha256'),'hex') relationship_fingerprint,r.relationship_type,p.id::text member_id,p.nickname member_nickname,p.status member_status,related.id::text related_id,related.nickname related_nickname,related.status related_status,r.valid_from::text valid_from,r.valid_to::text valid_to,r.effective_scope,creator.id::text created_by_id,creator.nickname created_by_nickname,r.created_at::text created_at,CASE WHEN r.superseded_at <= $1::timestamptz THEN r.superseded_by_change_id::text END superseded_by_change_id,CASE WHEN r.superseded_at <= $1::timestamptz THEN r.superseded_by_planning_mentor_change_id::text END superseded_by_planning_mentor_change_id,${roleIds} role_ids,${status} status,${anomalies} anomaly_codes,CASE WHEN r.superseded_at <= $1::timestamptz AND r.superseded_by_change_id IS NOT NULL THEN 'GROUP_LEADER_CHANGE' WHEN r.superseded_at <= $1::timestamptz AND r.superseded_by_planning_mentor_change_id IS NOT NULL THEN 'PLANNING_MENTOR_CHANGE' END source_change_kind,CASE WHEN r.superseded_at <= $1::timestamptz THEN COALESCE(r.superseded_by_change_id,r.superseded_by_planning_mentor_change_id)::text END source_change_id,(SELECT count(DISTINCT snap.weekly_fee_entry_id) FROM weekly_fee_allocation_snapshot snap WHERE snap.created_at <= $1::timestamptz AND (CASE r.relationship_type WHEN 'GROUP_LEADER' THEN snap.context_json#>>'{relationships,groupLeader,id}' WHEN 'TEACHING_MENTOR' THEN snap.context_json#>>'{relationships,teachingMentor,id}' WHEN 'PLANNING_MENTOR' THEN snap.context_json#>>'{relationships,planningMentor,id}' ELSE NULL END)=r.id::text)::text weekly_fee_count,(SELECT count(*) FROM weekly_fee_allocation_snapshot snap WHERE snap.created_at <= $1::timestamptz AND (CASE r.relationship_type WHEN 'GROUP_LEADER' THEN snap.context_json#>>'{relationships,groupLeader,id}' WHEN 'TEACHING_MENTOR' THEN snap.context_json#>>'{relationships,teachingMentor,id}' WHEN 'PLANNING_MENTOR' THEN snap.context_json#>>'{relationships,planningMentor,id}' ELSE NULL END)=r.id::text)::text snapshot_count,(SELECT count(*) FROM referral_creation_snapshot ref WHERE r.relationship_type='PLANNING_MENTOR' AND ref.planning_mentor_relationship_id=r.id AND ref.created_at <= $1::timestamptz)::text referral_count FROM person_relationship r JOIN person p ON p.id=r.teacher_id JOIN person related ON related.id=r.related_person_id JOIN person creator ON creator.id=r.created_by LEFT JOIN teacher_profile profile ON profile.person_id=r.teacher_id WHERE ${where.join(" AND ")}`;
+      const syntheticWhere: string[] = ["p.status='ACTIVE'", "profile.employment_status='ACTIVE'", "(missing.relationship_type='CAMPUS_PRINCIPAL' OR profile.business_identity='TEACHING_TEACHER')", "CASE missing.relationship_type WHEN 'GROUP_LEADER' THEN (COALESCE(policy.policy_json->>'groupLeaderRateBasisPoints','0'))::numeric WHEN 'TEACHING_MENTOR' THEN (COALESCE(policy.policy_json->>'teachingMentorRateBasisPoints','0'))::numeric ELSE 1 END > 0", "(missing.relationship_type <> 'CAMPUS_PRINCIPAL' OR campus_assignment.id IS NOT NULL)"];
+      syntheticWhere.push("NOT EXISTS (SELECT 1 FROM person_relationship existing WHERE existing.teacher_id=p.id AND existing.relationship_type=missing.relationship_type AND (existing.superseded_at IS NULL OR $1::timestamptz < existing.superseded_at) AND existing.created_at <= $1::timestamptz AND existing.valid_from <= $1::timestamptz AND (existing.valid_to IS NULL OR $1::timestamptz < existing.valid_to))");
+      if (filter.personId !== undefined) syntheticWhere.push(`p.id=$${values.indexOf(filter.personId.toLowerCase()) + 1}::uuid`);
+      if (filter.relationshipType !== undefined) syntheticWhere.push(`missing.relationship_type=$${values.indexOf(filter.relationshipType) + 1}`);
+      const synthetic = `SELECT encode(digest('MISSING_RELATIONSHIP:'||p.id::text||':'||missing.relationship_type||':'||COALESCE(campus_assignment.id::text,''),'sha256'),'hex') audit_item_id,NULL::text relationship_id,encode(digest('MISSING_RELATIONSHIP:'||p.id::text||':'||missing.relationship_type||':'||COALESCE(campus_assignment.id::text,'')||':'||COALESCE(policy.version::text,'none')||':'||COALESCE(policy.effective_from::text,'none'),'sha256'),'hex') relationship_fingerprint,missing.relationship_type,p.id::text member_id,p.nickname member_nickname,p.status member_status,NULL::text related_id,NULL::text related_nickname,NULL::text related_status,COALESCE(campus_assignment.valid_from,$1::timestamptz)::text valid_from,NULL::text valid_to,CASE WHEN missing.relationship_type='CAMPUS_PRINCIPAL' THEN 'CAMPUS' END::text effective_scope,NULL::text created_by_id,NULL::text created_by_nickname,NULL::text created_at,NULL::text superseded_by_change_id,NULL::text superseded_by_planning_mentor_change_id,ARRAY[]::text[] role_ids,'CURRENT'::text status,ARRAY[CASE WHEN missing.relationship_type='CAMPUS_PRINCIPAL' THEN 'CAMPUS_PRINCIPAL_MISSING' ELSE 'NONZERO_RECIPIENT_MISSING' END]::text[] anomaly_codes,NULL::text source_change_kind,NULL::text source_change_id,'0'::text weekly_fee_count,'0'::text snapshot_count,'0'::text referral_count FROM person p JOIN teacher_profile profile ON profile.person_id=p.id CROSS JOIN (VALUES ('GROUP_LEADER'::text),('TEACHING_MENTOR'::text),('CAMPUS_PRINCIPAL'::text)) missing(relationship_type) LEFT JOIN LATERAL (SELECT assignment.id::text,assignment.valid_from FROM person_campus_assignment assignment WHERE assignment.person_id=p.id AND assignment.created_at <= $1::timestamptz AND assignment.valid_from <= $1::timestamptz AND (assignment.valid_to IS NULL OR $1::timestamptz < assignment.valid_to) ORDER BY assignment.valid_from DESC,assignment.id LIMIT 1) campus_assignment ON TRUE LEFT JOIN LATERAL (SELECT version,effective_from,policy_json FROM rate_policy_version policy WHERE policy.effective_from <= $1::date AND policy.published_at <= $1::timestamptz ORDER BY policy.effective_from DESC,policy.version DESC LIMIT 1) policy ON TRUE WHERE ${syntheticWhere.join(" AND ")}`;
+      const combined = `SELECT * FROM (${base} UNION ALL ${synthetic}) facts`;
+      const derived = `SELECT *,CASE WHEN relationship_id IS NULL AND relationship_type='CAMPUS_PRINCIPAL' THEN 'REQUIRES_P27' WHEN relationship_id IS NULL THEN 'REQUIRES_RELATIONSHIP_CORRECTION' WHEN anomaly_codes @> ARRAY['SPECIAL_PERIOD_SCOPE_REQUIRED']::text[] THEN 'REQUIRES_SPECIAL_PERIOD_SCOPE' WHEN relationship_type='CAMPUS_PRINCIPAL' THEN 'REQUIRES_P27' WHEN effective_scope IS NOT NULL AND effective_scope NOT LIKE 'REGULAR_WEEK:%' AND effective_scope NOT IN ('REGULAR_WEEK','ASSOCIATED_TEACHERS','MENTEES','SELF','CAMPUS') THEN 'REQUIRES_SPECIAL_PERIOD_SCOPE' WHEN anomaly_codes <> '{}' THEN 'REQUIRES_RELATIONSHIP_CORRECTION' WHEN relationship_type='GROUP_LEADER' AND status='CURRENT' THEN 'GROUP_LEADER_REGULAR_WEEK_PREVIEW' ELSE 'READ_ONLY' END repairability FROM (${combined}) facts`;
+      const predicates: string[] = [];
+      if (filter.status === "ANOMALOUS") predicates.push(`anomaly_codes <> '{}'`); else if (filter.status !== undefined) predicates.push(`status=$${values.length + 1}`);
+      if (filter.status !== undefined && filter.status !== "ANOMALOUS") values.push(filter.status);
+      if (filter.anomalyCode !== undefined) { values.push(filter.anomalyCode); predicates.push(`$${values.length}=ANY(anomaly_codes)`); }
+      if (filter.repairability !== undefined) { values.push(filter.repairability); predicates.push(`repairability=$${values.length}`); }
+      const filteredDerived = predicates.length ? `SELECT * FROM (${derived}) derived_rows WHERE ${predicates.join(" AND ")}` : derived;
+      const hashResult = await client.query<{ collection_hash: string }>(`SELECT encode(digest(COALESCE(string_agg(encode(digest(to_jsonb(facts)::text,'sha256'),'hex'),'|' ORDER BY valid_from::timestamptz,audit_item_id),''),'sha256'),'hex') collection_hash FROM (${filteredDerived}) facts`, values);
+      const collectionHash = hashResult.rows[0]?.collection_hash ?? createHash("sha256").update("").digest("hex");
+      if (cursor !== null && cursor.collectionHash !== collectionHash) fail("VERSION_CONFLICT");
+      const pagePredicates = [...predicates]; const pageValues = [...values];
+      if (cursor !== null) { pageValues.push(cursor.from, cursor.id); pagePredicates.push(`(valid_from::timestamptz,audit_item_id) > ($${pageValues.length - 1}::timestamptz,$${pageValues.length})`); }
+      pageValues.push(limit + 1);
+      const pageSource = pagePredicates.length ? `SELECT * FROM (${derived}) page_rows WHERE ${pagePredicates.join(" AND ")}` : derived;
+      const rows = (await client.query<Row>(`${pageSource} ORDER BY valid_from::timestamptz,audit_item_id LIMIT $${pageValues.length}`, pageValues)).rows;
+      const page = rows.slice(0, limit); const items = page.map(row => ({
+        auditItemId: row.audit_item_id, relationshipId: row.relationship_id, relationshipFingerprint: row.relationship_fingerprint, relationshipType: row.relationship_type,
+        member: { personId: row.member_id, nickname: row.member_nickname, personStatus: row.member_status },
+        relatedPerson: row.related_id === null ? null : { personId: row.related_id, nickname: row.related_nickname!, personStatus: row.related_status! },
+        validFrom: new Date(row.valid_from).toISOString(), validTo: row.valid_to === null ? null : new Date(row.valid_to).toISOString(), effectiveScope: row.effective_scope,
+        status: row.status, matchingRoleAssignmentIds: row.role_ids,
+        sourceChange: row.source_change_id === null || row.source_change_kind === null ? null : { kind: row.source_change_kind, changeId: row.source_change_id },
+        referenceCounts: { weeklyFees: Number(row.weekly_fee_count), allocationSnapshots: Number(row.snapshot_count), referrals: Number(row.referral_count) }, anomalyCodes: row.anomaly_codes,
+        repairability: row.repairability, repairBlockedReason: row.repairability === "GROUP_LEADER_REGULAR_WEEK_PREVIEW" ? null : "该关系只能进入只读审计或后续专门纠正流程",
+        createdBy: row.created_by_id === null ? null : { personId: row.created_by_id, nickname: row.created_by_nickname! }, createdAt: row.created_at === null ? null : new Date(row.created_at).toISOString()
+      }) satisfies PersonRelationshipAuditItem);
+      await client.query("COMMIT"); return { snapshotAt: snapshotAtIso, dataVersion: `audit-v1:${snapshotAtIso}:${collectionHash}`, items, nextCursor: rows.length > limit ? encodeCursor(snapshotAtIso, fingerprint, collectionHash, page[page.length - 1]!.valid_from, page[page.length - 1]!.audit_item_id) : null };
+    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { await client.release(); }
+  }
+}

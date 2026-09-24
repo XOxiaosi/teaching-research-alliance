@@ -33,6 +33,10 @@ import type {
   PlanningMentorRelationshipPreviewResult,
   PlanningMentorRelationshipPublishResult,
 } from "./postgres-planning-mentor-relationship-service.js";
+import type {
+  PersonRelationshipAuditFilter,
+  PersonRelationshipAuditPage,
+} from "./postgres-person-relationship-audit-service.js";
 
 export type ApiRequest = Readonly<{
   method: HttpMethod;
@@ -130,6 +134,9 @@ export type ApiServices = Readonly<{
     listDirectory: (context: RoleContext, at: Date) => PlanningMentorRelationshipDirectory | Promise<PlanningMentorRelationshipDirectory>;
     preview: (context: RoleContext, draft: PlanningMentorRelationshipPreviewDraft, at: Date) => PlanningMentorRelationshipPreviewResult | Promise<PlanningMentorRelationshipPreviewResult>;
     publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => PlanningMentorRelationshipPublishResult | Promise<PlanningMentorRelationshipPublishResult>;
+  }>;
+  personRelationshipAudit?: Readonly<{
+    list: (context: RoleContext, filter: PersonRelationshipAuditFilter, at: Date) => PersonRelationshipAuditPage | Promise<PersonRelationshipAuditPage>;
   }>;
   organizationRevenue?: Readonly<{
     get: (context: RoleContext, filter: {fromMonth: string; toMonth: string}, at: Date) => unknown | Promise<unknown>;
@@ -1588,6 +1595,30 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       assertRelationshipManager(context);
       return success(relationshipCandidatesResponse(await services.groupLeaderDirectory.list(context, at)));
+    }
+    if (request.method === "GET" && request.path === "/v1/admin/person-relationships/audit") {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId")) throw new Error("INVALID_INPUT");
+      const query = request.query ?? {};
+      if (Object.keys(query).some((field) => !["personId", "relationshipType", "status", "anomalyCode", "repairability", "cursor", "limit"].includes(field))) throw new Error("INVALID_INPUT");
+      let limit: number | undefined;
+      if (query.limit !== undefined) {
+        limit = Number(query.limit);
+        if (!/^\d+$/.test(query.limit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("INVALID_INPUT");
+      }
+      if ([query.personId, query.relationshipType, query.status, query.anomalyCode, query.repairability, query.cursor].some((value) => value !== undefined && !value.trim())) throw new Error("INVALID_INPUT");
+      if (!services.personRelationshipAudit) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(await services.personRelationshipAudit.list(context, {
+        ...(query.personId === undefined ? {} : { personId: query.personId }),
+        ...(query.relationshipType === undefined ? {} : { relationshipType: query.relationshipType as PersonRelationshipAuditFilter["relationshipType"] }),
+        ...(query.status === undefined ? {} : { status: query.status as PersonRelationshipAuditFilter["status"] }),
+        ...(query.anomalyCode === undefined ? {} : { anomalyCode: query.anomalyCode as PersonRelationshipAuditFilter["anomalyCode"] }),
+        ...(query.repairability === undefined ? {} : { repairability: query.repairability as PersonRelationshipAuditFilter["repairability"] }),
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(limit === undefined ? {} : { limit }),
+      }, at));
     }
     if (
       request.method === "POST" &&

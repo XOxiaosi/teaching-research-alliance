@@ -13,6 +13,19 @@ import type {
   PersonBusinessIdentityChangeResult,
   PersonBusinessIdentity,
   BusinessIdentityBlocker,
+  PersonRelationshipAuditPageDto,
+  PersonRelationshipAuditAnomalyCode,
+  PersonRelationshipAuditRepairability,
+  PersonRelationshipAuditStatus,
+  PersonRelationshipAuditType,
+} from "@teaching-research-alliance/contracts";
+export type {
+  PersonRelationshipAuditAnomalyCode,
+  PersonRelationshipAuditItemDto,
+  PersonRelationshipAuditPageDto,
+  PersonRelationshipAuditRepairability,
+  PersonRelationshipAuditStatus,
+  PersonRelationshipAuditType,
 } from "@teaching-research-alliance/contracts";
 
 export type ApiEnvelope<T> = Readonly<{
@@ -173,6 +186,15 @@ export type PersonProfileDraft = Readonly<{ personId: string; nickname: string; 
 export type PersonProfileSubmission = Readonly<{ draft: PersonProfileDraft; idempotencyKey: string }>;
 export type PersonBusinessIdentityDraft = Readonly<{ personId: string; businessIdentity: PersonBusinessIdentity; gradeSubject?: string | null; expectedBusinessIdentityVersion: string | null; reason: string }>;
 export type PersonBusinessIdentitySubmission = Readonly<{ draft: PersonBusinessIdentityDraft; idempotencyKey: string }>;
+export type PersonRelationshipAuditFilter = Readonly<{
+  personId?: string;
+  relationshipType?: PersonRelationshipAuditType;
+  status?: PersonRelationshipAuditStatus;
+  anomalyCode?: PersonRelationshipAuditAnomalyCode;
+  repairability?: PersonRelationshipAuditRepairability;
+  limit?: number;
+  cursor?: string;
+}>;
 
 /** Monetary values stay decimal integer text in cents; callers must never provide a number. */
 export type WeeklyFeeDraftInput = Readonly<{
@@ -2727,6 +2749,24 @@ export class TeacherApiClient {
       "GET",
       "/v1/admin/person-relationships/group-leader-candidates",
     );
+  }
+
+  /** Reads a privacy-minimized, server-authorized page across all person relationship facts. */
+  public async listPersonRelationshipAudit(filter: PersonRelationshipAuditFilter = {}): Promise<PersonRelationshipAuditPageDto> {
+    this.requireGroupLeaderRelationshipManager();
+    if (filter.personId !== undefined) requireNonBlank(filter.personId, "personId");
+    if (filter.cursor !== undefined) requireNonBlank(filter.cursor, "cursor");
+    if (filter.limit !== undefined && (!Number.isSafeInteger(filter.limit) || filter.limit < 1 || filter.limit > 100)) throw new Error("INVALID_INPUT");
+    const params = new URLSearchParams();
+    if (filter.personId !== undefined) params.set("personId", filter.personId);
+    if (filter.relationshipType !== undefined) params.set("relationshipType", filter.relationshipType);
+    if (filter.status !== undefined) params.set("status", filter.status);
+    if (filter.anomalyCode !== undefined) params.set("anomalyCode", filter.anomalyCode);
+    if (filter.repairability !== undefined) params.set("repairability", filter.repairability);
+    if (filter.limit !== undefined) params.set("limit", String(filter.limit));
+    if (filter.cursor !== undefined) params.set("cursor", filter.cursor);
+    const query = params.toString();
+    return this.authenticatedRequest<PersonRelationshipAuditPageDto>("GET", `/v1/admin/person-relationships/audit${query ? `?${query}` : ""}`);
   }
 
   /** Requests a fresh server preview; a later publish must reference this exact preview ID. */

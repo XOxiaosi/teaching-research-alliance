@@ -32,6 +32,7 @@ import { BenefitPlanPanel } from "./benefit-plan-panel.js";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel.js";
 import { BenefitPanel } from "./benefit-panel.js";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel.js";
+import { PersonRelationshipAuditPanel } from "./person-relationship-audit-panel.js";
 import { PlanningMentorRelationshipPanel } from "./planning-mentor-relationship-panel.js";
 import { AccountAccessPanel, AccountAuthenticationPanel, canManageAccounts } from "./account-access-panel.js";
 import { PersonResponsibilityPanel, canManagePersonnel } from "./person-responsibility-panel.js";
@@ -93,7 +94,7 @@ type Venue = Readonly<{
 
 type BoardDirectoryVenue = Readonly<{ id: string; name: string; ownerPersonId?: string; isOwn?: boolean }>;
 
-type Page = "fees" | "overview" | "referrals" | "referral-administration" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "accounts" | "people" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "venue-management" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change" | "planning-mentor-relationships";
+type Page = "fees" | "overview" | "referrals" | "referral-administration" | "withdrawals" | "finance" | "purchase" | "purchase-history" | "funds" | "accounts" | "people" | "reimbursements" | "reimbursement-history" | "refunds" | "refund-history" | "venue-board" | "venue-management" | "salary" | "salary-confirmation" | "bonus-projects" | "benefits" | "organization-revenue" | "group-leader-change" | "person-relationship-audit" | "planning-mentor-relationships";
 
 const readBoardVenues = async (currentClient: TeacherApiClient, personId: string | undefined): Promise<readonly Venue[]> => {
   const visibleReader = (currentClient as TeacherApiClient & { listVisibleVenues: <T = unknown>() => Promise<T> }).listVisibleVenues;
@@ -394,6 +395,7 @@ export function App(): ReactNode {
     && ["HEADQUARTERS_FINANCE", "SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentRole);
   const page = activePage === "accounts" && canManageAccountAccess ? "accounts"
     : activePage === "people" && canManagePeople ? "people"
+    : activePage === "person-relationship-audit" && canManageRelationships ? "person-relationship-audit"
     : activePage === "group-leader-change" && canManageRelationships ? "group-leader-change"
     : activePage === "planning-mentor-relationships" && canManagePlanningMentorRelationships ? "planning-mentor-relationships"
     : activePage === "referral-administration" && canManageReferrals ? "referral-administration"
@@ -417,7 +419,7 @@ export function App(): ReactNode {
     : canCreateReferral(session) ? (activePage === "withdrawals" ? "withdrawals" : activePage === "planning-mentor-relationships" && canManagePlanningMentorRelationships ? "planning-mentor-relationships" : "referrals")
     : canReadVenueBoard ? "venue-board"
     : canReadOrg ? "organization-revenue" : canConfigureFunds ? "funds" : canProcessWithdrawal ? "finance" : "overview";
-  const pageTitle = { accounts: "账号管理", people: "人员与职责", "group-leader-change": "普通周组长变更", "planning-mentor-relationships": "我的规划师关系", "referral-administration": "推荐完结管理", "salary-confirmation": "工资发放确认", "bonus-projects": "项目奖金", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", "venue-management": "我的场地", salary: "工资管理", "organization-revenue": "组织营收" }[page];
+  const pageTitle = { accounts: "账号管理", people: "人员与职责", "person-relationship-audit": "人员关系审计", "group-leader-change": "普通周组长变更", "planning-mentor-relationships": "我的规划师关系", "referral-administration": "推荐完结管理", "salary-confirmation": "工资发放确认", "bonus-projects": "项目奖金", benefits: "医社保与公积金", fees: "周费用录入", overview: "教师工作台", referrals: "学生推荐", withdrawals: "我的提现", finance: "提现办理", purchase: "财务本人采买", "purchase-history": "采买记录", funds: "业务账户配置", reimbursements: "我的报销", "reimbursement-history": "报销记录", refunds: "学生退款", "refund-history": "退款审核", "venue-board": "共享场地看板", "venue-management": "我的场地", salary: "工资管理", "organization-revenue": "组织营收" }[page];
   const financeKey = `${session?.sessionId}:${JSON.stringify(session?.currentRoleContext)}`;
   const incomeEntries = overview === null ? [] : Object.entries(overview.currentYearIncomeByCategory).filter(([, value]) => BigInt(value) !== 0n);
 
@@ -433,6 +435,7 @@ export function App(): ReactNode {
     {canReadVenueBoard && <button disabled={busy || financeUnconfirmed} aria-current={page === "venue-board" ? "page" : undefined} onClick={() => goPage("venue-board")}><DashboardIcon name="venue-board" />场地看板</button>}
     {canReadOrg && <button disabled={busy || financeUnconfirmed} aria-current={page === "organization-revenue" ? "page" : undefined} onClick={() => goPage("organization-revenue")}><DashboardIcon name="organization-revenue" />组织营收</button>}
     {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "group-leader-change" ? "page" : undefined} onClick={() => goPage("group-leader-change")}><DashboardIcon name="group-leader-change" />普通周组长变更</button>}
+    {canManageRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "person-relationship-audit" ? "page" : undefined} onClick={() => goPage("person-relationship-audit")}><DashboardIcon name="accounts" />人员关系审计</button>}
     {canManagePlanningMentorRelationships && <button disabled={busy || financeUnconfirmed} aria-current={page === "planning-mentor-relationships" ? "page" : undefined} onClick={() => goPage("planning-mentor-relationships")}><DashboardIcon name="group-leader-change" />我的规划师关系</button>}
     {canManageReferrals && <button disabled={busy || financeUnconfirmed} aria-current={page === "referral-administration" ? "page" : undefined} onClick={() => goPage("referral-administration")}><DashboardIcon name="referrals" />推荐完结管理</button>}
     {canReadSalary && <button disabled={busy || financeUnconfirmed} aria-current={page === "salary" ? "page" : undefined} onClick={() => goPage("salary")}><DashboardIcon name="salary" />工资管理</button>}
@@ -461,7 +464,7 @@ export function App(): ReactNode {
       </aside>
       <main>
         <header>
-          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "people" ? "维护人员登录状态、职责和生效范围。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "referral-administration" ? "查看全局已接收课程，必要时由管理员办理完结。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "group-leader-change" ? "预览当前普通周及后续适用费用的组长份额变更，核对后再明确发布。" : page === "planning-mentor-relationships" ? "增减自己名下的规划师，核对本周及后续费用差额后再发布。" : page === "bonus-projects" ? "从业务账户发放项目奖金，并维护项目名称目录。" : page === "benefits" ? "查看财务职务账户的计划、待办和实际扣费。" : page === "salary-confirmation" ? "核对线下已发放工资和原始凭证，确认后记录扣豆。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
+          <div><span className="eyebrow">教研联盟 / 个人工作空间</span><h1>{session === null ? "欢迎回来" : pageTitle}</h1><p className="header-subtitle">{session === null ? "登录后，开始记录你的教学工作。" : page === "people" ? "维护人员登录状态、职责和生效范围。" : page === "person-relationship-audit" ? "只读核对全部人员关系、异常与历史引用。" : page === "fees" ? "选好期间，记下每一份教学付出。" : page === "overview" ? "查看个人收入和授课记录。" : page === "referrals" ? "推荐合适的老师，关注学生接收进展。" : page === "referral-administration" ? "查看全局已接收课程，必要时由管理员办理完结。" : page === "withdrawals" ? "查看可用余额，提交提现并关注转账进展。" : page === "finance" ? "核对申请资料，登记线下转账结果。" : page === "group-leader-change" ? "预览当前普通周及后续适用费用的组长份额变更，核对后再明确发布。" : page === "planning-mentor-relationships" ? "增减自己名下的规划师，核对本周及后续费用差额后再发布。" : page === "bonus-projects" ? "从业务账户发放项目奖金，并维护项目名称目录。" : page === "benefits" ? "查看财务职务账户的计划、待办和实际扣费。" : page === "salary-confirmation" ? "核对线下已发放工资和原始凭证，确认后记录扣豆。" : page === "salary" ? "核对现金工资、欢乐豆扣减与原始凭证。" : page === "organization-revenue" ? "分开查看课时总营收、退款和管理费。" : page === "funds" ? "设置独立业务账户与财务职责的支出来源。" : page === "reimbursements" ? "提交报销资料，查看审核进展。" : page === "reimbursement-history" ? "核对报销申请与审核结果，审核通过后仍待划拨。" : page === "refunds" ? "选择有效周费用提交退款申请，现金退款由线下办理。" : page === "refund-history" ? "审核系统分润冲回申请，不处理现金付款。" : page === "purchase" ? "凭真实采买单据，将款项划入本人个人账户。" : "查看已完成的采买内部划拨及申请原件。"}</p></div>
           {session !== null && <Button variant="outline" disabled={busy || financeUnconfirmed} onClick={() => {
             if (!confirmDiscardPendingReferral()) return;
             void run(async () => {
@@ -498,6 +501,7 @@ export function App(): ReactNode {
             </div>}
             {canManageAccountAccess && <AccountAccessPanel key={`accounts:${financeKey}`} client={client} session={session} sessionKey={financeKey} busy={busy} active={page === "accounts"} onUnconfirmedChange={setAccountUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} onSelfPasswordReset={() => { clear(); setSession(client.currentSession); setMessage("本人密码已重置，请使用新密码重新登录。"); }} />}
             {canManagePeople && <PersonResponsibilityPanel key={`people:${financeKey}`} client={client} session={session} sessionKey={financeKey} busy={busy} active={page === "people"} onUnconfirmedChange={setPeopleUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} />}
+            {canManageRelationships && <div hidden={page !== "person-relationship-audit"}><PersonRelationshipAuditPanel client={client} session={session} sessionKey={financeKey} active={page === "person-relationship-audit"} busy={busy} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManageRelationships && <div hidden={page !== "group-leader-change"}><GroupLeaderChangePanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManagePlanningMentorRelationships && <div hidden={page !== "planning-mentor-relationships"}><PlanningMentorRelationshipPanel client={client} session={session} sessionKey={financeKey} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverviewFresh(false)} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} /></div>}
             {canManageReferrals && <ManagedReferralCompletionPanel client={client} sessionKey={financeKey} busy={busy} active={page === "referral-administration"} onUnconfirmedChange={setReferralUnconfirmed} onInvalidated={() => { clear(); setSession(client.currentSession); setMessage("登录或身份已失效，请重新登录或选择身份。"); }} />}

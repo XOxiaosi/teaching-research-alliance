@@ -10,6 +10,7 @@ test("管理员人员关系入口在认证或解析失败时也禁止缓存", as
   try {
     for (const [path, options] of [
       ["/v1/admin/person-relationships/group-leader-candidates", {}],
+      ["/v1/admin/person-relationships/audit?status=CURRENT", {}],
       ["/v1/admin/person-relationships/preview", { method: "POST", headers: { "content-type": "application/json" }, body: "{" }],
       ["/v1/admin/person-relationships", { method: "DELETE" }],
     ]) {

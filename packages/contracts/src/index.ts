@@ -480,6 +480,47 @@ export type PersonBusinessIdentityChangeResult = Readonly<{
   authVersion: string; changedAt: string; replay: boolean;
 }>;
 
+export type PersonRelationshipAuditType = "CAMPUS_PRINCIPAL" | "GROUP_LEADER" | "TEACHING_MENTOR" | "PLANNING_MENTOR";
+export type PersonRelationshipAuditStatus = "CURRENT" | "FUTURE" | "ENDED" | "SUPERSEDED" | "ANOMALOUS";
+export type PersonRelationshipAuditAnomalyCode =
+  | "RELATIONSHIP_INTERVAL_INVALID" | "RELATIONSHIP_OVERLAP"
+  | "MEMBER_PERSON_INACTIVE" | "RELATED_PERSON_INACTIVE"
+  | "RELATED_ROLE_INVALID" | "RELATED_ROLE_SCOPE_MISMATCH"
+  | "SUBJECT_IDENTITY_INVALID" | "RECIPIENT_ACCOUNT_INVALID"
+  | "NONZERO_RECIPIENT_MISSING" | "CAMPUS_PRINCIPAL_MISSING"
+  | "CAMPUS_PRINCIPAL_MISMATCH" | "SPECIAL_PERIOD_SCOPE_REQUIRED"
+  | "HISTORICAL_REFERENCE_MISSING" | "SUPERSESSION_SOURCE_INVALID";
+export type PersonRelationshipAuditRepairability =
+  | "GROUP_LEADER_REGULAR_WEEK_PREVIEW" | "READ_ONLY"
+  | "REQUIRES_RELATIONSHIP_CORRECTION" | "REQUIRES_P27" | "REQUIRES_SPECIAL_PERIOD_SCOPE";
+export type PersonRelationshipAuditPersonDto = Readonly<{
+  personId: string; nickname: string; personStatus: "ACTIVE" | "INACTIVE";
+}>;
+export type PersonRelationshipAuditItemDto = Readonly<{
+  auditItemId: string;
+  relationshipId: string | null;
+  relationshipFingerprint: string;
+  relationshipType: PersonRelationshipAuditType;
+  member: PersonRelationshipAuditPersonDto;
+  relatedPerson: PersonRelationshipAuditPersonDto | null;
+  validFrom: string; validTo: string | null; effectiveScope: string | null;
+  status: PersonRelationshipAuditStatus;
+  matchingRoleAssignmentIds: readonly string[];
+  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "PLANNING_MENTOR_CHANGE"; changeId: string }> | null;
+  referenceCounts: Readonly<{ weeklyFees: number; allocationSnapshots: number; referrals: number }>;
+  anomalyCodes: readonly PersonRelationshipAuditAnomalyCode[];
+  repairability: PersonRelationshipAuditRepairability;
+  repairBlockedReason: string | null;
+  createdBy: Readonly<{ personId: string; nickname: string }> | null;
+  createdAt: string | null;
+}>;
+export type PersonRelationshipAuditPageDto = Readonly<{
+  snapshotAt: string;
+  dataVersion: string;
+  items: readonly PersonRelationshipAuditItemDto[];
+  nextCursor: string | null;
+}>;
+
 export type GroupLeaderRelationshipPersonDto = Readonly<{
   personId: string;
   nickname: string;
@@ -657,6 +698,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/person-relationships/group-leader-candidates",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "group-leader-relationship-candidates.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/person-relationships/audit",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "person-relationship-audit.v1",
     requiresRoleContext: true,
   },
   {
