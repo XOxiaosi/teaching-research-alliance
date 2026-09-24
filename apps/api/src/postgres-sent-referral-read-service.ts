@@ -38,7 +38,7 @@ export class PostgresSentReferralReadService {
            )
            LEFT JOIN teaching_week week ON week.id=fee.teaching_week_id
           WHERE referral.referrer_person_id=$1
-            AND (referral.status IN ('PENDING','ACCEPTED','REACTIVATED') OR fee.id IS NOT NULL OR EXISTS (
+            AND (referral.status IN ('PENDING','ACCEPTED','REACTIVATED','COMPLETED') OR fee.id IS NOT NULL OR EXISTS (
               SELECT 1 FROM academic_year_plan year
                WHERE ($2::timestamptz AT TIME ZONE 'Asia/Shanghai')::date BETWEEN year.starts_on AND year.ends_on
                  AND (referral.submitted_at AT TIME ZONE 'Asia/Shanghai')::date BETWEEN year.starts_on AND year.ends_on

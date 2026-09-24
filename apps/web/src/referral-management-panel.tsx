@@ -17,7 +17,7 @@ export type ReceivedReferral = Readonly<{
   studentRecordId: string;
   studentDisplayName: string;
   courseContextId: string;
-  referralStatus: "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED";
+  referralStatus: "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED" | "COMPLETED";
   version: number;
   initialVenueId: string | null;
   submittedAt: string;
@@ -47,6 +47,7 @@ const labels: Readonly<Record<ReceivedReferral["referralStatus"], string>> = {
   ACCEPTED: "已接收",
   ARCHIVED: "已归档",
   REACTIVATED: "待重新接收",
+  COMPLETED: "已完结",
 };
 
 const isInvalidation = (error: unknown): boolean => error instanceof ApiClientError && (error.status === 401 || error.status === 403);
@@ -135,11 +136,11 @@ export function ReferralManagementPanel({ client, venues, sessionKey, canReceive
       void execute({ kind: "accept", referralId: item.referralId, label: "接收学生", submission });
     } catch { setMessage("当前身份不能接收该学生，请刷新后重试。"); }
   };
-  const lifecycle = (item: SentReferral, command: ReferralLifecycleCommand): void => {
+  const lifecycle = (item: Pick<ReceivedReferral, "referralId" | "version">, command: ReferralLifecycleCommand): void => {
     if (pending !== null) return;
     try {
       const submission = client.createReferralLifecycleSubmission({ referralId: item.referralId, expectedVersion: item.version, command });
-      void execute({ kind: "lifecycle", referralId: item.referralId, label: command === "ARCHIVE" ? "归档推荐" : "重新激活推荐", submission });
+      void execute({ kind: "lifecycle", referralId: item.referralId, label: command === "ARCHIVE" ? "归档推荐" : command === "REACTIVATE" ? "重新激活推荐" : "完结学生课程", submission });
     } catch { setMessage("当前身份不能操作该推荐，请刷新后重试。"); }
   };
   const startCopy = (item: SentReferral): void => { if (pending === null) { setCopySource(item); setCopyReceiver(""); setMessage(""); } };
@@ -154,18 +155,19 @@ export function ReferralManagementPanel({ client, venues, sessionKey, canReceive
   const locked = busy || loading || pending !== null;
   return <section className="panel referral-management-panel" aria-label="学生接收与推荐管理">
     <div className="section-title"><div><span className="fee-eyebrow">REFERRAL MANAGEMENT</span><h2>学生接收与推荐管理</h2></div><button type="button" onClick={() => void refresh()} disabled={locked}>刷新</button></div>
-    <p>接收时选择实际授课场地。归档保留历史和已登记费用；重新激活沿用原推荐，再推给其他老师会创建独立推荐。</p>
+    <p>接收时选择实际授课场地。归档保留历史和已登记费用；课程结束后由接收老师完结，停止新增周费用，已有费用仍可核对和更正。</p>
     {message !== "" && <p className="message" role={pending === null ? "status" : "alert"}>{message}</p>}
     {pending !== null && <button type="button" onClick={() => void execute(pending)} disabled={loading || busy}>安全重试原操作</button>}
     {canReceive && <section className="referral-received"><h3>待接收学生</h3>
       {received.length === 0 ? <p>暂无可处理的学生。</p> : received.map((item) => <article key={item.referralId} data-referral-id={item.referralId}>
         <div><h4>{item.studentDisplayName}</h4><p>{item.courseContextId} · {labels[item.referralStatus]}</p><small>推荐编号 {item.referralId}</small></div>
         {(item.referralStatus === "PENDING" || item.referralStatus === "REACTIVATED") && <div className="referral-accept-actions"><label>实际授课场地<select aria-label={`接收场地-${item.referralId}`} value={selectedVenue[item.referralId] ?? ""} disabled={locked} onChange={(event) => setSelectedVenue((current) => ({ ...current, [item.referralId]: event.target.value }))}><option value="">请选择场地</option>{venues.map((venue) => <option value={venue.id} key={venue.id}>{venue.name}</option>)}</select></label><button type="button" onClick={() => accept(item)} disabled={locked || venues.length === 0}>接收学生</button></div>}
-        {item.referralStatus === "ACCEPTED" && <p>已按所选场地接收，可前往周费用录入。</p>}
+        {item.referralStatus === "ACCEPTED" && <div><p>已按所选场地接收，可前往周费用录入。</p><button type="button" onClick={() => lifecycle(item, "COMPLETE")} disabled={locked}>完结课程</button></div>}
+        {item.referralStatus === "COMPLETED" && <p>完结撒花：该学生课程已完结，不再新增周费用。</p>}
       </article>)}
     </section>}
     <section className="referral-sent sent-referrals"><h3>我推荐的学生</h3>
-      {sent.length === 0 ? <p>暂无已发送推荐。</p> : sent.map((item) => <article key={item.referralId} data-referral-id={item.referralId}><div><h4>{item.studentDisplayName}</h4><p>{item.receiverNickname} · {item.courseContextId} · {labels[item.referralStatus as ReceivedReferral["referralStatus"]] ?? item.referralStatus}</p><small>推荐编号 {item.referralId}</small></div><div><button type="button" onClick={() => lifecycle(item, item.referralStatus === "ARCHIVED" ? "REACTIVATE" : "ARCHIVE")} disabled={locked}>{item.referralStatus === "ARCHIVED" ? "重新激活" : "归档推荐"}</button><button type="button" onClick={() => startCopy(item)} disabled={locked}>再推给其他老师</button></div></article>)}
+      {sent.length === 0 ? <p>暂无已发送推荐。</p> : sent.map((item) => <article key={item.referralId} data-referral-id={item.referralId}><div><h4>{item.studentDisplayName}</h4><p>{item.receiverNickname} · {item.courseContextId} · {labels[item.referralStatus as ReceivedReferral["referralStatus"]] ?? item.referralStatus}</p><small>推荐编号 {item.referralId}</small></div><div>{item.referralStatus !== "COMPLETED" && <button type="button" onClick={() => lifecycle(item, item.referralStatus === "ARCHIVED" ? "REACTIVATE" : "ARCHIVE")} disabled={locked}>{item.referralStatus === "ARCHIVED" ? "重新激活" : "归档推荐"}</button>}<button type="button" onClick={() => startCopy(item)} disabled={locked}>再推给其他老师</button></div></article>)}
     </section>
     {copySource !== null && <section className="referral-copy" aria-label="再推给其他老师"><h3>再推给其他老师</h3><p>{copySource.studentDisplayName} 将创建新的独立推荐，不复制旧费用。</p><label>新的接收老师<select aria-label="新的接收老师" value={copyReceiver} disabled={locked} onChange={(event) => setCopyReceiver(event.target.value)}><option value="">请选择接收老师</option>{teachers.filter((teacher) => teacher.personId !== copySource.receiverPersonId).map((teacher) => <option value={teacher.personId} key={teacher.personId}>{teacher.nickname}</option>)}</select></label><button type="button" onClick={copy} disabled={locked}>创建独立推荐</button><button type="button" onClick={() => setCopySource(null)} disabled={locked}>取消</button></section>}
   </section>;

@@ -6,14 +6,16 @@ import { ApiClientError, StaleResponseError, formatCentsAsBeans,
   type ReferralCreationSubmission, type ReferralClassType, type ReferralLifecycleCommand,
   type ReferralLifecycleSubmission, type ReferralCopySubmission } from "@teaching-research-alliance/client";
 
+type SenderReferralLifecycleCommand = Exclude<ReferralLifecycleCommand, "COMPLETE">;
+
 type PendingLifecycleCommand = Readonly<{
   referralId: string;
   studentDisplayName: string;
-  command: ReferralLifecycleCommand;
+  command: SenderReferralLifecycleCommand;
   submission: ReferralLifecycleSubmission;
 }>;
 
-const lifecycleCopy: Readonly<Record<ReferralLifecycleCommand, Readonly<{
+const lifecycleCopy: Readonly<Record<SenderReferralLifecycleCommand, Readonly<{
   action: string; title: string; content: string; success: string; retry: string;
 }>>> = {
   ARCHIVE: {
@@ -129,7 +131,7 @@ export function ReferralPanel({ client, onSessionInvalidated }: {client: Teacher
       }else{setCopyUncertain(true);setNotice("复制结果尚未确认。表单已锁定，请重试同一推荐，避免重复创建。");}
     }finally{lock.current=false;if(mounted.current){setBusy(false);if(!client.hasRoleContext)onSessionInvalidated();}}
   };
-  const lifecycleLabel=(command:ReferralLifecycleCommand,pendingCommand:PendingLifecycleCommand|undefined)=>pendingCommand?`重试${lifecycleCopy[command].action}`:lifecycleCopy[command].action;
+  const lifecycleLabel=(command:SenderReferralLifecycleCommand,pendingCommand:PendingLifecycleCommand|undefined)=>pendingCommand?`重试${lifecycleCopy[command].action}`:lifecycleCopy[command].action;
   const retryLifecycle=async(pendingCommand:PendingLifecycleCommand)=>{
     if(lock.current)return;
     const copy=lifecycleCopy[pendingCommand.command];
@@ -152,7 +154,7 @@ export function ReferralPanel({ client, onSessionInvalidated }: {client: Teacher
       }else setNotice(copy.retry);
     }finally{lock.current=false;if(mounted.current){setBusy(false);if(!client.hasRoleContext)onSessionInvalidated();}}
   };
-  const changeLifecycle=async(item:SentReferral,command:ReferralLifecycleCommand)=>{
+  const changeLifecycle=async(item:SentReferral,command:SenderReferralLifecycleCommand)=>{
     const existing=pendingLifecycle.current.get(item.referralId);
     if(existing!==undefined){await retryLifecycle(existing);return;}
     if(lock.current)return;
@@ -174,7 +176,7 @@ export function ReferralPanel({ client, onSessionInvalidated }: {client: Teacher
   };
   const pendingOutsideList=[...pendingLifecycle.current.values()].filter(command=>!sent.some(item=>item.referralId===command.referralId));
   const copyTeachers=copySource===null?[]:teachers;
-  const states:Record<string,string>={PENDING:"待接收",ACCEPTED:"已接收",ARCHIVED:"已归档",REACTIVATED:"待重新接收"};
+  const states:Record<string,string>={PENDING:"待接收",ACCEPTED:"已接收",ARCHIVED:"已归档",REACTIVATED:"待重新接收",COMPLETED:"已完结"};
   return <>
     <View className="panel">
       <Text className="panel-title">推荐学生</Text>
@@ -206,11 +208,11 @@ export function ReferralPanel({ client, onSessionInvalidated }: {client: Teacher
     <View className="panel">
       <View className="section-heading"><Text className="panel-title">我推荐的学生</Text><Button className="quiet-button" disabled={busy} onClick={()=>void refresh()}>刷新推荐</Button></View>
       {!sent.length&&<Text className="panel-description">暂无推荐记录</Text>}
-      {sent.map(item=>{const pendingCommand=pendingLifecycle.current.get(item.referralId);const command:ReferralLifecycleCommand=pendingCommand?.command??(item.referralStatus==="ARCHIVED"?"REACTIVATE":"ARCHIVE");return <View className="student-row" key={item.referralId}><View className="student-detail">
+      {sent.map(item=>{const pendingCommand=pendingLifecycle.current.get(item.referralId);const command:SenderReferralLifecycleCommand=pendingCommand?.command??(item.referralStatus==="ARCHIVED"?"REACTIVATE":"ARCHIVE");return <View className="student-row" key={item.referralId}><View className="student-detail">
         <Text className="student-name">{item.studentDisplayName}</Text>
         <Text className="student-meta">{item.receiverNickname} · {item.courseContextId} · {states[item.referralStatus]??"状态待确认"}</Text>
         {item.weeklyFees.map(fee=><Text className="student-meta" key={fee.entryId}>{fee.weekStartsOn}—{fee.weekEndsOn}：{formatCentsAsBeans(fee.grossAmountCents)} 欢乐豆</Text>)}
-        <Button className="quiet-button" disabled={busy} onClick={()=>void changeLifecycle(item,command)}>{lifecycleLabel(command,pendingCommand)}</Button>
+        {item.referralStatus !== "COMPLETED" && <Button className="quiet-button" disabled={busy} onClick={()=>void changeLifecycle(item,command)}>{lifecycleLabel(command,pendingCommand)}</Button>}
         <Button className="quiet-button" disabled={busy||copyUncertain||pendingCommand!==undefined||(copySource!==null&&copySource.referralId!==item.referralId)} onClick={()=>openCopy(item)}>再推给其他老师</Button>
       </View></View>;})}
       {pendingOutsideList.map(command=><View className="student-row" key={`pending-${command.referralId}`}><View className="student-detail">

@@ -103,6 +103,19 @@ test("同名学生的独立推荐和生命周期操作各自显示", async () =>
   } finally { await ui.close(); }
 });
 
+test("接收老师只能将已接收课程完结，未知结果保留同一命令", async () => {
+  const client = clientBase(); const calls = [];
+  client.listReceivedReferrals = async () => [received("one", "学生甲", "ACCEPTED")];
+  client.changeReferralLifecycle = async (submission) => { calls.push(submission); if (calls.length === 1) throw new Error("network"); return {}; };
+  const ui = await mount(client);
+  try {
+    await ui.click("完结课程");
+    assert.match(ui.host.textContent, /结果尚未确认/);
+    await ui.click("安全重试原操作");
+    assert.equal(calls.length, 2); assert.equal(calls[0], calls[1]); assert.equal(calls[0].draft.command, "COMPLETE");
+  } finally { await ui.close(); }
+});
+
 for (const [status, button, expectedCommand] of [["PENDING", "归档推荐", "ARCHIVE"], ["ARCHIVED", "重新激活", "REACTIVATE"]]) test(`${button}未知结果复用原生命周期命令`, async () => {
   const client = clientBase(); const calls = [];
   client.listSentReferrals = async () => [sent("one", "学生甲", status)];

@@ -1705,3 +1705,96 @@ test("普通报销撤销拒绝个人、局部办理人和跨会话冻结命令",
   await assert.rejects(stale.reverseReimbursement(submission), StaleResponseError);
   assert.equal(posts, 0);
 });
+
+test("管理推荐目录仅严格 GLOBAL 系统管理员可读", async () => {
+  const personal = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(teacherSession());
+    throw new Error("managed referral read must not be sent");
+  } });
+  await personal.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(personal.listManagedReferrals(), ApiClientError);
+
+  const local = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("SYSTEM_ADMIN", { venueId: "venue-1" }));
+    throw new Error("scoped managed referral read must not be sent");
+  } });
+  await local.login({ phoneNormalized: "13800000000", password: "password" });
+  await assert.rejects(local.listManagedReferrals(), ApiClientError);
+
+  const requests = [];
+  const admin = new TeacherApiClient({ transport: async (request) => {
+    if (request.path === "/v1/session") return success(administratorSession("SYSTEM_OWNER"));
+    requests.push(request);
+    return success([{ referralId: "ref-1", studentDisplayName: "学生", courseContextId: "数学", receiverPersonId: "receiver-1", receiverNickname: "接收老师", referrerPersonId: "referrer-1", referrerNickname: "推荐老师", referralStatus: "ACCEPTED", version: 2, submittedAt: "2026-09-21T00:00:00Z" }]);
+  } });
+  await admin.login({ phoneNormalized: "13800000000", password: "password" });
+  assert.deepEqual(await admin.listManagedReferrals(), [{ referralId: "ref-1", studentDisplayName: "学生", courseContextId: "数学", receiverPersonId: "receiver-1", receiverNickname: "接收老师", referrerPersonId: "referrer-1", referrerNickname: "推荐老师", referralStatus: "ACCEPTED", version: 2, submittedAt: "2026-09-21T00:00:00Z" }]);
+  assert.deepEqual(requests.map((request) => [request.method, request.path]), [["GET", "/v1/referrals/managed"]]);
+});
+
+test("推荐完结冻结 expectedVersion 与幂等键，网络不确定时同键重试并拒绝伪造字段", async () => {
+  const requests = [];
+  let attempts = 0;
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "complete-key-1",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(administratorSession("SYSTEM_ADMIN"));
+      requests.push(request);
+      attempts += 1;
+      if (attempts === 1) throw new Error("network uncertain");
+      return success({ referralId: "ref-1", status: "COMPLETED", version: 3, unacceptedExpiresAt: null, replay: true });
+    },
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReferralLifecycleSubmission({
+    referralId: "ref-1", expectedVersion: 2, command: "COMPLETE", actorPersonId: "forged", status: "ACCEPTED",
+  });
+  assert.equal(Object.isFrozen(submission), true);
+  assert.equal(Object.isFrozen(submission.draft), true);
+  assert.throws(() => { submission.draft.expectedVersion = 9; }, TypeError);
+  await assert.rejects(client.changeReferralLifecycle(submission), /network uncertain/);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+  assert.deepEqual(await client.changeReferralLifecycle(submission), { referralId: "ref-1", status: "COMPLETED", version: 3, unacceptedExpiresAt: null, replay: true });
+  assert.deepEqual(requests.map((request) => request.body), [
+    { expectedVersion: 2, idempotencyKey: "complete-key-1" },
+    { expectedVersion: 2, idempotencyKey: "complete-key-1" },
+  ]);
+});
+
+test("推荐完结命令跨会话或局部 GLOBAL 变化后不发请求", async () => {
+  let sessions = 0;
+  let completeRequests = 0;
+  const client = new TeacherApiClient({
+    transport: async (request) => {
+      if (request.path === "/v1/session") {
+        sessions += 1;
+        return success({ ...administratorSession("SYSTEM_ADMIN"), sessionId: `admin-session-${sessions}` });
+      }
+      if (request.path === "/v1/role-contexts/switch") return success(administratorSession("SYSTEM_ADMIN", { venueId: "venue-1" }));
+      completeRequests += 1;
+      throw new Error("stale completion must not be sent");
+    },
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReferralLifecycleSubmission({ referralId: "ref-1", expectedVersion: 2, command: "COMPLETE" });
+  await client.switchRole("SYSTEM_ADMIN");
+  await assert.rejects(client.changeReferralLifecycle(submission), StaleResponseError);
+  assert.equal(completeRequests, 0);
+  assert.equal(client.submissionStatus(submission), "FAILED");
+});
+
+test("接收授课老师可以冻结并提交推荐完结命令", async () => {
+  const requests = [];
+  const client = new TeacherApiClient({
+    idempotencyKeyFactory: () => "receiver-complete-key",
+    transport: async (request) => {
+      if (request.path === "/v1/session") return success(teacherSession("TEACHING_TEACHER"));
+      requests.push(request);
+      return success({ referralId: "ref-1", status: "COMPLETED", version: 3, unacceptedExpiresAt: null, replay: false });
+    },
+  });
+  await client.login({ phoneNormalized: "13800000000", password: "password" });
+  const submission = client.createReferralLifecycleSubmission({ referralId: "ref-1", expectedVersion: 2, command: "COMPLETE" });
+  assert.equal((await client.changeReferralLifecycle(submission)).status, "COMPLETED");
+  assert.deepEqual(requests[0].body, { expectedVersion: 2, idempotencyKey: "receiver-complete-key" });
+});

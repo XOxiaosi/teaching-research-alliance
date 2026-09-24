@@ -275,3 +275,26 @@ test("福利扣费业务账户目录契约固定为只读全局管理端点", ()
     },
   );
 });
+
+test("推荐完结授予接收教师本人及严格 GLOBAL 系统管理员，管理目录仅管理员可读", () => {
+  assert.equal(ACTIONS.includes("COMPLETE_REFERRAL"), true);
+  assert.equal(ACTIONS.includes("READ_MANAGED_REFERRALS"), true);
+  assert.equal(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/referrals/managed")?.action,
+    "READ_MANAGED_REFERRALS",
+  );
+  assert.equal(
+    ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/referrals/:referralId/complete")?.action,
+    "COMPLETE_REFERRAL",
+  );
+  for (const subject of ["SYSTEM_ADMIN", "SYSTEM_OWNER"]) {
+    assert.equal(permissionScope(subject, "READ_MANAGED_REFERRALS"), "GLOBAL");
+    assert.equal(permissionScope(subject, "COMPLETE_REFERRAL"), "GLOBAL");
+  }
+  assert.equal(permissionScope("TEACHING_TEACHER", "COMPLETE_REFERRAL"), "SELF");
+  for (const subject of ["TEACHER", "TEACHING_TEACHER", "ACADEMIC_PLANNER"]) {
+    assert.equal(hasPermission(subject, "READ_MANAGED_REFERRALS"), false);
+  }
+  assert.equal(hasPermission("TEACHER", "COMPLETE_REFERRAL"), false);
+  assert.equal(hasPermission("ACADEMIC_PLANNER", "COMPLETE_REFERRAL"), false);
+});

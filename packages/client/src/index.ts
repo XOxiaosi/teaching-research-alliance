@@ -268,7 +268,7 @@ export type ReferralAcceptanceResult = Readonly<{
   replay: boolean;
 }>;
 
-export type ReferralLifecycleCommand = "ARCHIVE" | "REACTIVATE";
+export type ReferralLifecycleCommand = "ARCHIVE" | "REACTIVATE" | "COMPLETE";
 
 /** A referrer can only change the lifecycle of a record they originally sent. */
 export type ReferralLifecycleDraft = Readonly<{
@@ -284,7 +284,7 @@ export type ReferralLifecycleSubmission = Readonly<{
 
 export type ReferralLifecycleResult = Readonly<{
   referralId: string;
-  status: "ARCHIVED" | "REACTIVATED";
+  status: "ARCHIVED" | "REACTIVATED" | "COMPLETED";
   version: number;
   unacceptedExpiresAt: string | null;
   replay: boolean;
@@ -1316,6 +1316,20 @@ export type SentReferral = Readonly<{
   weeklyFees: readonly SentReferralWeeklyFee[];
 }>;
 
+/** Strict-global management projection; it excludes student and settlement details. */
+export type ManagedReferral = Readonly<{
+  referralId: string;
+  studentDisplayName: string;
+  courseContextId: string;
+  receiverPersonId: string;
+  receiverNickname: string;
+  referrerPersonId: string;
+  referrerNickname: string;
+  referralStatus: "ACCEPTED" | "COMPLETED";
+  version: number;
+  submittedAt: string;
+}>;
+
 export type SubmissionStatus = "READY" | "SUBMITTING" | "FAILED" | "SUCCEEDED";
 
 export type TeacherApiClientOptions = Readonly<{
@@ -1553,7 +1567,11 @@ const validateReferralLifecycleDraft = (
       "INVALID_INPUT:expectedVersion",
     );
   }
-  if (draft.command !== "ARCHIVE" && draft.command !== "REACTIVATE") {
+  if (
+    draft.command !== "ARCHIVE" &&
+    draft.command !== "REACTIVATE" &&
+    draft.command !== "COMPLETE"
+  ) {
     throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:command");
   }
 };
@@ -2457,6 +2475,15 @@ export class TeacherApiClient {
     );
   }
 
+  /** Strict GLOBAL system administrators and owners can review every referral. */
+  public async listManagedReferrals(): Promise<readonly ManagedReferral[]> {
+    this.requireReferralAdministrator();
+    return this.authenticatedRequest<readonly ManagedReferral[]>(
+      "GET",
+      "/v1/referrals/managed",
+    );
+  }
+
   public async listOwnFinanceDrafts(): Promise<
     readonly FinanceDraftMetadata[]
   > {
@@ -2893,6 +2920,7 @@ export class TeacherApiClient {
     draft: ReferralLifecycleDraft,
   ): ReferralLifecycleSubmission {
     validateReferralLifecycleDraft(draft);
+    if (draft.command === "COMPLETE") this.requireReferralCompleter();
     const scope = this.captureSubmissionScope();
     const idempotencyKey = (
       this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
@@ -3593,7 +3621,13 @@ export class TeacherApiClient {
     this.submissionStatuses.set(submission, "SUBMITTING");
     try {
       const operation =
-        submission.draft.command === "ARCHIVE" ? "archive" : "reactivate";
+        submission.draft.command === "ARCHIVE"
+          ? "archive"
+          : submission.draft.command === "REACTIVATE"
+            ? "reactivate"
+            : "complete";
+      if (submission.draft.command === "COMPLETE")
+        this.requireReferralCompleter();
       const result = await this.authenticatedRequest<ReferralLifecycleResult>(
         "POST",
         `/v1/referrals/${encodeURIComponent(submission.draft.referralId)}/${operation}`,
@@ -4282,6 +4316,28 @@ export class TeacherApiClient {
     ) {
       throw new ApiClientError(403, "FORBIDDEN_SCOPE");
     }
+  }
+
+  /** Managed referral reads and completion are restricted to an unscoped GLOBAL administrator. */
+  private requireReferralAdministrator(): void {
+    const context = this.session?.currentRoleContext;
+    if (
+      (context?.subject !== "SYSTEM_ADMIN" &&
+        context?.subject !== "SYSTEM_OWNER") ||
+      context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** A receiver may complete an accepted referral; managed completion remains global-admin only. */
+  private requireReferralCompleter(): void {
+    const context = this.session?.currentRoleContext;
+    if (context?.subject === "TEACHING_TEACHER") return;
+    this.requireReferralAdministrator();
   }
 
   /** Group-leader changes are restricted to owners and administrators in an unscoped GLOBAL context. */

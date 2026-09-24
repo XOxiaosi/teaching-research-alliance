@@ -30,6 +30,8 @@ import { BenefitPanel } from "./benefit-panel";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel";
 import { AccountAccessPanel, canManageMiniAccountAccess } from "./account-access-panel";
 import { PersonResponsibilityPanel, canManageMiniPersonnel } from "./person-responsibility-panel";
+import { ManagedReferralCompletionPanel } from "./managed-referral-completion-panel";
+import { ReceivedReferralCompletionPanel } from "./received-referral-completion-panel";
 import "./index.css";
 
 type Overview = Readonly<{
@@ -113,7 +115,8 @@ const statusLabels: Readonly<Record<string, string>> = {
   PENDING: "待接收",
   ACCEPTED: "已接收",
   ARCHIVED: "已归档",
-  REACTIVATED: "待重新接收"
+  REACTIVATED: "待重新接收",
+  COMPLETED: "已完结"
 };
 
 const messages: Readonly<Record<string, string>> = {
@@ -166,6 +169,7 @@ export default function IndexPage(): ReactNode {
   const [reimbursementUnconfirmed,setReimbursementUnconfirmed]=useState(false);
   const [refundBusy,setRefundBusy]=useState(false);
   const [refundUnconfirmed,setRefundUnconfirmed]=useState(false);
+  const [referralCompletionUnconfirmed,setReferralCompletionUnconfirmed]=useState(false);
   const financeBusy = withdrawalBusy || reimbursementBusy || refundBusy;
   const [bonusUnconfirmed, setBonusUnconfirmed] = useState(false);
   const [bonusGrantUnconfirmed, setBonusGrantUnconfirmed] = useState(false);
@@ -180,7 +184,7 @@ export default function IndexPage(): ReactNode {
   const [accountAccessUnconfirmed, setAccountAccessUnconfirmed] = useState(false);
   const [peopleUnconfirmed, setPeopleUnconfirmed] = useState(false);
   const [venueUnconfirmed, setVenueUnconfirmed] = useState(false);
-  const financeUnconfirmed = venueUnconfirmed || accountAccessUnconfirmed || peopleUnconfirmed || relationshipUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
+  const financeUnconfirmed = venueUnconfirmed || accountAccessUnconfirmed || peopleUnconfirmed || relationshipUnconfirmed || referralCompletionUnconfirmed || benefitConfirmationUnconfirmed || benefitPlanUnconfirmed || wageConfirmationUnconfirmed || bonusUnconfirmed || bonusGrantUnconfirmed || wagePlanUnconfirmed || withdrawalUnconfirmed || reimbursementUnconfirmed || refundUnconfirmed;
   const [notice, setNotice] = useState("");
   const pendingSubmission = useRef<{ signature: string; submission: WeeklyFeeSubmission } | null>(null);
   const pendingAcceptance = useRef<{ signature: string; submission: ReferralAcceptanceSubmission } | null>(null);
@@ -269,8 +273,8 @@ export default function IndexPage(): ReactNode {
         }
       } else if (error instanceof Error && error.message === "AMOUNT_REQUIRED") {
         setNotice("请填写非负金额，最多两位小数。");
-      } else if (error instanceof Error && error.message === "ARCHIVED_NEW_FEE") {
-        setNotice("已归档记录不能新增周费用，只能修改已有费用。");
+      } else if (error instanceof Error && (error.message === "ARCHIVED_NEW_FEE" || error.message === "COMPLETED_NEW_FEE")) {
+        setNotice(error.message === "COMPLETED_NEW_FEE" ? "已完结学生课程不能新增周费用，只能修改已有费用。" : "已归档记录不能新增周费用，只能修改已有费用。");
       } else {
         if (authMode === "register") {
           setRegistrationUnconfirmed(true);
@@ -326,8 +330,8 @@ export default function IndexPage(): ReactNode {
       setNotice(messages.WEEKLY_FEE_REFUNDED ?? "这笔周费用已退款，不能再修改。");
       return;
     }
-    if (referral?.referralStatus === "ARCHIVED" && fee === undefined) {
-      throw new Error("ARCHIVED_NEW_FEE");
+    if ((referral?.referralStatus === "ARCHIVED" || referral?.referralStatus === "COMPLETED") && fee === undefined) {
+      throw new Error(referral.referralStatus === "COMPLETED" ? "COMPLETED_NEW_FEE" : "ARCHIVED_NEW_FEE");
     }
     if (!venues.some((venue) => venue.id === selectedVenueId) && fee?.venueId !== selectedVenueId) {
       setNotice("请选择正常使用中的授课场地。");
@@ -397,8 +401,8 @@ export default function IndexPage(): ReactNode {
           refundStatus: fee.refundStatus
         }]
   )));
-  const visibleReferrals=referrals.filter(referral=>(referral.referralStatus==="ARCHIVED")===showArchived);
-  const selectableWeeks = selectedReferral?.referralStatus === "ARCHIVED"
+  const visibleReferrals=referrals.filter(referral=>((referral.referralStatus==="ARCHIVED" || referral.referralStatus==="COMPLETED"))===showArchived);
+  const selectableWeeks = selectedReferral?.referralStatus === "ARCHIVED" || selectedReferral?.referralStatus === "COMPLETED"
     ? weeks.filter((week) => selectedReferral.weeklyFees.some((fee) => fee.teachingWeekId === week.weekId))
     : weeks;
   const incomeEntries = overview === null
@@ -555,7 +559,7 @@ export default function IndexPage(): ReactNode {
                 </View>
                 <View className="section-heading">
                   <Button className="quiet-button" disabled={busy||!showArchived} onClick={()=>{setShowArchived(false);setSelectedReferralId("");}}>活动学生</Button>
-                  <Button className="quiet-button" disabled={busy||showArchived} onClick={()=>{setShowArchived(true);setSelectedReferralId("");}}>归档记录</Button>
+                  <Button className="quiet-button" disabled={busy||showArchived} onClick={()=>{setShowArchived(true);setSelectedReferralId("");}}>归档／完结记录</Button>
                 </View>
                 {visibleReferrals.length === 0 ? (
                   <Text className="panel-description">暂无学生记录</Text>
@@ -571,21 +575,22 @@ export default function IndexPage(): ReactNode {
                       const existingOpenFee = referral.weeklyFees.find((fee) =>
                         weeks.some((week) => week.weekId === fee.teachingWeekId)
                       );
-                      const initialWeekId = referral.referralStatus === "ARCHIVED"
+                      const initialWeekId = referral.referralStatus === "ARCHIVED" || referral.referralStatus === "COMPLETED"
                         ? existingOpenFee?.teachingWeekId ?? ""
                         : weeks[0]?.weekId ?? "";
                       return (
                       <Button
                         className="quiet-button student-button"
-                        disabled={busy || (referral.referralStatus === "ARCHIVED" && initialWeekId === "")}
+                        disabled={busy || ((referral.referralStatus === "ARCHIVED" || referral.referralStatus === "COMPLETED") && initialWeekId === "")}
                         onClick={() => chooseReferral(referral.referralId, initialWeekId)}
                       >
-                        {referral.referralStatus === "PENDING" || referral.referralStatus === "REACTIVATED" ? "接收 / 登记费用" : "登记周费用"}
+                        {referral.referralStatus === "COMPLETED" ? "查看／更正周费用" : referral.referralStatus === "PENDING" || referral.referralStatus === "REACTIVATED" ? "接收 / 登记费用" : "登记周费用"}
                       </Button>
                       );
                     })()}
                   </View>
                 ))}
+                {!showArchived && <ReceivedReferralCompletionPanel client={client} referrals={referrals} sessionKey={`${session.sessionId}:${JSON.stringify(session.currentRoleContext)}`} busy={busy} onChanged={load} onUnconfirmedChange={setReferralCompletionUnconfirmed} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
               </View>
 
               {selectedReferral !== undefined && (
@@ -717,6 +722,7 @@ export default function IndexPage(): ReactNode {
             onUnconfirmedChange={setPeopleUnconfirmed}
             onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }}
           />}
+          {canManageRelationships && <ManagedReferralCompletionPanel client={client} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setReferralCompletionUnconfirmed} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
 
           {(canReadOwnRefunds || canReadManagedRefunds) && (
             <RefundPanel

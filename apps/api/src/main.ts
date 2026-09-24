@@ -31,6 +31,7 @@ export { PostgresSentReferralReadService } from "./postgres-sent-referral-read-s
 export { PostgresReferralAcceptanceService } from "./postgres-referral-acceptance-service.js";
 export { PostgresReferralExpiryService } from "./postgres-referral-expiry-service.js";
 export { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";
+export { PostgresManagedReferralReadService } from "./postgres-managed-referral-read-service.js";
 export { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
 export { PostgresFinanceAttachmentService } from "./postgres-finance-attachment-service.js";
 

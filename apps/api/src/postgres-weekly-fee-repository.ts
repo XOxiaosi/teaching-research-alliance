@@ -5,7 +5,7 @@ import {
 } from "@teaching-research-alliance/domain";
 import type { PostgresClient, PostgresPool } from "./postgres-ledger-repository.js";
 
-export type PersistedReferralStatus = "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED";
+export type PersistedReferralStatus = "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED" | "COMPLETED";
 
 export type PersistedReferral = Readonly<{
   id: string;
@@ -325,7 +325,9 @@ export class PostgresWeeklyFeeRepository {
       );
       if (refunded.rows[0]?.refunded === true) throw new Error("WEEKLY_FEE_REFUNDED");
     }
-    if (referral.status === "ARCHIVED" && previous === undefined) throw new Error("REFERRAL_ARCHIVED");
+    if ((referral.status === "ARCHIVED" || referral.status === "COMPLETED") && previous === undefined) {
+      throw new Error(referral.status === "COMPLETED" ? "REFERRAL_STATE_CONFLICT" : "REFERRAL_ARCHIVED");
+    }
     if (draft.expectedVersion !== undefined && draft.expectedVersion !== Number(previous?.version ?? 0)) {
       throw new Error("VERSION_CONFLICT");
     }

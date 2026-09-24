@@ -20,6 +20,7 @@ import { PostgresReferralCreationService } from "./postgres-referral-creation-se
 import { PostgresSentReferralReadService } from "./postgres-sent-referral-read-service.js";
 import { PostgresReferralAcceptanceService } from "./postgres-referral-acceptance-service.js";
 import { PostgresReferralLifecycleService } from "./postgres-referral-lifecycle-service.js";
+import { PostgresManagedReferralReadService } from "./postgres-managed-referral-read-service.js";
 import { PostgresFinanceDraftService } from "./postgres-finance-draft-service.js";
 import { PostgresCompanyFundService } from "./postgres-company-fund-service.js";
 import { PostgresBonusProjectCatalogService } from "./postgres-bonus-project-catalog-service.js";
@@ -86,6 +87,7 @@ const server = createApiServer({
   sentReferrals: new PostgresSentReferralReadService(pool),
   referralAcceptance: new PostgresReferralAcceptanceService(pool),
   referralLifecycle: new PostgresReferralLifecycleService(pool),
+  managedReferrals: new PostgresManagedReferralReadService(pool),
   financeDrafts: new PostgresFinanceDraftService(pool),
   companyFunds: new PostgresCompanyFundService(pool),
   bonusProjects: new PostgresBonusProjectCatalogService(pool),

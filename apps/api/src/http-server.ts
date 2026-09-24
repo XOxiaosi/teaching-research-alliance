@@ -81,6 +81,7 @@ export const createApiServer = (
         pathname.startsWith("/v1/admin/company-funds") ||
         pathname.startsWith("/v1/admin/bonus-projects") ||
         pathname.startsWith("/v1/admin/accounts") ||
+        pathname === "/v1/referrals/managed" ||
         pathname === "/v1/accounts/register" ||
         pathname === "/v1/session" ||
         pathname === "/v1/admin/person-relationships" ||

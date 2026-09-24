@@ -1,7 +1,7 @@
 import type { RoleContext } from "@teaching-research-alliance/contracts";
 import type { PostgresPool } from "./postgres-ledger-repository.js";
 
-type ReferralStatus = "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED";
+type ReferralStatus = "PENDING" | "ACCEPTED" | "ARCHIVED" | "REACTIVATED" | "COMPLETED";
 type ReferrerIdentity = "TEACHING_TEACHER" | "ACADEMIC_PLANNER";
 type WeekKind = "REGULAR" | "WINTER_SPECIAL" | "SUMMER_SPECIAL";
 
@@ -151,7 +151,7 @@ export class PostgresTeachingReadService {
            ${refundJoin}
           WHERE referral.receiver_person_id = $1::uuid
             AND (
-              referral.status IN ('PENDING', 'ACCEPTED', 'REACTIVATED')
+              referral.status IN ('PENDING', 'ACCEPTED', 'REACTIVATED', 'COMPLETED')
               OR fee.id IS NOT NULL
               OR EXISTS (
                 SELECT 1

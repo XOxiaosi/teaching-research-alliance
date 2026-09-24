@@ -25,6 +25,7 @@ export const BonusProjectPanel = Empty;
 export const ProjectBonusGrantPanel = Empty;
 export const ProjectBonusHistoryPanel = Empty;
 export const ReferralManagementPanel = Empty;
+export const ManagedReferralCompletionPanel = Empty;
 export const BenefitPlanPanel = Empty;
 export const BenefitConfirmationPanel = Empty;
 export const BenefitPanel = Empty;

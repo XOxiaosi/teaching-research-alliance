@@ -58,6 +58,7 @@ const errorMessages: Readonly<Record<string, string>> = {
   PERIOD_MONTH_MISMATCH: "期间信息已发生变化，请刷新后重新选择。",
   VENUE_NOT_ACTIVE: "所选场地已不可用，请选择其他正常使用的场地。",
   REFERRAL_ARCHIVED: "该记录已归档，不能新增费用；已有费用可以更正。",
+  REFERRAL_STATE_CONFLICT: "该学生课程已完结，不能新增费用；已有费用可以更正。",
   REFERRAL_NOT_FOUND: "这条学生记录已不可用，请刷新后重新选择。",
   TEACHING_WEEK_NOT_FOUND: "所选期间已不可用，请刷新后重新选择。",
   INVALID_INPUT: "填写内容未通过校验，请检查金额、期间和场地。",
@@ -92,7 +93,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
   const referral = referrals.find((item) => item.referralId === referralId);
   const previous = referral?.weeklyFees.find((item) => item.teachingWeekId === weekId);
   const refunded = previous?.refundStatus === "REFUNDED";
-  const relevant = referrals.filter((item) => item.referralStatus !== "ARCHIVED"
+  const relevant = referrals.filter((item) => (item.referralStatus !== "ARCHIVED" && item.referralStatus !== "COMPLETED")
     || item.weeklyFees.some((fee) => fee.teachingWeekId === weekId));
   const recorded = week === undefined ? [] : relevant.flatMap((item) => item.weeklyFees.filter((fee) => fee.teachingWeekId === weekId));
   const total = recorded.reduce((sum, fee) => sum + BigInt(fee.grossAmountCents), 0n);
@@ -159,7 +160,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
         const explanation = errorMessages[error.code] ?? "服务器未接受本次保存，请核对资料后重试。";
         setNotice(explanation);
         if (error.code === "VENUE_NOT_ACTIVE") setErrors({ venue: explanation });
-        if (error.code === "REFERRAL_ARCHIVED" || error.code === "REFERRAL_NOT_FOUND") setErrors({ referral: explanation });
+        if (error.code === "REFERRAL_ARCHIVED" || error.code === "REFERRAL_STATE_CONFLICT" || error.code === "REFERRAL_NOT_FOUND") setErrors({ referral: explanation });
         if (error.code === "PERIOD_LOCKED" || error.code === "PERIOD_MONTH_MISMATCH" || error.code === "TEACHING_WEEK_NOT_FOUND") {
           setErrors({ week: explanation });
           setRefreshRequired(true);
@@ -178,7 +179,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
     const nextErrors: FieldErrors = {};
     if (week === undefined) nextErrors.week = "请选择要录入的教学期间。";
     if (referral === undefined) nextErrors.referral = "请选择学生及对应课程。";
-    else if (referral.referralStatus === "ARCHIVED" && previous === undefined) nextErrors.referral = "该记录已归档，不能新增费用。";
+    else if ((referral.referralStatus === "ARCHIVED" || referral.referralStatus === "COMPLETED") && previous === undefined) nextErrors.referral = referral.referralStatus === "COMPLETED" ? "该学生课程已完结，不能新增费用。" : "该记录已归档，不能新增费用。";
     const historicalVenueAllowed = previous !== undefined && previous.venueId === venueId;
     if (!venues.some((item) => item.id === venueId) && !historicalVenueAllowed) nextErrors.venue = "请选择正常使用中的实际授课场地。";
     let cents = "";
@@ -212,7 +213,7 @@ export function WeeklyFeePanel({ client, referrals, weeks, venues, busy, loaded,
           <option value="">请选择教学期间</option>{weeks.map((item) => <option key={item.weekId} value={item.weekId}>{item.periodLabel} · {item.startsOn} 至 {item.endsOn}</option>)}
         </select>{fieldError("week")}</div>
         <div className="fee-field"><label htmlFor="fee-referral">学生及课程</label><select id="fee-referral" disabled={locked || week === undefined} value={referralId} aria-invalid={errors.referral !== undefined} aria-describedby={errors.referral === undefined ? undefined : "fee-referral-error"} onChange={(event) => selectRecord(event.target.value, weekId)}>
-          <option value="">请选择学生及课程</option>{relevant.map((item, index) => <option key={item.referralId} value={item.referralId}>{item.studentDisplayName} · {item.courseContextId} · 记录 {index + 1}{item.referralStatus === "ARCHIVED" ? "（已归档，仅更正）" : ""}</option>)}
+          <option value="">请选择学生及课程</option>{relevant.map((item, index) => <option key={item.referralId} value={item.referralId}>{item.studentDisplayName} · {item.courseContextId} · 记录 {index + 1}{item.referralStatus === "ARCHIVED" ? "（已归档，仅更正）" : item.referralStatus === "COMPLETED" ? "（已完结，仅更正）" : ""}</option>)}
         </select>{fieldError("referral")}</div>
       </div>
       {week !== undefined && <>

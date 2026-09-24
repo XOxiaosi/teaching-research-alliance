@@ -230,6 +230,16 @@ export type ApiServices = Readonly<{
       key: string,
       at: Date,
     ) => unknown | Promise<unknown>;
+    complete: (
+      context: RoleContext,
+      referralId: string,
+      draft: { expectedVersion: number },
+      key: string,
+      at: Date,
+    ) => unknown | Promise<unknown>;
+  }>;
+  managedReferrals?: Readonly<{
+    list: (context: RoleContext, at: Date) => unknown | Promise<unknown>;
   }>;
   financeDrafts?: Readonly<{
     create: (
@@ -1494,6 +1504,14 @@ export const handleRequest = async (
       return success(
         await services.sentReferrals.list(currentContext(session), at),
       );
+    }
+    if (request.method === "GET" && request.path === "/v1/referrals/managed") {
+      if (Object.keys(body).some((field) => field !== "sessionId")
+        || Object.keys(request.query ?? {}).length !== 0)
+        throw new Error("INVALID_INPUT");
+      if (!services.managedReferrals) throw new Error("REFERRAL_SERVICE_UNAVAILABLE");
+      const session = await services.sessions.get(request.sessionId ?? "", at);
+      return success(await services.managedReferrals.list(currentContext(session), at));
     }
     if (
       request.method === "GET" &&
@@ -2986,7 +3004,7 @@ export const handleRequest = async (
       );
     }
     const lifecyclePath = request.path.match(
-      /^\/v1\/referrals\/([^/]+)\/(archive|reactivate)$/,
+      /^\/v1\/referrals\/([^/]+)\/(archive|reactivate|complete)$/,
     );
     if (request.method === "POST" && lifecyclePath !== null) {
       const context = currentContext(
@@ -3004,7 +3022,11 @@ export const handleRequest = async (
         expectedVersion < 1
       )
         throw new Error("INVALID_INPUT");
-      const method = lifecyclePath[2] === "archive" ? "archive" : "reactivate";
+      const method = lifecyclePath[2] === "archive"
+        ? "archive"
+        : lifecyclePath[2] === "reactivate"
+          ? "reactivate"
+          : "complete";
       return success(
         await services.referralLifecycle[method](
           context,
