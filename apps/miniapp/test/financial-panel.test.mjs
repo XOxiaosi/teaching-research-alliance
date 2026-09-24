@@ -115,12 +115,13 @@ const withDom = async (work) => {
   try { await work(dom.window.document.querySelector("#app")); } finally { dom.window.close(); }
 };
 
-const mountFinancialPanel = async ({ attachments, reserveStatus = 200, submitFirstUnknown = false, initialDraft = draft, createFirstUnknown = false, listFailsAfterUpload = false }) => {
+const mountFinancialPanel = async ({ attachments, reserveStatus = 200, submitFirstUnknown = false, initialDraft = draft, createFirstUnknown = false, listFailsAfterUpload = false, withdrawalSourceLists = null }) => {
   const { FinancialPanel } = await bundled.module;
   const requestBodies = [];
   let currentAttachments = attachments;
   let submits = 0;
   let creates = 0;
+  let sourceReads = 0;
   let invalidations = 0;
   globalThis.__miniappTaro = {
     showActionSheet: async () => ({ tapIndex: 0 }),
@@ -142,7 +143,12 @@ const mountFinancialPanel = async ({ attachments, reserveStatus = 200, submitFir
     idempotencyKeyFactory: (() => { let sequence = 0; return () => `mini-key-${++sequence}`; })(),
     transport: async (request) => {
       if (request.path === "/v1/session") return success(session);
-      if (request.path === "/v1/finance/withdrawals/sources") return success([{ accountId: "source-1", sourceType: "PERSON", label: "个人账户", balanceCents: "10000" }]);
+      if (request.path === "/v1/finance/withdrawals/sources") {
+        const fallback = [{ accountId: "source-1", sourceType: "PERSON", label: "个人账户", balanceCents: "10000" }];
+        const selected = withdrawalSourceLists === null ? fallback : withdrawalSourceLists[Math.min(sourceReads, withdrawalSourceLists.length - 1)] ?? [];
+        sourceReads += 1;
+        return success(selected);
+      }
       if (request.path === "/v1/finance/drafts/mine") return success(initialDraft === null && creates === 0 ? [] : [draft]);
       if (request.path === "/v1/finance/withdrawals/mine") return success([]);
       if (request.path === "/v1/finance/documents/draft-1/attachments") {
@@ -269,6 +275,37 @@ test("READY 修订版列表刷新失败时不会悄悄提交旧版本", async ()
     await click(button(container, "提交提现申请"));
     assert.match(container.textContent, /请先刷新提现记录确认提交版本/);
     assert.deepEqual(fixture.requestBodies, []);
+    await act(async () => root.unmount());
+  });
+});
+
+test("场地提现结果未知后遇到撤权刷新，清除旧来源但仍以原冻结命令安全重试", async () => {
+  const personal = { accountId: "source-1", sourceType: "PERSON", label: "个人账户", balanceCents: "10000" };
+  const venue = { accountId: "venue-source", sourceType: "VENUE", venueId: "venue-1", label: "共享场地", balanceCents: "5000" };
+  const fixture = await mountFinancialPanel({
+    attachments: [
+      attachment("slot-support", "SUPPORTING_DOCUMENT", [ready("version-1", 1, "support.png")]),
+      attachment("slot-screenshot", "APPLICATION_SCREENSHOT", [ready("version-3", 1, "screen.png")])
+    ],
+    withdrawalSourceLists: [[personal, venue], [personal]],
+    submitFirstUnknown: true
+  });
+  await withDom(async (container) => {
+    const root = await fixture.mount(container);
+    await select(container.querySelector("select"), 1);
+    assert.match(container.textContent, /共享场地/);
+    const inputs = [...container.querySelectorAll("input")];
+    await input(inputs[0], "20.00"); await input(inputs[1], "张老师"); await input(inputs[2], "6222020000000000");
+    await click(button(container, "提交提现申请"));
+    assert.match(container.textContent, /提交结果尚未确认/);
+    await click(button(container, "刷新提现记录"));
+    assert.doesNotMatch(container.textContent, /共享场地/);
+    assert.match(container.textContent, /请选择本人或已授权场地来源/);
+    await click(button(container, "安全重试提交"));
+    assert.deepEqual(fixture.requestBodies, [
+      { expectedVersion: 1, sourceAccountId: "venue-source", amountCents: "2000", recipientName: "张老师", bankAccount: "6222020000000000", attachmentVersionIds: ["version-1", "version-3"], idempotencyKey: "mini-key-1" },
+      { expectedVersion: 1, sourceAccountId: "venue-source", amountCents: "2000", recipientName: "张老师", bankAccount: "6222020000000000", attachmentVersionIds: ["version-1", "version-3"], idempotencyKey: "mini-key-1" }
+    ]);
     await act(async () => root.unmount());
   });
 });

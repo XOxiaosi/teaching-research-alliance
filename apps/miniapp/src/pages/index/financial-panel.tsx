@@ -76,7 +76,7 @@ export function FinancialPanel({ client, session, onInvalidated, onSubmitted, on
       : nextDrafts.find(item=>item.kind==="WITHDRAWAL"&&item.id===preferredId) ?? nextDrafts.find((item) => item.kind === "WITHDRAWAL") ?? null;
     const restoredAttachments = restoredDraft === null ? [] : (await client.listFinanceDocumentAttachments(restoredDraft.id)).attachments;
     if (!mounted.current) return;
-    setSources(nextSources); setWithdrawals(nextWithdrawals); setDraft(restoredDraft); setAttachments(restoredAttachments);
+    setSources(nextSources); setSourceId((current) => nextSources.some((item) => item.accountId === current) ? current : ""); setWithdrawals(nextWithdrawals); setDraft(restoredDraft); setAttachments(restoredAttachments);
     setSelectedReadyVersionIds(latestReadyAttachmentSelections(restoredAttachments));
     setAttachmentRefreshRequired(false);
     if (pendingSubmit.current === null) setSourceBalanceUnconfirmed(false);

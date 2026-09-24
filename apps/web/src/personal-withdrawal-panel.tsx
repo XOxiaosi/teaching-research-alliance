@@ -69,6 +69,7 @@ export function PersonalWithdrawalPanel({ client, busy, active, run, onUnconfirm
       client.listWithdrawalSources(), client.listOwnFinanceDrafts(), client.listOwnWithdrawals()
     ]);
     setSources(nextSources);
+    setSourceId((current) => nextSources.some((item) => item.accountId === current) ? current : "");
     setDrafts(nextDrafts.filter((item) => item.kind === "WITHDRAWAL"));
     setWithdrawals(nextWithdrawals);
     setLoaded(true);
