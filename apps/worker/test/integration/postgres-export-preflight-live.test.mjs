@@ -27,7 +27,7 @@ test("export preflight classifies every migrated table and keeps secrets out of 
     try {
       assert.equal(plan.mode, "PRECHECK_ONLY");
       assert.equal(plan.snapshotId.length > 0, true);
-      assert.equal(plan.datasets.length, 92);
+      assert.equal(plan.datasets.length, 95);
       assert.deepEqual(plan.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
 
       const allExportColumns = plan.datasets.flatMap((item) => item.exportColumns.map((column) => `${item.tableName}.${column}`));

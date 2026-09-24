@@ -44,6 +44,7 @@ import { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.j
 import { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
 import { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
 import { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
+import { PostgresTeachingMentorRelationshipService } from "./postgres-teaching-mentor-relationship-service.js";
 import { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
 import { PostgresPersonRelationshipAuditService } from "./postgres-person-relationship-audit-service.js";
 
@@ -74,6 +75,7 @@ if (process.env.FINANCE_KEY_RING_JSON) {
 }
 const pool = createPostgresPool();
 const groupLeaderRelationships = new PostgresGroupLeaderRelationshipService(pool);
+const teachingMentorRelationships = new PostgresTeachingMentorRelationshipService(pool);
 const planningMentorRelationships = new PostgresPlanningMentorRelationshipService(pool);
 const accountAccess = new PostgresAccountAccessService(pool);
 const server = createApiServer({
@@ -139,6 +141,7 @@ const server = createApiServer({
   cashWageTeacherDirectory: new PostgresCashWageTeacherDirectoryService(pool),
   groupLeaderRelationships,
   groupLeaderDirectory: new PostgresGroupLeaderDirectoryService(pool, groupLeaderRelationships),
+  teachingMentorRelationships,
   planningMentorRelationships,
   personRelationshipAudit: new PostgresPersonRelationshipAuditService(pool),
   financeAttachments: new PostgresFinanceAttachmentService(pool),

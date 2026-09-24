@@ -9,6 +9,9 @@ import {
   type GroupLeaderRelationshipCandidatesDto,
   type GroupLeaderRelationshipPreviewDto,
   type GroupLeaderRelationshipPublishDto,
+  type TeachingMentorRelationshipCandidatesDto,
+  type TeachingMentorRelationshipPreviewDto,
+  type TeachingMentorRelationshipPublishDto,
   type PlanningMentorRelationshipDirectoryDto,
   type PlanningMentorRelationshipPreviewDto,
   type PlanningMentorRelationshipPublishDto,
@@ -27,6 +30,12 @@ import type {
   GroupLeaderChangePublishResult,
 } from "./postgres-group-leader-relationship-service.js";
 import type { GroupLeaderRelationshipDirectory } from "./postgres-group-leader-directory-service.js";
+import type {
+  TeachingMentorChangePreviewDraft,
+  TeachingMentorChangePreviewResult,
+  TeachingMentorChangePublishResult,
+  TeachingMentorDirectory,
+} from "./postgres-teaching-mentor-relationship-service.js";
 import type {
   PlanningMentorRelationshipDirectory,
   PlanningMentorRelationshipPreviewDraft,
@@ -129,6 +138,11 @@ export type ApiServices = Readonly<{
   }>;
   groupLeaderDirectory?: Readonly<{
     list: (context: RoleContext, at: Date) => GroupLeaderRelationshipDirectory | Promise<GroupLeaderRelationshipDirectory>;
+  }>;
+  teachingMentorRelationships?: Readonly<{
+    listDirectory: (context: RoleContext, at: Date) => TeachingMentorDirectory | Promise<TeachingMentorDirectory>;
+    preview: (context: RoleContext, draft: TeachingMentorChangePreviewDraft, at: Date) => TeachingMentorChangePreviewResult | Promise<TeachingMentorChangePreviewResult>;
+    publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => TeachingMentorChangePublishResult | Promise<TeachingMentorChangePublishResult>;
   }>;
   planningMentorRelationships?: Readonly<{
     listDirectory: (context: RoleContext, at: Date) => PlanningMentorRelationshipDirectory | Promise<PlanningMentorRelationshipDirectory>;
@@ -792,6 +806,9 @@ const errorStatus = (code: string): number => {
       "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
       "GROUP_LEADER_RELATIONSHIP_MISSING",
       "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+      "TEACHING_MENTOR_CANDIDATE_AMBIGUOUS",
+      "TEACHING_MENTOR_RELATIONSHIP_MISSING",
+      "TEACHING_MENTOR_RELATIONSHIP_AMBIGUOUS",
       "PLANNING_MENTOR_CANDIDATE_AMBIGUOUS",
       "PLANNING_MENTOR_RELATIONSHIP_MISSING",
       "PLANNING_MENTOR_RELATIONSHIP_AMBIGUOUS",
@@ -977,6 +994,59 @@ const relationshipCandidatesResponse = (directory: GroupLeaderRelationshipDirect
   currentWeeks: directory.currentWeeks.map((week) => ({
     id: week.id, startsOn: week.startsOn, endsOn: week.endsOn, settlementMonth: week.settlementMonth,
   })),
+});
+
+const teachingMentorDirectoryResponse = (directory: TeachingMentorDirectory): TeachingMentorRelationshipCandidatesDto => ({
+  teachers: directory.teachers.map((teacher) => ({
+    personId: teacher.personId,
+    nickname: teacher.nickname,
+    currentMentorPersonId: teacher.currentMentorPersonId,
+    currentMentorNickname: teacher.currentMentorNickname,
+    currentRelationshipId: teacher.currentRelationshipId,
+  })),
+  mentors: directory.mentors.map((mentor) => ({
+    personId: mentor.personId,
+    nickname: mentor.nickname,
+    eligibleTeacherPersonIds: mentor.eligibleTeacherPersonIds ?? null,
+  })),
+  currentWeeks: directory.currentWeeks.map((week) => ({
+    id: week.id,
+    startsOn: week.startsOn,
+    endsOn: week.endsOn,
+    settlementMonth: week.settlementMonth,
+  })),
+});
+
+const teachingMentorPreviewResponse = (result: TeachingMentorChangePreviewResult): TeachingMentorRelationshipPreviewDto => ({
+  previewId: result.previewId,
+  action: result.action,
+  teacherPersonId: result.teacherPersonId,
+  sourceRelatedPersonId: result.sourceRelatedPersonId,
+  sourceRelatedNickname: result.sourceRelatedNickname,
+  newRelatedPersonId: result.newRelatedPersonId,
+  newRelatedNickname: result.newRelatedNickname,
+  effectiveTeachingWeekId: result.effectiveTeachingWeekId,
+  effectiveThroughTeachingWeekId: result.effectiveThroughTeachingWeekId,
+  effectiveAt: result.effectiveAt,
+  nextBoundaryAt: result.nextBoundaryAt,
+  consideredFeeCount: result.consideredFeeCount,
+  movedFeeCount: result.movedFeeCount,
+  zeroShareFeeCount: result.zeroShareFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  movedAmountCents: result.movedAmountCents,
+});
+
+const teachingMentorPublishResponse = (result: TeachingMentorChangePublishResult): TeachingMentorRelationshipPublishDto => ({
+  changeId: result.changeId,
+  previewId: result.previewId,
+  relationshipVersion: result.relationshipVersion,
+  resultRelationshipId: result.resultRelationshipId,
+  postingStatus: result.postingStatus,
+  consideredFeeCount: result.consideredFeeCount,
+  movedFeeCount: result.movedFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  movedAmountCents: result.movedAmountCents,
+  replay: result.replay,
 });
 
 const planningMentorDirectoryResponse = (
@@ -1596,6 +1666,17 @@ export const handleRequest = async (
       assertRelationshipManager(context);
       return success(relationshipCandidatesResponse(await services.groupLeaderDirectory.list(context, at)));
     }
+    if (
+      request.method === "GET" &&
+      request.path === "/v1/admin/person-relationships/teaching-mentor-candidates"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => field !== "sessionId") || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.teachingMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(teachingMentorDirectoryResponse(await services.teachingMentorRelationships.listDirectory(context, at)));
+    }
     if (request.method === "GET" && request.path === "/v1/admin/person-relationships/audit") {
       if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
       if (Object.keys(body).some((field) => field !== "sessionId")) throw new Error("INVALID_INPUT");
@@ -1650,6 +1731,41 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       assertRelationshipManager(context);
       return success(relationshipPublishResponse(await services.groupLeaderRelationships.publish(
+        context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at,
+      )));
+    }
+    if (
+      request.method === "POST" &&
+      request.path === "/v1/admin/person-relationships/teaching-mentor/preview"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "teacherPersonId", "newRelatedPersonId", "effectiveTeachingWeekId", "effectiveThroughTeachingWeekId", "reason"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      const effectiveThroughTeachingWeekId = body.effectiveThroughTeachingWeekId;
+      if (effectiveThroughTeachingWeekId !== undefined && effectiveThroughTeachingWeekId !== null
+        && (typeof effectiveThroughTeachingWeekId !== "string" || !effectiveThroughTeachingWeekId.trim())) throw new Error("INVALID_INPUT");
+      if (!services.teachingMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(teachingMentorPreviewResponse(await services.teachingMentorRelationships.preview(context, {
+        teacherPersonId: requiredString(body, "teacherPersonId"),
+        newRelatedPersonId: requiredString(body, "newRelatedPersonId"),
+        effectiveTeachingWeekId: requiredString(body, "effectiveTeachingWeekId"),
+        ...(effectiveThroughTeachingWeekId === undefined ? {} : { effectiveThroughTeachingWeekId: effectiveThroughTeachingWeekId as string | null }),
+        reason: requiredString(body, "reason"),
+      }, at)));
+    }
+    if (
+      request.method === "POST" &&
+      request.path === "/v1/admin/person-relationships/teaching-mentor"
+    ) {
+      if (typeof body.sessionId !== "string" || !body.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(body).some((field) => !["sessionId", "previewId", "idempotencyKey"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.teachingMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
+      assertRelationshipManager(context);
+      return success(teachingMentorPublishResponse(await services.teachingMentorRelationships.publish(
         context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at,
       )));
     }

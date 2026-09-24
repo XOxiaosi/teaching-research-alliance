@@ -25,7 +25,7 @@ test("关系审计真实PG：关系事实、缺关系分润项、状态筛选、
     const campusId = randomUUID();
     await database.pool.query("INSERT INTO organization_unit(id,unit_type,name) VALUES($1,'REGION',$2),($3,'CAMPUS',$4)", [regionId, `audit-region-${regionId}`, campusId, `audit-campus-${campusId}`]);
     await database.pool.query("INSERT INTO person_campus_assignment(person_id,campus_id,region_id,valid_from,created_by) VALUES($1,$2,$3,$4,$5)", [missingTeacher.session.personId, campusId, regionId, iso, owner.session.personId]);
-    await database.pool.query("INSERT INTO rate_policy_version(version,effective_from,policy_json,reason,published_by) VALUES(1,'2026-01-01',$1::jsonb,'audit-live',$2)", [JSON.stringify({ groupLeaderRateBasisPoints: 100, teachingMentorRateBasisPoints: 0 }), owner.session.personId]);
+    await database.pool.query("INSERT INTO rate_policy_version(version,effective_from,policy_json,reason,published_by) VALUES(1,'2026-01-01',$1::jsonb,'audit-live',$2)", [JSON.stringify({ groupLeaderRateBasisPoints: 100, teachingMentorRateBasisPoints: 100 }), owner.session.personId]);
     await database.pool.query("INSERT INTO academic_year_plan(id,label,starts_on,ends_on,created_by) VALUES($1,'audit-year','2026-01-01','2026-12-31',$2)", ['00000000-0000-4000-8000-000000000010', owner.session.personId]);
     await database.pool.query("INSERT INTO academic_period(id,academic_year_plan_id,label,starts_on,ends_on) VALUES($1,$2,'audit-period','2026-01-01','2026-12-31')", ['00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000010']);
     await database.pool.query("INSERT INTO teaching_week(id,academic_period_id,sequence_no,week_kind,starts_on,ends_on,settlement_month,status) VALUES($1,$2,1,'REGULAR','2026-09-28','2026-10-04','2026-09-01','OPEN'),($3,$2,2,'SUMMER_SPECIAL','2026-10-05','2026-10-11','2026-10-01','OPEN')", ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000002']);
@@ -71,8 +71,9 @@ test("关系审计真实PG：关系事实、缺关系分润项、状态筛选、
     assert.ok(missingCampus.some((item) => item.member.personId === missingTeacher.session.personId && item.repairability === "REQUIRES_P27"));
     await database.pool.query("UPDATE person SET status='ACTIVE' WHERE id=$1", [related.session.personId]);
     await assert.rejects(() => service.list(context, { limit: 2, cursor: mutableCursorPage.nextCursor }, at), /VERSION_CONFLICT/);
-    assert.ok(missing.every((item) => item.relationshipType === "GROUP_LEADER"));
+    assert.ok(missing.every((item) => ["GROUP_LEADER", "TEACHING_MENTOR"].includes(item.relationshipType)));
     assert.ok(missing.some((item) => item.member.personId === missingTeacher.session.personId));
+    assert.ok(missing.some((item) => item.member.personId === missingTeacher.session.personId && item.relationshipType === "TEACHING_MENTOR" && item.repairability === "TEACHING_MENTOR_REGULAR_WEEK_PREVIEW" && item.repairBlockedReason === null));
     await assert.rejects(() => service.list({ ...context, subject: "TEACHER", scope: "SELF" }, {}, at), /FORBIDDEN_SCOPE/);
     await assert.rejects(() => service.list(context, { cursor: "bad" }, at), /INVALID_INPUT/);
   } finally { await database.close(); }

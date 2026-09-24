@@ -223,6 +223,33 @@ const planningMentorImpactShape: RelationshipJsonShape = { fields: {
 const planningMentorDeltaShape: RelationshipJsonShape = { fields: {
   entries: { items: { fields: { accountKey: "text", categoryKey: "text", amountCents: "text" } } },
 } };
+const teachingMentorImpactShape: RelationshipJsonShape = { fields: {
+  schemaVersion: "text", teacherPersonId: "text",
+  effectiveWeek: { fields: { id: "text", startsOn: "text", endsOn: "text", settlementMonth: "text", kind: "text" } },
+  effectiveAt: "text", nextBoundaryAt: "nullableText", effectiveThroughTeachingWeekId: "nullableText", sourceRelationship: { ...relationshipShape, nullable: true },
+  nextRelationship: { ...relationshipShape, nullable: true },
+  candidate: { fields: { personId: "text", nickname: "text", userAccountId: "text", roleAssignmentId: "text", roleValidFrom: "text", roleValidTo: "nullableText" } },
+  destinationAccount: { fields: { id: "text", code: "text", ownerType: "text", ownerId: "text", status: "text" } },
+  reason: "text",
+  fees: { items: { fields: {
+    feeEntryId: "text", feeVersion: "text", grossAmountCents: "text", teachingWeekId: "text", weekStartsOn: "text",
+    settlementMonth: "text", disposition: "text", refundEffectId: "nullableText", previousSnapshotId: "nullableText",
+    previousSnapshotSequence: "nullableText", previousSnapshotHash: "nullableText", policyVersionId: "nullableText",
+    netMonthlyCents: "nullableText", teachingMentorAmountCents: "text", sourceAccountId: "nullableText", sourceAccountCode: "nullableText",
+  } } },
+  totals: { fields: { consideredFeeCount: "count", movedFeeCount: "count", zeroShareFeeCount: "count", excludedRefundCount: "count", movedAmountCents: "text" } },
+} };
+const sameInstant = (left: unknown, right: unknown): boolean => {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftTime = Date.parse(left); const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+};
+const validInstantRange = (start: unknown, end: unknown): boolean => {
+  if (end === null) return typeof start === "string" && Number.isFinite(Date.parse(start));
+  if (typeof start !== "string" || typeof end !== "string") return false;
+  const startTime = Date.parse(start); const endTime = Date.parse(end);
+  return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime;
+};
 
 const validatePlanningMentorRelationship = (input: JsonTransformInput): TransformAnomaly[] => {
   const action = input.row.action;
@@ -279,6 +306,72 @@ const validatePlanningMentorDelta = (input: JsonTransformInput, root: Record<str
   return anomalies;
 };
 
+const validateTeachingMentorRelationship = (input: JsonTransformInput): TransformAnomaly[] => {
+  const action = input.row.action;
+  if (action !== "ADD" && action !== "REPLACE") gap();
+  if (input.raw === null) gap();
+  const root = parseObject(input);
+  const continuationId = input.row.continuation_relationship_id ?? null;
+  const shape: RelationshipJsonShape = input.columnName === "before_json"
+    ? { fields: { sourceRelationship: { ...relationshipShape, nullable: true } } }
+      : { fields: continuationId === null
+      ? { sourceRelationship: { ...relationshipShape, nullable: true }, resultRelationship: relationshipShape }
+      : { sourceRelationship: { ...relationshipShape, nullable: true }, resultRelationship: relationshipShape, continuationRelationship: relationshipShape } };
+  const anomalies = validateRelationshipJson(input, root, shape);
+  const source = object(root.sourceRelationship);
+  const result = object(root.resultRelationship);
+  const continuation = object(root.continuationRelationship);
+  const invalidContinuation = continuationId === null
+    ? continuation !== undefined
+    : continuation === undefined
+      || continuation.id !== continuationId
+      || continuation.teacherPersonId !== input.row.teacher_person_id
+      || continuation.relationshipType !== "TEACHING_MENTOR"
+      || continuation.relatedPersonId !== input.row.source_related_person_id
+      || !sameInstant(continuation.validFrom, input.row.next_boundary_at)
+      || !validInstantRange(continuation.validFrom, continuation.validTo)
+      || continuation.effectiveScope !== source?.effectiveScope
+      || continuation.createdByPersonId !== input.row.published_by_person_id
+      || !sameInstant(continuation.createdAt, input.row.published_at)
+      || continuation.supersededAt !== null
+      || continuation.supersededByChangeId !== null;
+  if ((action === "ADD" && root.sourceRelationship !== null)
+    || (action === "REPLACE" && source === undefined)
+    || (input.columnName === "before_json" && continuation !== undefined)
+    || (input.columnName === "after_json" && invalidContinuation)
+    || (source !== undefined && source.relationshipType !== "TEACHING_MENTOR")
+    || (result !== undefined && result.relationshipType !== "TEACHING_MENTOR")) gap();
+  return anomalies;
+};
+
+const validateTeachingMentorImpact = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, teachingMentorImpactShape);
+  if (root.schemaVersion !== "teaching-mentor-change-preview.v1") anomalies.push(anomaly(input, "schemaVersion"));
+  const source = object(root.sourceRelationship);
+  const next = object(root.nextRelationship);
+  if ((input.row.action === "ADD" && root.sourceRelationship !== null) || (input.row.action === "REPLACE" && source === undefined)
+    || (input.row.action !== "ADD" && input.row.action !== "REPLACE")
+    || root.effectiveThroughTeachingWeekId !== (input.row.effective_through_teaching_week_id ?? null)
+    || (input.row.effective_through_teaching_week_id !== null && input.row.effective_through_teaching_week_id !== undefined && root.nextBoundaryAt === null)
+    || (source !== undefined && source.relationshipType !== "TEACHING_MENTOR")
+    || (next !== undefined && next.relationshipType !== "TEACHING_MENTOR")) gap();
+  const week = object(root.effectiveWeek);
+  if (week?.kind !== "REGULAR") gap();
+  if (Array.isArray(root.fees)) {
+    for (const fee of root.fees) {
+      const item = object(fee);
+      if (item === undefined) continue;
+      if (!["REFUNDED", "ZERO_SHARE", "MOVE"].includes(String(item.disposition))) anomalies.push(anomaly(input, "disposition"));
+      if (typeof item.teachingMentorAmountCents !== "string" || !/^\d+$/.test(item.teachingMentorAmountCents)) anomalies.push(anomaly(input, "teachingMentorAmountCents"));
+    }
+  }
+  const totals = object(root.totals);
+  if (totals !== undefined && (typeof totals.movedAmountCents !== "string" || !/^\d+$/.test(totals.movedAmountCents))) {
+    anomalies.push(anomaly(input, "movedAmountCents"));
+  }
+  return anomalies;
+};
+
 /** Unknown structure fails closed; malformed known business scalars remain exportable with an anomaly. */
 const validateRelationshipJson = (input: JsonTransformInput, value: unknown, shape: RelationshipJsonShape, field?: string): TransformAnomaly[] => {
   if (typeof shape === "string") {
@@ -305,6 +398,8 @@ const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
   const key = `${input.tableName}.${input.columnName}`;
   if (key === "planning_mentor_relationship_change.before_json" || key === "planning_mentor_relationship_change.after_json")
     return validatePlanningMentorRelationship(input);
+  if (key === "teaching_mentor_relationship_change.before_json" || key === "teaching_mentor_relationship_change.after_json")
+    return validateTeachingMentorRelationship(input);
   const root = parseObject(input);
   switch (`${input.tableName}.${input.columnName}`) {
     case "person_relationship_change_preview.impact_json": return validateRelationshipJson(input, root, relationshipImpactShape);
@@ -312,6 +407,7 @@ const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
     case "person_relationship_change.after_json": return validateRelationshipJson(input, root, { fields: { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
     case "planning_mentor_relationship_change_preview.impact_json": return validatePlanningMentorImpact(input, root);
     case "planning_mentor_relationship_change_effect.delta_json": return validatePlanningMentorDelta(input, root);
+    case "teaching_mentor_relationship_change_preview.impact_json": return validateTeachingMentorImpact(input, root);
     case "weekly_fee_allocation_snapshot.snapshot_json": case "weekly_fee_refund_effect.snapshot_json": return validateSnapshot(input, root);
     case "weekly_fee_allocation_snapshot.context_json": return validateWeeklyContext(input, root);
     case "rate_policy_version.policy_json": return [...exactKeys(input, root, policyKeys, undefined, { strings: policyKeys.filter((field) => field !== "dynamicTiers") }), ...validateDynamicTiers(input, root)];
@@ -409,6 +505,22 @@ const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
     return validateRelationshipJson(input, parseObject(input), { fields: input.columnName === "before_json"
       ? { sourceRelationship: relationshipShape }
       : { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
+  }
+  if (input.row.subject_type === "PERSON_RELATIONSHIP" && input.row.action_code === "TEACHING_MENTOR_RELATIONSHIP_CHANGED") {
+    if (input.raw === null) return [];
+    const root = parseObject(input);
+    const continuation = object(root.continuationRelationship);
+    const shape: RelationshipJsonShape = input.columnName === "before_json"
+      ? { fields: { sourceRelationship: { ...relationshipShape, nullable: true } } }
+      : { fields: continuation === undefined
+        ? { sourceRelationship: { ...relationshipShape, nullable: true }, resultRelationship: relationshipShape }
+        : { sourceRelationship: { ...relationshipShape, nullable: true }, resultRelationship: relationshipShape, continuationRelationship: relationshipShape } };
+    const anomalies = validateRelationshipJson(input, root, shape);
+    const source = object(root.sourceRelationship);
+    const result = object(root.resultRelationship);
+    if ((source !== undefined && source.relationshipType !== "TEACHING_MENTOR") || (result !== undefined && result.relationshipType !== "TEACHING_MENTOR")
+      || (continuation !== undefined && (continuation.relationshipType !== "TEACHING_MENTOR" || continuation.supersededAt !== null || continuation.supersededByChangeId !== null))) gap();
+    return anomalies;
   }
   if (input.row.subject_type === "PERSON_RELATIONSHIP" && (input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_ADDED" || input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_REMOVED")) {
     const action = input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_ADDED" ? "ADD" : "REMOVE";

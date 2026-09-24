@@ -427,6 +427,10 @@ export const API_ERROR_CODES = [
   "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
   "GROUP_LEADER_RELATIONSHIP_MISSING",
   "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+  "TEACHING_MENTOR_CANDIDATE_NOT_ELIGIBLE",
+  "TEACHING_MENTOR_CANDIDATE_AMBIGUOUS",
+  "TEACHING_MENTOR_RELATIONSHIP_MISSING",
+  "TEACHING_MENTOR_RELATIONSHIP_AMBIGUOUS",
   "PLANNING_MENTOR_CANDIDATE_NOT_ELIGIBLE",
   "PLANNING_MENTOR_CANDIDATE_AMBIGUOUS",
   "PLANNING_MENTOR_RELATIONSHIP_MISSING",
@@ -491,7 +495,7 @@ export type PersonRelationshipAuditAnomalyCode =
   | "CAMPUS_PRINCIPAL_MISMATCH" | "SPECIAL_PERIOD_SCOPE_REQUIRED"
   | "HISTORICAL_REFERENCE_MISSING" | "SUPERSESSION_SOURCE_INVALID";
 export type PersonRelationshipAuditRepairability =
-  | "GROUP_LEADER_REGULAR_WEEK_PREVIEW" | "READ_ONLY"
+  | "GROUP_LEADER_REGULAR_WEEK_PREVIEW" | "TEACHING_MENTOR_REGULAR_WEEK_PREVIEW" | "READ_ONLY"
   | "REQUIRES_RELATIONSHIP_CORRECTION" | "REQUIRES_P27" | "REQUIRES_SPECIAL_PERIOD_SCOPE";
 export type PersonRelationshipAuditPersonDto = Readonly<{
   personId: string; nickname: string; personStatus: "ACTIVE" | "INACTIVE";
@@ -506,7 +510,7 @@ export type PersonRelationshipAuditItemDto = Readonly<{
   validFrom: string; validTo: string | null; effectiveScope: string | null;
   status: PersonRelationshipAuditStatus;
   matchingRoleAssignmentIds: readonly string[];
-  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "PLANNING_MENTOR_CHANGE"; changeId: string }> | null;
+  sourceChange: Readonly<{ kind: "GROUP_LEADER_CHANGE" | "TEACHING_MENTOR_CHANGE" | "PLANNING_MENTOR_CHANGE"; changeId: string }> | null;
   referenceCounts: Readonly<{ weeklyFees: number; allocationSnapshots: number; referrals: number }>;
   anomalyCodes: readonly PersonRelationshipAuditAnomalyCode[];
   repairability: PersonRelationshipAuditRepairability;
@@ -519,6 +523,51 @@ export type PersonRelationshipAuditPageDto = Readonly<{
   dataVersion: string;
   items: readonly PersonRelationshipAuditItemDto[];
   nextCursor: string | null;
+}>;
+
+export type TeachingMentorRelationshipTeacherDto = Readonly<{
+  personId: string;
+  nickname: string;
+  currentMentorPersonId: string | null;
+  currentMentorNickname: string | null;
+  currentRelationshipId: string | null;
+}>;
+export type TeachingMentorRelationshipMentorDto = Readonly<{ personId: string; nickname: string; eligibleTeacherPersonIds: readonly string[] | null }>;
+export type TeachingMentorRelationshipCurrentWeekDto = Readonly<{ id: string; startsOn: string; endsOn: string; settlementMonth: string }>;
+export type TeachingMentorRelationshipCandidatesDto = Readonly<{
+  teachers: readonly TeachingMentorRelationshipTeacherDto[];
+  mentors: readonly TeachingMentorRelationshipMentorDto[];
+  currentWeeks: readonly TeachingMentorRelationshipCurrentWeekDto[];
+}>;
+export type TeachingMentorRelationshipPreviewDto = Readonly<{
+  previewId: string;
+  action: "ADD" | "REPLACE";
+  teacherPersonId: string;
+  sourceRelatedPersonId: string | null;
+  sourceRelatedNickname: string | null;
+  newRelatedPersonId: string;
+  newRelatedNickname: string;
+  effectiveTeachingWeekId: string;
+  effectiveThroughTeachingWeekId: string | null;
+  effectiveAt: string;
+  nextBoundaryAt: string | null;
+  consideredFeeCount: number;
+  movedFeeCount: number;
+  zeroShareFeeCount: number;
+  excludedRefundCount: number;
+  movedAmountCents: string;
+}>;
+export type TeachingMentorRelationshipPublishDto = Readonly<{
+  changeId: string;
+  previewId: string;
+  relationshipVersion: number;
+  resultRelationshipId: string;
+  postingStatus: "POSTED" | "NO_BALANCE_CHANGE";
+  consideredFeeCount: number;
+  movedFeeCount: number;
+  excludedRefundCount: number;
+  movedAmountCents: string;
+  replay: boolean;
 }>;
 
 export type GroupLeaderRelationshipPersonDto = Readonly<{
@@ -698,6 +747,13 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/person-relationships/group-leader-candidates",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "group-leader-relationship-candidates.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/admin/person-relationships/teaching-mentor-candidates",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "teaching-mentor-relationship-candidates.v1",
     requiresRoleContext: true,
   },
   {
@@ -1289,6 +1345,20 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/rates/publish",
     action: "CONFIGURE_RATES",
     responseVersion: "rate-policy.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/person-relationships/teaching-mentor/preview",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "teaching-mentor-relationship-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/admin/person-relationships/teaching-mentor",
+    action: "MANAGE_PERSON_RELATIONSHIPS",
+    responseVersion: "teaching-mentor-relationship-change.v1",
     requiresRoleContext: true,
   },
   {

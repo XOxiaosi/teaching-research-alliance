@@ -324,3 +324,18 @@ test("推荐完结授予接收教师本人及严格 GLOBAL 系统管理员，管
   assert.equal(hasPermission("TEACHER", "COMPLETE_REFERRAL"), false);
   assert.equal(hasPermission("ACADEMIC_PLANNER", "COMPLETE_REFERRAL"), false);
 });
+
+test("教学导师关系链错误码保持为领域错误", () => {
+  for (const code of ["TEACHING_MENTOR_CANDIDATE_NOT_ELIGIBLE", "TEACHING_MENTOR_CANDIDATE_AMBIGUOUS", "TEACHING_MENTOR_RELATIONSHIP_MISSING", "TEACHING_MENTOR_RELATIONSHIP_AMBIGUOUS"]) assert.equal(API_ERROR_CODES.includes(code), true);
+});
+
+test("普通周教学导师关系链提供管理员目录、预览和发布端点", () => {
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.filter((item) => item.path.includes("teaching-mentor")),
+    [
+      { method: "GET", path: "/v1/admin/person-relationships/teaching-mentor-candidates", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "teaching-mentor-relationship-candidates.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/person-relationships/teaching-mentor/preview", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "teaching-mentor-relationship-preview.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/admin/person-relationships/teaching-mentor", action: "MANAGE_PERSON_RELATIONSHIPS", responseVersion: "teaching-mentor-relationship-change.v1", requiresRoleContext: true },
+    ],
+  );
+});

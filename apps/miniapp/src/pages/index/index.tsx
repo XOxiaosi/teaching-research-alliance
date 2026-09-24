@@ -28,6 +28,7 @@ import { BenefitPlanPanel } from "./benefit-plan-panel";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel";
 import { BenefitPanel } from "./benefit-panel";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel";
+import { TeachingMentorChangePanel } from "./teaching-mentor-change-panel";
 import { PersonRelationshipAuditPanel } from "./person-relationship-audit-panel";
 import { PlanningMentorRelationshipPanel } from "./planning-mentor-relationship-panel";
 import { AccountAccessPanel, canManageMiniAccountAccess } from "./account-access-panel";
@@ -746,6 +747,7 @@ export default function IndexPage(): ReactNode {
           )}
 
           {canManageRelationships && <GroupLeaderChangePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverview(null)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
+          {canManageRelationships && <TeachingMentorChangePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverview(null)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canManageRelationships && <PersonRelationshipAuditPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canManagePlanningMentorRelationships && <PlanningMentorRelationshipPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverview(null)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadMiniOrganizationRevenue(currentContext ?? null) && <OrganizationRevenuePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
