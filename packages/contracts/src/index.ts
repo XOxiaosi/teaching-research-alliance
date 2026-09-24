@@ -413,6 +413,12 @@ export const API_ERROR_CODES = [
   "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
   "GROUP_LEADER_RELATIONSHIP_MISSING",
   "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+  "PLANNING_MENTOR_CANDIDATE_NOT_ELIGIBLE",
+  "PLANNING_MENTOR_CANDIDATE_AMBIGUOUS",
+  "PLANNING_MENTOR_RELATIONSHIP_MISSING",
+  "PLANNING_MENTOR_RELATIONSHIP_AMBIGUOUS",
+  "PLANNING_MENTOR_RELATIONSHIP_CONFLICT",
+  "PLANNING_MENTOR_RELATIONSHIP_NOT_OWNED",
   "RELATIONSHIP_TARGET_UNCHANGED",
   "RELATIONSHIP_TEACHER_NOT_ELIGIBLE",
   "PERSONAL_ACCOUNT_NOT_FOUND",
@@ -489,6 +495,66 @@ export type GroupLeaderRelationshipPublishDto = Readonly<{
   replay: boolean;
 }>;
 
+export type PlanningMentorRelationshipPersonDto = Readonly<{
+  personId: string;
+  nickname: string;
+}>;
+
+export type PlanningMentorManagedPlannerDto = Readonly<{
+  personId: string;
+  nickname: string;
+  relationshipId: string;
+  validFrom: string;
+  validTo: string | null;
+}>;
+
+export type PlanningMentorRelationshipCurrentWeekDto = Readonly<{
+  id: string;
+  startsOn: string;
+  endsOn: string;
+  settlementMonth: string;
+}>;
+
+export type PlanningMentorRelationshipDirectoryDto = Readonly<{
+  mentorPersonId: string;
+  mentorNickname: string;
+  managedPlanners: readonly PlanningMentorManagedPlannerDto[];
+  availablePlanners: readonly PlanningMentorRelationshipPersonDto[];
+  currentWeeks: readonly PlanningMentorRelationshipCurrentWeekDto[];
+}>;
+
+export type PlanningMentorRelationshipPreviewDto = Readonly<{
+  previewId: string;
+  action: "ADD" | "REMOVE";
+  mentorPersonId: string;
+  plannerPersonId: string;
+  plannerNickname: string;
+  effectiveTeachingWeekId: string;
+  effectiveAt: string;
+  nextBoundaryAt: string | null;
+  consideredFeeCount: number;
+  changedFeeCount: number;
+  zeroShareFeeCount: number;
+  excludedRefundCount: number;
+  plannerDeltaCents: string;
+  mentorDeltaCents: string;
+}>;
+
+export type PlanningMentorRelationshipPublishDto = Readonly<{
+  changeId: string;
+  previewId: string;
+  action: "ADD" | "REMOVE";
+  relationshipVersion: number;
+  resultRelationshipId: string | null;
+  postingStatus: "POSTED" | "NO_BALANCE_CHANGE";
+  consideredFeeCount: number;
+  changedFeeCount: number;
+  excludedRefundCount: number;
+  plannerDeltaCents: string;
+  mentorDeltaCents: string;
+  replay: boolean;
+}>;
+
 export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
   {
     method: "POST",
@@ -545,6 +611,27 @@ export const ENDPOINT_CONTRACTS: readonly EndpointContract[] = [
     path: "/v1/admin/person-relationships/group-leader-candidates",
     action: "MANAGE_PERSON_RELATIONSHIPS",
     responseVersion: "group-leader-relationship-candidates.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "GET",
+    path: "/v1/planning-mentor/relationships",
+    action: "MANAGE_OWN_PLANNING_RELATIONSHIPS",
+    responseVersion: "planning-mentor-relationship-directory.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/planning-mentor/relationships/preview",
+    action: "MANAGE_OWN_PLANNING_RELATIONSHIPS",
+    responseVersion: "planning-mentor-relationship-preview.v1",
+    requiresRoleContext: true,
+  },
+  {
+    method: "POST",
+    path: "/v1/planning-mentor/relationships",
+    action: "MANAGE_OWN_PLANNING_RELATIONSHIPS",
+    responseVersion: "planning-mentor-relationship-change.v1",
     requiresRoleContext: true,
   },
   {

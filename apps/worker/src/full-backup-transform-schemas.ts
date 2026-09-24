@@ -1,4 +1,4 @@
-export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v5";
+export const FULL_BACKUP_TRANSFORM_SCHEMA_VERSION = "full-backup-transform.v6";
 
 export type TransformAnomaly = Readonly<{ code: "TRANSFORM_VALUE_ANOMALY"; tableName: string; columnName: string; field?: string }>;
 export type JsonTransformInput = Readonly<{ tableName: string; columnName: string; raw: string | null; row: Readonly<Record<string, string | null>> }>;
@@ -198,6 +198,86 @@ const relationshipImpactShape: RelationshipJsonShape = { fields: {
   } } },
   totals: { fields: { consideredFeeCount: "count", movedFeeCount: "count", zeroShareFeeCount: "count", excludedRefundCount: "count", movedAmountCents: "text" } },
 } };
+const planningMentorRelationshipObjectShape: RelationshipJsonShape = { fields: {
+  id: "text", teacherPersonId: "text", relationshipType: "text", relatedPersonId: "text",
+  validFrom: "text", validTo: "nullableText", effectiveScope: "nullableText", createdByPersonId: "text",
+  createdAt: "text", supersededAt: "nullableText", supersededByChangeId: "nullableText",
+  supersededByPlanningMentorChangeId: "nullableText",
+} };
+const planningMentorRelationshipShape: RelationshipJsonShape = { ...planningMentorRelationshipObjectShape, nullable: true };
+const planningMentorImpactShape: RelationshipJsonShape = { fields: {
+  schemaVersion: "text", action: "text", mentorPersonId: "text", plannerPersonId: "text",
+  sourceRelationship: planningMentorRelationshipShape, resultRelationshipId: "nullableText",
+  actorRoleAssignmentId: "text", actorRoleScopeId: "nullableText",
+  mentorAccount: { fields: { id: "text", code: "text", ownerId: "text", status: "text" } },
+  plannerAccount: { fields: { id: "text", code: "text", ownerId: "text", status: "text" } },
+  week: { fields: { id: "text", startsOn: "text", endsOn: "text", settlementMonth: "text" } },
+  effectiveAt: "text", nextBoundaryAt: "nullableText", reason: "text",
+  fees: { items: { fields: {
+    feeId: "text", version: "text", teachingWeekId: "text", settlementMonth: "text", refundId: "nullableText",
+    snapshotId: "nullableText", sequenceNo: "nullableText", snapshotHash: "nullableText", policyVersionId: "nullableText",
+    netMonthlyCents: "nullableText", disposition: "text",
+  } } },
+  totals: { fields: { consideredFeeCount: "count", changedFeeCount: "count", zeroShareFeeCount: "count", excludedRefundCount: "count", plannerDeltaCents: "text", mentorDeltaCents: "text" } },
+} };
+const planningMentorDeltaShape: RelationshipJsonShape = { fields: {
+  entries: { items: { fields: { accountKey: "text", categoryKey: "text", amountCents: "text" } } },
+} };
+
+const validatePlanningMentorRelationship = (input: JsonTransformInput): TransformAnomaly[] => {
+  const action = input.row.action;
+  if (action !== "ADD" && action !== "REMOVE") gap();
+  const expectsNull = (action === "ADD" && input.columnName === "before_json") || (action === "REMOVE" && input.columnName === "after_json");
+  if (expectsNull) {
+    if (input.raw === null) return [];
+    gap();
+  }
+  if (input.raw === null) gap();
+  const root = parseObject(input);
+  const anomalies = validateRelationshipJson(input, root, planningMentorRelationshipObjectShape);
+  if (root.relationshipType !== "PLANNING_MENTOR") gap();
+  return anomalies;
+};
+
+const validatePlanningMentorImpact = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, planningMentorImpactShape);
+  if (root.action !== "ADD" && root.action !== "REMOVE") gap();
+  if (input.row.action !== "ADD" && input.row.action !== "REMOVE") gap();
+  if (input.row.action !== root.action) gap();
+  const source = object(root.sourceRelationship);
+  if (root.action === "ADD" && (root.sourceRelationship !== null || typeof root.resultRelationshipId !== "string" || root.resultRelationshipId.length === 0)) gap();
+  if (root.action === "REMOVE" && (source === undefined || root.resultRelationshipId !== null)) gap();
+  if (root.schemaVersion !== "planning-mentor-relationship-preview.v1") anomalies.push(anomaly(input, "schemaVersion"));
+  if (source !== undefined && source.relationshipType !== "PLANNING_MENTOR") gap();
+  if (Array.isArray(root.fees)) {
+    for (const fee of root.fees) {
+      const item = object(fee);
+      if (item === undefined) continue;
+      if (!["REFUNDED", "UNCHANGED", "CHANGE"].includes(String(item.disposition))) anomalies.push(anomaly(input, "disposition"));
+    }
+  }
+  const totals = object(root.totals);
+  if (totals !== undefined) {
+    for (const field of ["plannerDeltaCents", "mentorDeltaCents"]) {
+      if (typeof totals[field] !== "string" || !/^-?\d+$/.test(totals[field])) anomalies.push(anomaly(input, field));
+    }
+  }
+  return anomalies;
+};
+
+const validatePlanningMentorDelta = (input: JsonTransformInput, root: Record<string, unknown>): TransformAnomaly[] => {
+  const anomalies = validateRelationshipJson(input, root, planningMentorDeltaShape);
+  const entries = root.entries;
+  if (!Array.isArray(entries)) return anomalies;
+  for (const entry of entries) {
+    const item = object(entry);
+    if (item === undefined) continue;
+    if (typeof item.accountKey !== "string" || item.accountKey.length === 0) anomalies.push(anomaly(input, "accountKey"));
+    if (typeof item.categoryKey !== "string" || !settlementKeys.includes(item.categoryKey)) gap();
+    if (typeof item.amountCents !== "string" || !/^-?\d+$/.test(item.amountCents)) anomalies.push(anomaly(input, "amountCents"));
+  }
+  return anomalies;
+};
 
 /** Unknown structure fails closed; malformed known business scalars remain exportable with an anomaly. */
 const validateRelationshipJson = (input: JsonTransformInput, value: unknown, shape: RelationshipJsonShape, field?: string): TransformAnomaly[] => {
@@ -222,11 +302,16 @@ const validateRelationshipJson = (input: JsonTransformInput, value: unknown, sha
 };
 
 const knownJson = (input: JsonTransformInput): TransformAnomaly[] => {
+  const key = `${input.tableName}.${input.columnName}`;
+  if (key === "planning_mentor_relationship_change.before_json" || key === "planning_mentor_relationship_change.after_json")
+    return validatePlanningMentorRelationship(input);
   const root = parseObject(input);
   switch (`${input.tableName}.${input.columnName}`) {
     case "person_relationship_change_preview.impact_json": return validateRelationshipJson(input, root, relationshipImpactShape);
     case "person_relationship_change.before_json": return validateRelationshipJson(input, root, { fields: { sourceRelationship: relationshipShape } });
     case "person_relationship_change.after_json": return validateRelationshipJson(input, root, { fields: { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
+    case "planning_mentor_relationship_change_preview.impact_json": return validatePlanningMentorImpact(input, root);
+    case "planning_mentor_relationship_change_effect.delta_json": return validatePlanningMentorDelta(input, root);
     case "weekly_fee_allocation_snapshot.snapshot_json": case "weekly_fee_refund_effect.snapshot_json": return validateSnapshot(input, root);
     case "weekly_fee_allocation_snapshot.context_json": return validateWeeklyContext(input, root);
     case "rate_policy_version.policy_json": return [...exactKeys(input, root, policyKeys, undefined, { strings: policyKeys.filter((field) => field !== "dynamicTiers") }), ...validateDynamicTiers(input, root)];
@@ -324,6 +409,15 @@ const auditJson = (input: JsonTransformInput): TransformAnomaly[] => {
     return validateRelationshipJson(input, parseObject(input), { fields: input.columnName === "before_json"
       ? { sourceRelationship: relationshipShape }
       : { sourceRelationship: relationshipShape, resultRelationship: relationshipShape } });
+  }
+  if (input.row.subject_type === "PERSON_RELATIONSHIP" && (input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_ADDED" || input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_REMOVED")) {
+    const action = input.row.action_code === "PLANNING_MENTOR_RELATIONSHIP_ADDED" ? "ADD" : "REMOVE";
+    const expectsNull = (action === "ADD" && input.columnName === "before_json") || (action === "REMOVE" && input.columnName === "after_json");
+    if (expectsNull) { if (input.raw === null) return []; gap(); }
+    if (input.raw === null) gap();
+    const root = parseObject(input);
+    if (root.relationshipType !== "PLANNING_MENTOR") gap();
+    return validateRelationshipJson(input, root, planningMentorRelationshipObjectShape);
   }
   const subject = input.row.subject_type; const action = input.row.action_code; const venueActions = ["VENUE_CREATED", "VENUE_RENAMED", "VENUE_STATUS_CHANGED", "VENUE_DEFAULT_CHANGED", "VENUE_PERMISSION_CHANGED"];
   if (subject === "USER_ACCOUNT" && action === "ACCOUNT_REGISTERED") {

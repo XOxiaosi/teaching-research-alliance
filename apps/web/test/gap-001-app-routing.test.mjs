@@ -30,6 +30,7 @@ export const BenefitPlanPanel = Empty;
 export const BenefitConfirmationPanel = Empty;
 export const BenefitPanel = Empty;
 export const GroupLeaderChangePanel = Empty;
+export const PlanningMentorRelationshipPanel = Empty;
 export const AccountAccessPanel = Empty;
 export const PersonResponsibilityPanel = Empty;
 export const AccountAuthenticationPanel = Empty;

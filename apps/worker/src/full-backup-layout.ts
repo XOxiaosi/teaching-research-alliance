@@ -1,11 +1,12 @@
 import { EXPORT_SCHEMA_REGISTRY } from "./export-schema-registry.js";
 
-export const FULL_BACKUP_LAYOUT_VERSION = "raw-source-layout.v4";
+export const FULL_BACKUP_LAYOUT_VERSION = "raw-source-layout.v5";
 export const BACKUP_MAX_DATA_ROWS = 1_000_000;
 
 // An explicit inventory prevents a new table from silently entering an arbitrary workbook.
 const groups = [
-  ["01", "组织账户与权限", "organization_unit campus_region_assignment person_campus_assignment person_relationship person_relationship_change person_relationship_change_effect person_relationship_change_preview role_assignment settlement_account company_finance_fund company_finance_fund_assignment company_finance_fund_command_idempotency user_account user_session auth_login_throttle auth_password_reset_command venue venue_command_idempotency venue_permission_grant"],
+  ["01", "组织账户与权限", "organization_unit campus_region_assignment person_campus_assignment person_responsibility_command person_relationship person_relationship_change person_relationship_change_effect person_relationship_change_preview planning_mentor_relationship_change planning_mentor_relationship_change_effect planning_mentor_relationship_change_preview role_assignment settlement_account company_finance_fund company_finance_fund_assignment company_finance_fund_command_idempotency user_account user_session auth_login_throttle auth_password_reset_command venue venue_command_idempotency venue_permission_grant"],
+  ["05", "后台任务", "background_task background_task_attempt"],
   ["02", "教师信息", "person teacher_profile"],
   ["03", "业务流水", "teacher_student_record referral_case referral_case_event referral_creation_snapshot referral_acceptance_snapshot referral_creation_idempotency referral_acceptance_idempotency referral_lifecycle_idempotency weekly_fee_entry weekly_fee_entry_version weekly_fee_event weekly_fee_idempotency"],
   ["04", "分配明细", "weekly_fee_allocation_snapshot weekly_fee_refund_effect settlement_calculation_run"],

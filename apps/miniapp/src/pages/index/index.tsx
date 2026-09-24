@@ -28,6 +28,7 @@ import { BenefitPlanPanel } from "./benefit-plan-panel";
 import { BenefitConfirmationPanel } from "./benefit-confirmation-panel";
 import { BenefitPanel } from "./benefit-panel";
 import { GroupLeaderChangePanel } from "./group-leader-change-panel";
+import { PlanningMentorRelationshipPanel } from "./planning-mentor-relationship-panel";
 import { AccountAccessPanel, canManageMiniAccountAccess } from "./account-access-panel";
 import { PersonResponsibilityPanel, canManageMiniPersonnel } from "./person-responsibility-panel";
 import { ManagedReferralCompletionPanel } from "./managed-referral-completion-panel";
@@ -377,6 +378,8 @@ export default function IndexPage(): ReactNode {
   const canManageAccountAccess = session !== null && canManageMiniAccountAccess(session);
   const canManagePeople = session !== null && canManageMiniPersonnel(session);
   const canManageRelationships = currentContext !== null && currentContext?.scope === "GLOBAL" && currentContext?.regionId === undefined && currentContext?.campusId === undefined && currentContext?.venueId === undefined && ["SYSTEM_ADMIN", "SYSTEM_OWNER"].includes(currentContext?.subject ?? "");
+  const canManagePlanningMentorRelationships = currentContext?.subject === "PLANNING_MENTOR" && currentContext.scope === "SELF"
+    && currentContext.regionId === undefined && currentContext.campusId === undefined && currentContext.venueId === undefined;
   const canReadVenueBoard = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "VENUE_OWNER", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const canManageVenue = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
   const personalFinance = ["TEACHING_TEACHER", "ACADEMIC_PLANNER", "PLANNING_MENTOR", "TEACHER"].includes(String(currentContext?.subject ?? ""));
@@ -742,6 +745,7 @@ export default function IndexPage(): ReactNode {
           )}
 
           {canManageRelationships && <GroupLeaderChangePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverview(null)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
+          {canManagePlanningMentorRelationships && <PlanningMentorRelationshipPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onUnconfirmedChange={setRelationshipUnconfirmed} onSaved={() => setOverview(null)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadMiniOrganizationRevenue(currentContext ?? null) && <OrganizationRevenuePanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} busy={busy} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadSalary && <CashWagePlanPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}`} onUnconfirmedChange={setWagePlanUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}
           {canReadSalary && <CashWageConfirmationPanel client={client} session={session} sessionKey={`${session.sessionId}:${JSON.stringify(currentContext)}:${wageRevision}`} busy={busy} onUnconfirmedChange={setWageConfirmationUnconfirmed} onSaved={() => setWageRevision(value => value + 1)} onInvalidated={() => { clearTeachingState(); setSession(client.currentSession); setNotice("登录或身份已失效，请重新登录或选择身份。"); }} />}

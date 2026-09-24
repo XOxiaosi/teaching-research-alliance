@@ -10,7 +10,7 @@ export type ExportTable = Readonly<{
 
 const columns = (value: string): readonly string[] => value.split(",");
 
-// This is intentionally a fixed allow-list generated from migrations 0001–0029.
+// This is intentionally a fixed allow-list generated from migrations 0001–0035.
 // It is not a schema discovery mechanism: pg_catalog is checked against it at runtime.
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   academic_period: columns("id,academic_year_plan_id,label,starts_on,ends_on,created_at"),
@@ -18,6 +18,8 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   account_balance_projection: columns("account_id,balance_cents,updated_at"),
   auth_login_throttle: columns("dimension_type,dimension_key,window_started_at,failure_count,blocked_until,updated_at,created_at"),
   auth_password_reset_command: columns("actor_person_id,idempotency_key,target_account_id,reason,password_hash,result_auth_version,actor_subject_code,actor_scope_type,created_at"),
+  background_task: columns("id,task_type,idempotency_key,payload,status,attempt_count,max_attempts,available_at,lease_token,lease_expires_at,last_failure_code,last_failure_reason,completed_at,created_at,updated_at"),
+  background_task_attempt: columns("task_id,attempt_no,lease_token,claimed_at,lease_expires_at,finished_at,outcome,failure_code,failure_reason"),
   audit_event: columns("id,actor_person_id,action_code,subject_type,subject_id,before_json,after_json,reason,created_at"),
   bonus_project_catalog_command_idempotency: columns("actor_person_id,idempotency_key,operation,request_hash,result_json,created_at"),
   bonus_project_name_version: columns("id,project_no,version_no,display_name,changed_by_person_id,actor_subject_code,actor_scope_type,change_source,reason,created_at"),
@@ -64,7 +66,11 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   organization_unit: columns("id,unit_type,name,parent_id,created_at"),
   person: columns("id,nickname,legal_name,status,created_at,updated_at"),
   person_campus_assignment: columns("id,person_id,campus_id,region_id,valid_from,valid_to,created_by,created_at"),
-  person_relationship: columns("id,teacher_id,relationship_type,related_person_id,valid_from,valid_to,effective_scope,created_by,created_at,superseded_at,superseded_by_change_id"),
+  person_responsibility_command: columns("actor_person_id,idempotency_key,command_kind,target_person_id,role_assignment_id,subject_code,scope_type,scope_id,valid_from,valid_to,next_person_status,reason,result_auth_version,actor_subject_code,created_at"),
+  person_relationship: columns("id,teacher_id,relationship_type,related_person_id,valid_from,valid_to,effective_scope,created_by,created_at,superseded_at,superseded_by_change_id,superseded_by_planning_mentor_change_id"),
+  planning_mentor_relationship_change: columns("id,preview_id,action,mentor_person_id,planner_person_id,relationship_version,source_relationship_id,result_relationship_id,actor_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,idempotency_key,request_hash,base_hash,posting_status,settlement_calculation_run_id,ledger_event_id,considered_fee_count,changed_fee_count,excluded_refund_count,planner_delta_cents,mentor_delta_cents,before_json,after_json,published_by_person_id,actor_subject_code,actor_scope_type,published_at,created_at"),
+  planning_mentor_relationship_change_effect: columns("change_id,weekly_fee_entry_id,source_weekly_fee_version,teaching_week_id,settlement_month,previous_snapshot_id,result_snapshot_id,settlement_calculation_run_id,planner_before_cents,planner_after_cents,mentor_before_cents,mentor_after_cents,delta_json,created_at"),
+  planning_mentor_relationship_change_preview: columns("id,action,mentor_person_id,planner_person_id,source_relationship_id,result_relationship_id,actor_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,base_hash,impact_json,created_by_person_id,actor_subject_code,actor_scope_type,created_at"),
   person_relationship_change: columns("id,preview_id,relationship_type,teacher_person_id,relationship_version,source_relationship_id,result_relationship_id,source_related_person_id,new_related_person_id,candidate_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,idempotency_key,request_hash,base_hash,posting_status,settlement_calculation_run_id,ledger_event_id,considered_fee_count,moved_fee_count,excluded_refund_count,moved_amount_cents,before_json,after_json,published_by_person_id,actor_subject_code,actor_scope_type,published_at,created_at"),
   person_relationship_change_effect: columns("change_id,weekly_fee_entry_id,source_weekly_fee_version,teaching_week_id,settlement_month,previous_snapshot_id,result_snapshot_id,settlement_calculation_run_id,group_leader_amount_cents,source_account_id,destination_account_id,created_at"),
   person_relationship_change_preview: columns("id,relationship_type,teacher_person_id,source_relationship_id,source_related_person_id,new_related_person_id,candidate_role_assignment_id,effective_teaching_week_id,effective_at,next_boundary_at,reason,base_hash,impact_json,created_by_person_id,actor_subject_code,actor_scope_type,created_at"),
@@ -77,7 +83,7 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   referral_creation_idempotency: columns("actor_person_id,idempotency_key,request_hash,referral_case_id,created_at"),
   referral_creation_snapshot: columns("referral_case_id,source_subject,business_identity_version,campus_assignment_id,campus_id,planning_mentor_relationship_id,class_type,collector_person_id,created_by,created_at"),
   referral_lifecycle_idempotency: columns("actor_person_id,idempotency_key,operation,request_hash,referral_case_id,result_status,result_referral_version,result_unaccepted_expires_at,created_at"),
-  role_assignment: columns("id,person_id,subject_code,scope_type,scope_id,valid_from,valid_to,created_by,created_at"),
+  role_assignment: columns("id,person_id,subject_code,scope_type,scope_id,valid_from,valid_to,created_by,created_at,reason"),
   salary_benefit_attachment_binding: columns("finance_document_id,finance_attachment_version_id,purpose,document_version,bound_by_person_id,bound_at"),
   salary_benefit_command_idempotency: columns("actor_person_id,operation,idempotency_key,request_hash,result_json,created_at"),
   salary_benefit_reversal: columns("reversal_finance_document_id,original_finance_document_id,original_ledger_event_id,reversal_ledger_event_id,reversed_by_person_id,reason,created_at"),
@@ -99,11 +105,11 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   weekly_fee_refund_effect: columns("weekly_fee_entry_id,finance_document_id,allocation_snapshot_id,source_weekly_fee_version,gross_amount_cents,snapshot_json,created_at")
 };
 
-// These are primary keys from migrations 0001–0029. Keeping them alongside the
+// These are primary keys from migrations 0001–0035. Keeping them alongside the
 // fixed column allow-list makes the stream order deterministic without trusting
 // a possibly changed live index definition.
 const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
-  academic_period: ["id"], academic_year_plan: ["id"], account_balance_projection: ["account_id"], auth_login_throttle: ["dimension_type", "dimension_key"], auth_password_reset_command: ["actor_person_id", "idempotency_key"], audit_event: ["id"],
+  academic_period: ["id"], academic_year_plan: ["id"], account_balance_projection: ["account_id"], auth_login_throttle: ["dimension_type", "dimension_key"], auth_password_reset_command: ["actor_person_id", "idempotency_key"], audit_event: ["id"], background_task: ["id"], background_task_attempt: ["task_id", "attempt_no"],
   bonus_project_catalog_command_idempotency: ["actor_person_id", "idempotency_key"], bonus_project_name_version: ["id"], bonus_project_slot: ["project_no"], campus_region_assignment: ["id"],
   cash_wage_confirmation: ["finance_document_id"], cash_wage_plan_version: ["id"], cash_wage_todo: ["id"], company_finance_fund: ["id"],
   company_finance_fund_assignment: ["id"], company_finance_fund_command_idempotency: ["actor_person_id", "idempotency_key"], finance_attachment: ["id"], finance_attachment_event: ["id"],
@@ -114,7 +120,7 @@ const TABLE_ORDER_KEYS: Readonly<Record<string, readonly string[]>> = {
   finance_reimbursement_submission: ["finance_document_id"], finance_reimbursement_transfer: ["finance_document_id"], finance_reimbursement_reversal: ["finance_document_id"], finance_self_purchase_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], finance_self_purchase_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_self_purchase_reversal: ["finance_document_id"],
   finance_self_purchase_transfer: ["finance_document_id"], finance_withdrawal_attachment_binding: ["finance_document_id", "stage", "finance_attachment_version_id"], finance_withdrawal_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], finance_withdrawal_reversal: ["finance_document_id"],
   finance_withdrawal_submission: ["finance_document_id"], finance_withdrawal_transfer: ["finance_document_id"], ledger_entry: ["id"], ledger_event: ["id"], organization_unit: ["id"], person: ["id"],
-  person_campus_assignment: ["id"], person_relationship: ["id"], person_relationship_change: ["id"], person_relationship_change_effect: ["change_id", "weekly_fee_entry_id"], person_relationship_change_preview: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
+  person_campus_assignment: ["id"], person_responsibility_command: ["actor_person_id", "idempotency_key"], person_relationship: ["id"], person_relationship_change: ["id"], person_relationship_change_effect: ["change_id", "weekly_fee_entry_id"], person_relationship_change_preview: ["id"], planning_mentor_relationship_change: ["id"], planning_mentor_relationship_change_effect: ["change_id", "weekly_fee_entry_id"], planning_mentor_relationship_change_preview: ["id"], project_bonus_transfer: ["finance_document_id"], rate_policy_version: ["id"], referral_acceptance_idempotency: ["actor_person_id", "idempotency_key"],
   referral_acceptance_snapshot: ["referral_case_id", "accepted_referral_version"], referral_case: ["id"], referral_case_event: ["id"], referral_creation_idempotency: ["actor_person_id", "idempotency_key"], referral_creation_snapshot: ["referral_case_id"],
   referral_lifecycle_idempotency: ["actor_person_id", "idempotency_key"], role_assignment: ["id"], salary_benefit_attachment_binding: ["finance_document_id", "finance_attachment_version_id"], salary_benefit_command_idempotency: ["actor_person_id", "operation", "idempotency_key"], salary_benefit_reversal: ["reversal_finance_document_id"],
   settlement_account: ["id"], settlement_calculation_run: ["id"], teacher_profile: ["person_id"], teacher_student_record: ["id"], teaching_week: ["id"], user_account: ["id"],
@@ -131,7 +137,8 @@ const SECRET_COLUMNS = new Set([
 ]);
 const TRANSFORM_COLUMNS = new Set([
   "person_relationship_change_preview.impact_json", "person_relationship_change.before_json", "person_relationship_change.after_json",
-  "person_relationship_change.idempotency_key",
+  "planning_mentor_relationship_change_preview.impact_json", "planning_mentor_relationship_change.before_json", "planning_mentor_relationship_change.after_json", "planning_mentor_relationship_change_effect.delta_json",
+  "person_responsibility_command.idempotency_key", "person_relationship_change.idempotency_key", "planning_mentor_relationship_change.idempotency_key",
   "audit_event.before_json", "audit_event.after_json", "finance_document_event.details_json",
   "finance_refund_decision.authorization_snapshot", "finance_refund_submission.applicant_context_snapshot",
   "finance_reimbursement_decision.authorization_snapshot", "finance_reimbursement_submission.applicant_context_snapshot",

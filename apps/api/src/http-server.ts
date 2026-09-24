@@ -85,7 +85,9 @@ export const createApiServer = (
         pathname === "/v1/accounts/register" ||
         pathname === "/v1/session" ||
         pathname === "/v1/admin/person-relationships" ||
-        pathname.startsWith("/v1/admin/person-relationships/")
+        pathname.startsWith("/v1/admin/person-relationships/") ||
+        pathname === "/v1/planning-mentor/relationships" ||
+        pathname.startsWith("/v1/planning-mentor/relationships/")
       ) {
         response.setHeader("cache-control", "private, no-store");
         response.setHeader("x-content-type-options", "nosniff");

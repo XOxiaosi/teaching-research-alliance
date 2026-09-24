@@ -37,7 +37,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const EXTENSIONS = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg" } as const;
-const FIXED_WORKBOOKS = ["01", "02", "03", "04", "06", "07", "08", "09", "10", "11", "12", "13"] as const;
+const FIXED_WORKBOOKS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13"] as const;
 const INCOMPLETE_REASONS = [
   "BUSINESS_VIEWS_NOT_IMPLEMENTED",
   "00_MANIFEST_NOT_IMPLEMENTED",

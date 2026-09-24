@@ -2,6 +2,9 @@ import type {
   GroupLeaderRelationshipCandidatesDto,
   GroupLeaderRelationshipPreviewDto,
   GroupLeaderRelationshipPublishDto,
+  PlanningMentorRelationshipDirectoryDto,
+  PlanningMentorRelationshipPreviewDto,
+  PlanningMentorRelationshipPublishDto,
   PermissionScope,
   PermissionSubject,
   RoleContext,
@@ -187,6 +190,19 @@ export type GroupLeaderRelationshipPreviewDraft = Readonly<{
  * server-issued preview ID and one idempotency key bound to its creation scope.
  */
 export type GroupLeaderRelationshipChangeSubmission = Readonly<{
+  draft: Readonly<{ previewId: string }>;
+  idempotencyKey: string;
+}>;
+
+export type PlanningMentorRelationshipPreviewDraft = Readonly<{
+  action: "ADD" | "REMOVE";
+  plannerPersonId: string;
+  effectiveTeachingWeekId: string;
+  reason: string;
+}>;
+
+/** Reuse this exact object when a planning-mentor publish result is unknown. */
+export type PlanningMentorRelationshipChangeSubmission = Readonly<{
   draft: Readonly<{ previewId: string }>;
   idempotencyKey: string;
 }>;
@@ -1383,6 +1399,7 @@ type Submission =
   | PersonStatusSubmission
   | WeeklyFeeSubmission
   | GroupLeaderRelationshipChangeSubmission
+  | PlanningMentorRelationshipChangeSubmission
   | ReferralCreationSubmission
   | ReferralCopySubmission
   | ReferralAcceptanceSubmission
@@ -1479,6 +1496,16 @@ const validateGroupLeaderRelationshipPreviewDraft = (
 ): void => {
   requireNonBlank(draft.teacherPersonId, "teacherPersonId");
   requireNonBlank(draft.newRelatedPersonId, "newRelatedPersonId");
+  requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
+  validateFinancialText(draft.reason, "reason", 1_000);
+};
+
+const validatePlanningMentorRelationshipPreviewDraft = (
+  draft: PlanningMentorRelationshipPreviewDraft,
+): void => {
+  if (draft.action !== "ADD" && draft.action !== "REMOVE")
+    throw new ApiClientError(400, "INVALID_INPUT", "INVALID_INPUT:action");
+  requireNonBlank(draft.plannerPersonId, "plannerPersonId");
   requireNonBlank(draft.effectiveTeachingWeekId, "effectiveTeachingWeekId");
   validateFinancialText(draft.reason, "reason", 1_000);
 };
@@ -2672,6 +2699,33 @@ export class TeacherApiClient {
     );
   }
 
+  /** Reads only the active planning mentor's own managed and available planners. */
+  public async listPlanningMentorRelationships(): Promise<PlanningMentorRelationshipDirectoryDto> {
+    this.requirePlanningMentorRelationshipManager();
+    return this.authenticatedRequest<PlanningMentorRelationshipDirectoryDto>(
+      "GET",
+      "/v1/planning-mentor/relationships",
+    );
+  }
+
+  /** Produces a server-frozen ordinary-week ADD or REMOVE preview. */
+  public async previewPlanningMentorRelationshipChange(
+    draft: PlanningMentorRelationshipPreviewDraft,
+  ): Promise<PlanningMentorRelationshipPreviewDto> {
+    validatePlanningMentorRelationshipPreviewDraft(draft);
+    this.requirePlanningMentorRelationshipManager();
+    return this.authenticatedRequest<PlanningMentorRelationshipPreviewDto>(
+      "POST",
+      "/v1/planning-mentor/relationships/preview",
+      {
+        action: draft.action,
+        plannerPersonId: draft.plannerPersonId,
+        effectiveTeachingWeekId: draft.effectiveTeachingWeekId,
+        reason: draft.reason,
+      },
+    );
+  }
+
   /** Current immutable-name versions used by finance when creating a project bonus. */
   public async listBonusProjects(): Promise<BonusProjectCatalog> {
     this.requireSalaryBenefitsManager();
@@ -2825,6 +2879,25 @@ export class TeacherApiClient {
   ): GroupLeaderRelationshipChangeSubmission {
     requireNonBlank(previewId, "previewId");
     this.requireGroupLeaderRelationshipManager();
+    const scope = this.captureSubmissionScope();
+    const idempotencyKey = (
+      this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
+    )();
+    requireNonBlank(idempotencyKey, "idempotencyKey");
+    const submission = Object.freeze({
+      draft: Object.freeze({ previewId }),
+      idempotencyKey,
+    });
+    this.submissionStatuses.set(submission, "READY");
+    this.submissionScopes.set(submission, scope);
+    return submission;
+  }
+
+  public createPlanningMentorRelationshipChangeSubmission(
+    previewId: string,
+  ): PlanningMentorRelationshipChangeSubmission {
+    requireNonBlank(previewId, "previewId");
+    this.requirePlanningMentorRelationshipManager();
     const scope = this.captureSubmissionScope();
     const idempotencyKey = (
       this.options.idempotencyKeyFactory ?? defaultIdempotencyKeyFactory
@@ -3491,6 +3564,32 @@ export class TeacherApiClient {
       const result = await this.authenticatedRequest<GroupLeaderRelationshipPublishDto>(
         "POST",
         "/v1/admin/person-relationships",
+        {
+          previewId: submission.draft.previewId,
+          idempotencyKey: submission.idempotencyKey,
+        },
+      );
+      this.submissionStatuses.set(submission, "SUCCEEDED");
+      this.advanceResponseGeneration();
+      return result;
+    } catch (error) {
+      this.submissionStatuses.set(submission, "FAILED");
+      throw error;
+    }
+  }
+
+  public async publishPlanningMentorRelationshipChange(
+    submission: PlanningMentorRelationshipChangeSubmission,
+  ): Promise<PlanningMentorRelationshipPublishDto> {
+    const previous = this.submissionStatus(submission);
+    if (previous === "SUBMITTING") throw new SubmissionInProgressError();
+    this.requireCurrentSubmissionScope(submission);
+    this.requirePlanningMentorRelationshipManager();
+    this.submissionStatuses.set(submission, "SUBMITTING");
+    try {
+      const result = await this.authenticatedRequest<PlanningMentorRelationshipPublishDto>(
+        "POST",
+        "/v1/planning-mentor/relationships",
         {
           previewId: submission.draft.previewId,
           idempotencyKey: submission.idempotencyKey,
@@ -4347,6 +4446,20 @@ export class TeacherApiClient {
       (context?.subject !== "SYSTEM_ADMIN" &&
         context?.subject !== "SYSTEM_OWNER") ||
       context.scope !== "GLOBAL" ||
+      context.regionId !== undefined ||
+      context.campusId !== undefined ||
+      context.venueId !== undefined
+    ) {
+      throw new ApiClientError(403, "FORBIDDEN_SCOPE");
+    }
+  }
+
+  /** Planning mentors manage only relationships anchored to their own SELF context. */
+  private requirePlanningMentorRelationshipManager(): void {
+    const context = this.session?.currentRoleContext;
+    if (
+      context?.subject !== "PLANNING_MENTOR" ||
+      context.scope !== "SELF" ||
       context.regionId !== undefined ||
       context.campusId !== undefined ||
       context.venueId !== undefined

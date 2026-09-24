@@ -221,6 +221,26 @@ test("端点契约包含分区汇总、关系预览和全正常场地目录", ()
   assert.equal(ENDPOINT_CONTRACTS.find((item) => item.path === "/v1/venues/visible")?.action, "READ_OWN_VENUES");
 });
 
+test("规划导师以 SELF 职责维护本人关系，并声明专属接口和错误", () => {
+  assert.equal(permissionScope("PLANNING_MENTOR", "MANAGE_OWN_PLANNING_RELATIONSHIPS"), "SELF");
+  for (const subject of ["TEACHER", "ACADEMIC_PLANNER", "GROUP_LEADER", "TEACHING_MENTOR"]) {
+    assert.equal(hasPermission(subject, "MANAGE_OWN_PLANNING_RELATIONSHIPS"), false);
+  }
+  assert.deepEqual(
+    ENDPOINT_CONTRACTS.filter((item) => item.path.startsWith("/v1/planning-mentor/relationships")),
+    [
+      { method: "GET", path: "/v1/planning-mentor/relationships", action: "MANAGE_OWN_PLANNING_RELATIONSHIPS", responseVersion: "planning-mentor-relationship-directory.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/planning-mentor/relationships/preview", action: "MANAGE_OWN_PLANNING_RELATIONSHIPS", responseVersion: "planning-mentor-relationship-preview.v1", requiresRoleContext: true },
+      { method: "POST", path: "/v1/planning-mentor/relationships", action: "MANAGE_OWN_PLANNING_RELATIONSHIPS", responseVersion: "planning-mentor-relationship-change.v1", requiresRoleContext: true },
+    ],
+  );
+  for (const code of [
+    "PLANNING_MENTOR_CANDIDATE_NOT_ELIGIBLE", "PLANNING_MENTOR_CANDIDATE_AMBIGUOUS",
+    "PLANNING_MENTOR_RELATIONSHIP_MISSING", "PLANNING_MENTOR_RELATIONSHIP_AMBIGUOUS",
+    "PLANNING_MENTOR_RELATIONSHIP_CONFLICT", "PLANNING_MENTOR_RELATIONSHIP_NOT_OWNED",
+  ]) assert.equal(API_ERROR_CODES.includes(code), true, `${code} must be stable`);
+});
+
  test("teaching directory reads have independent actions from fee writes", () => {
   for (const [path, action] of [["/v1/teaching/referrals","READ_RECEIVED_REFERRALS"],["/v1/teaching/weeks","LIST_OPEN_TEACHING_WEEKS"],["/v1/venues/available","LIST_AVAILABLE_VENUES"]]) {
     assert.equal(ENDPOINT_CONTRACTS.find(item=>item.path===path).action,action);

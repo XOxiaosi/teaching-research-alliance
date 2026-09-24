@@ -65,6 +65,7 @@ export { PostgresCashWageReadService } from "./postgres-cash-wage-read-service.j
 export { PostgresCashWageTeacherDirectoryService } from "./postgres-cash-wage-teacher-directory-service.js";
 export { PostgresGroupLeaderRelationshipService } from "./postgres-group-leader-relationship-service.js";
 export { PostgresGroupLeaderDirectoryService } from "./postgres-group-leader-directory-service.js";
+export { PostgresPlanningMentorRelationshipService } from "./postgres-planning-mentor-relationship-service.js";
 
 export { PostgresOrganizationRevenueReadService } from "./postgres-organization-revenue-read-service.js";
 

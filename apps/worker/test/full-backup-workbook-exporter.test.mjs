@@ -74,7 +74,7 @@ test("spool完整消费后生成可解压XLSX，长文本无损索引且业务�
     const spoolDirectory = join(root, "spools", spool.spoolId);
     const result = await new FullBackupWorkbookExporter({ spoolDirectory, spool, outputRoot: join(root, "out") }).export();
     assert.equal(result.mode, "RAW_SOURCE_WORKBOOKS");
-    assert.equal(result.workbooks.length, 12);
+    assert.equal(result.workbooks.length, 13);
     assert.equal(result.workbooks.some((item) => item.workbookId === "02"), true);
     assert.deepEqual(
       (await readdir(join(root, "out", result.outputId))).sort(),
@@ -337,7 +337,7 @@ test("成功写盘后私有索引清理失败会使整次导出失败", async ()
   }
 });
 
-test("RAW manifest uses verified same-snapshot evidence in all twelve workbooks and preserves NULL coordinates", async () => {
+test("RAW manifest uses verified same-snapshot evidence in all thirteen workbooks and preserves NULL coordinates", async () => {
   const { FullBackupDerivedSpoolIndex } = await import('../dist/full-backup-derived-spool-index.js');
   const { FullBackupLedgerDerivedView } = await import('../dist/full-backup-ledger-derived-view.js');
   const { FullBackupLedgerBusinessPeriodSource } = await import('../dist/full-backup-ledger-business-period-source.js');
@@ -355,7 +355,7 @@ test("RAW manifest uses verified same-snapshot evidence in all twelve workbooks 
     const context = createFullBackupManifestContext({evidence,fileGroupId:'synthetic-file-group',generatedAt:'2026-09-23T01:00:00.000Z',applicationVersion:'0.1.0',generatorVersion:'test-1'});
     const outputRoot=join(root,'out');
     const result=await new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:context}).export();
-    assert.equal(result.workbooks.length,12);
+    assert.equal(result.workbooks.length,13);
     const {stdout}=await run('python3',['-c',`import zipfile,xml.etree.ElementTree as E,json,sys,pathlib
 ns={'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 result=[]
@@ -375,7 +375,7 @@ for p in sorted(pathlib.Path(sys.argv[1]).glob('*.xlsx')):
  assert '00_manifest' in null_data and 'backup_id' in null_data
  result.append(p.name)
 print(json.dumps(result))`,join(outputRoot,result.outputId)]);
-    assert.equal(JSON.parse(stdout).length,12);
+    assert.equal(JSON.parse(stdout).length,13);
     await assert.rejects(new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:{...context,snapshotId:'another-snapshot'}}).export(),/MANIFEST/);
     const changed={...context,rawTables:context.rawTables.map(row=>row.tableName==='person'?{...row,rowCount:'2'}:row)};
     await assert.rejects(new FullBackupWorkbookExporter({spoolDirectory,spool,outputRoot,manifestContext:changed}).export(),/MANIFEST/);

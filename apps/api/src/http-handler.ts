@@ -9,6 +9,9 @@ import {
   type GroupLeaderRelationshipCandidatesDto,
   type GroupLeaderRelationshipPreviewDto,
   type GroupLeaderRelationshipPublishDto,
+  type PlanningMentorRelationshipDirectoryDto,
+  type PlanningMentorRelationshipPreviewDto,
+  type PlanningMentorRelationshipPublishDto,
 } from "@teaching-research-alliance/contracts";
 import type { ReferralCreationDraft } from "./postgres-referral-creation-service.js";
 import type { FinanceAttachmentReservationDraft } from "./postgres-finance-attachment-service.js";
@@ -24,6 +27,12 @@ import type {
   GroupLeaderChangePublishResult,
 } from "./postgres-group-leader-relationship-service.js";
 import type { GroupLeaderRelationshipDirectory } from "./postgres-group-leader-directory-service.js";
+import type {
+  PlanningMentorRelationshipDirectory,
+  PlanningMentorRelationshipPreviewDraft,
+  PlanningMentorRelationshipPreviewResult,
+  PlanningMentorRelationshipPublishResult,
+} from "./postgres-planning-mentor-relationship-service.js";
 
 export type ApiRequest = Readonly<{
   method: HttpMethod;
@@ -114,6 +123,11 @@ export type ApiServices = Readonly<{
   }>;
   groupLeaderDirectory?: Readonly<{
     list: (context: RoleContext, at: Date) => GroupLeaderRelationshipDirectory | Promise<GroupLeaderRelationshipDirectory>;
+  }>;
+  planningMentorRelationships?: Readonly<{
+    listDirectory: (context: RoleContext, at: Date) => PlanningMentorRelationshipDirectory | Promise<PlanningMentorRelationshipDirectory>;
+    preview: (context: RoleContext, draft: PlanningMentorRelationshipPreviewDraft, at: Date) => PlanningMentorRelationshipPreviewResult | Promise<PlanningMentorRelationshipPreviewResult>;
+    publish: (context: RoleContext, previewId: string, idempotencyKey: string, at: Date) => PlanningMentorRelationshipPublishResult | Promise<PlanningMentorRelationshipPublishResult>;
   }>;
   organizationRevenue?: Readonly<{
     get: (context: RoleContext, filter: {fromMonth: string; toMonth: string}, at: Date) => unknown | Promise<unknown>;
@@ -768,6 +782,11 @@ const errorStatus = (code: string): number => {
       "GROUP_LEADER_CANDIDATE_AMBIGUOUS",
       "GROUP_LEADER_RELATIONSHIP_MISSING",
       "GROUP_LEADER_RELATIONSHIP_AMBIGUOUS",
+      "PLANNING_MENTOR_CANDIDATE_AMBIGUOUS",
+      "PLANNING_MENTOR_RELATIONSHIP_MISSING",
+      "PLANNING_MENTOR_RELATIONSHIP_AMBIGUOUS",
+      "PLANNING_MENTOR_RELATIONSHIP_CONFLICT",
+      "PLANNING_MENTOR_RELATIONSHIP_NOT_OWNED",
       "ROLE_ASSIGNMENT_OVERLAP",
       "PERSON_INACTIVE",
       "INVALID_ROLE_REVOCATION",
@@ -888,6 +907,17 @@ const assertRelationshipManager = (context: RoleContext): void => {
   }
 };
 
+const assertPlanningMentorRelationshipManager = (context: RoleContext): void => {
+  if (
+    context.subject !== "PLANNING_MENTOR"
+    || permissionScope(context.subject, "MANAGE_OWN_PLANNING_RELATIONSHIPS") !== "SELF"
+    || context.scope !== "SELF"
+    || context.regionId !== undefined
+    || context.campusId !== undefined
+    || context.venueId !== undefined
+  ) throw new Error("FORBIDDEN_SCOPE");
+};
+
 const relationshipPreviewResponse = (result: GroupLeaderChangePreviewResult): GroupLeaderRelationshipPreviewDto => ({
   previewId: result.previewId,
   teacherPersonId: result.teacherPersonId,
@@ -923,6 +953,66 @@ const relationshipCandidatesResponse = (directory: GroupLeaderRelationshipDirect
   currentWeeks: directory.currentWeeks.map((week) => ({
     id: week.id, startsOn: week.startsOn, endsOn: week.endsOn, settlementMonth: week.settlementMonth,
   })),
+});
+
+const planningMentorDirectoryResponse = (
+  directory: PlanningMentorRelationshipDirectory,
+): PlanningMentorRelationshipDirectoryDto => ({
+  mentorPersonId: directory.mentorPersonId,
+  mentorNickname: directory.mentorNickname,
+  managedPlanners: directory.managedPlanners.map((planner) => ({
+    personId: planner.personId,
+    nickname: planner.nickname,
+    relationshipId: planner.relationshipId,
+    validFrom: planner.validFrom,
+    validTo: planner.validTo,
+  })),
+  availablePlanners: directory.availablePlanners.map((planner) => ({
+    personId: planner.personId,
+    nickname: planner.nickname,
+  })),
+  currentWeeks: directory.currentWeeks.map((week) => ({
+    id: week.id,
+    startsOn: week.startsOn,
+    endsOn: week.endsOn,
+    settlementMonth: week.settlementMonth,
+  })),
+});
+
+const planningMentorPreviewResponse = (
+  result: PlanningMentorRelationshipPreviewResult,
+): PlanningMentorRelationshipPreviewDto => ({
+  previewId: result.previewId,
+  action: result.action,
+  mentorPersonId: result.mentorPersonId,
+  plannerPersonId: result.plannerPersonId,
+  plannerNickname: result.plannerNickname,
+  effectiveTeachingWeekId: result.effectiveTeachingWeekId,
+  effectiveAt: result.effectiveAt,
+  nextBoundaryAt: result.nextBoundaryAt,
+  consideredFeeCount: result.consideredFeeCount,
+  changedFeeCount: result.changedFeeCount,
+  zeroShareFeeCount: result.zeroShareFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  plannerDeltaCents: result.plannerDeltaCents,
+  mentorDeltaCents: result.mentorDeltaCents,
+});
+
+const planningMentorPublishResponse = (
+  result: PlanningMentorRelationshipPublishResult,
+): PlanningMentorRelationshipPublishDto => ({
+  changeId: result.changeId,
+  previewId: result.previewId,
+  action: result.action,
+  relationshipVersion: result.relationshipVersion,
+  resultRelationshipId: result.resultRelationshipId,
+  postingStatus: result.postingStatus,
+  consideredFeeCount: result.consideredFeeCount,
+  changedFeeCount: result.changedFeeCount,
+  excludedRefundCount: result.excludedRefundCount,
+  plannerDeltaCents: result.plannerDeltaCents,
+  mentorDeltaCents: result.mentorDeltaCents,
+  replay: result.replay,
 });
 
 const subjectFrom = (value: string): PermissionSubject => {
@@ -1494,6 +1584,39 @@ export const handleRequest = async (
       const context = currentContext(await services.sessions.get(sessionIdFrom(body), at));
       assertRelationshipManager(context);
       return success(relationshipPublishResponse(await services.groupLeaderRelationships.publish(
+        context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at,
+      )));
+    }
+    if (request.method === "GET" && request.path === "/v1/planning-mentor/relationships") {
+      if (typeof request.sessionId !== "string" || !request.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(parsedBody).length !== 0 || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.planningMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(request.sessionId, at));
+      assertPlanningMentorRelationshipManager(context);
+      return success(planningMentorDirectoryResponse(await services.planningMentorRelationships.listDirectory(context, at)));
+    }
+    if (request.method === "POST" && request.path === "/v1/planning-mentor/relationships/preview") {
+      if (typeof request.sessionId !== "string" || !request.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(parsedBody).some((field) => !["action", "plannerPersonId", "effectiveTeachingWeekId", "reason"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      const action = requiredString(body, "action");
+      if (action !== "ADD" && action !== "REMOVE") throw new Error("INVALID_INPUT");
+      if (!services.planningMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(request.sessionId, at));
+      assertPlanningMentorRelationshipManager(context);
+      return success(planningMentorPreviewResponse(await services.planningMentorRelationships.preview(context, {
+        action, plannerPersonId: requiredString(body, "plannerPersonId"),
+        effectiveTeachingWeekId: requiredString(body, "effectiveTeachingWeekId"), reason: requiredString(body, "reason"),
+      }, at)));
+    }
+    if (request.method === "POST" && request.path === "/v1/planning-mentor/relationships") {
+      if (typeof request.sessionId !== "string" || !request.sessionId.trim()) throw new Error("UNAUTHENTICATED");
+      if (Object.keys(parsedBody).some((field) => !["previewId", "idempotencyKey"].includes(field))
+        || Object.keys(request.query ?? {}).length !== 0) throw new Error("INVALID_INPUT");
+      if (!services.planningMentorRelationships) throw new Error("RELATIONSHIP_SERVICE_UNAVAILABLE");
+      const context = currentContext(await services.sessions.get(request.sessionId, at));
+      assertPlanningMentorRelationshipManager(context);
+      return success(planningMentorPublishResponse(await services.planningMentorRelationships.publish(
         context, requiredString(body, "previewId"), requiredString(body, "idempotencyKey"), at,
       )));
     }

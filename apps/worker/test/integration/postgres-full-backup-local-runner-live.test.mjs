@@ -76,7 +76,7 @@ test("real PG local runner publishes one incomplete package and cleans a later f
     assert.equal(manifest.context.requestedBy, null);
     assert.equal(manifest.workbookCount, "20");
     assert.equal(manifest.files.some((file) => file.path === "package-manifest.json"), false);
-    assert.equal(manifest.files.filter((file) => file.path.endsWith(".xlsx")).length, 20);
+    assert.equal(manifest.files.filter((file) => file.path.endsWith(".xlsx")).length, 21);
     assert.equal(hash(manifestBytes), run.localPackage.packageManifest.sha256);
     await assertPackageFiles(packageDirectory, manifest);
     await assertCallerPoolOpen(f.pool);

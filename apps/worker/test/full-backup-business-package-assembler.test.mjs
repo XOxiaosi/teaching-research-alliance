@@ -108,7 +108,7 @@ test("fixed six business facts are copied from one spool with reconstructed safe
   assert.equal(index.businessFacts.every((item) => item.sources.every((source) => Object.keys(source).sort().join(",") === "columns,logicalDigest,rowCount,sourceTable")), true);
   assert.equal(index.businessFacts.every((item) => item.file.path.startsWith("business-facts/") && /^[a-f0-9]{64}$/.test(item.file.sha256)), true);
   assert.equal(index.files.filter((item) => item.path.startsWith("business-facts/")).length, 6);
-  assert.equal(index.files.length, 20);
+  assert.equal(index.files.length, 21);
   assert.equal(indexBytes.includes(Buffer.from(f.root)), false);
   assert.equal(indexBytes.includes(Buffer.from(producerOnlyMetadata)), false);
   assert.equal(/password|session|secret/i.test(JSON.stringify(index.businessFacts)), false);

@@ -78,7 +78,7 @@ const nextBatch = async (stream) => {
   return result.value;
 };
 
-test("全量备份数据源以注册的 84 表、固定主键和统一快照打开", async () => {
+test("全量备份数据源以注册的 90 表、固定主键和统一快照打开", async () => {
   await withDatabase(async (database) => {
     const observed = sourcePool(database);
     const source = await new PostgresFullBackupSource(observed.pool).open();
@@ -87,7 +87,7 @@ test("全量备份数据源以注册的 84 表、固定主键和统一快照打�
       assert.equal(source.snapshotId.length > 0, true);
       assert.equal(source.asOf.length > 0, true);
       assert.deepEqual(source.datasets.map((item) => item.tableName), EXPORT_SCHEMA_REGISTRY.map((item) => item.name));
-      assert.equal(source.datasets.length, 84);
+      assert.equal(source.datasets.length, 90);
       for (const dataset of source.datasets) {
         const registry = EXPORT_SCHEMA_REGISTRY.find((item) => item.name === dataset.tableName);
         assert.deepEqual(dataset.orderBy, registry.orderBy);

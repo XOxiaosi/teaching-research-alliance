@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { DEFAULT_RATE_POLICY_VALUES, postLedgerEvent } from "@teaching-research-alliance/domain";
 import { PostgresWeeklySettlementService } from "../../dist/postgres-weekly-settlement-service.js";
 import { PostgresReferralCreationService, createApiServer, SessionService, PostgresWeeklyFeeService, PostgresPersonalReadService, PostgresLedgerRepository } from "../../dist/main.js";
@@ -121,7 +122,7 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
     throw new Error("DATABASE_URL_REQUIRED_FOR_POSTGRES_INTEGRATION");
   }
 
-  const database = await createTestDatabase(connectionString);
+  const database = await createTestDatabase(connectionString, { throughMigration: 34 });
   const { pool } = database;
   const suffix = randomUUID();
   const ids = Object.fromEntries([
@@ -165,7 +166,7 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
       [ids.planner, ids.campus, ids.region, validFrom, ids.admin, ids.teacher, ids.teacherB]
     );
     await addRole(pool, ids.planner, "ACADEMIC_PLANNER", "CAMPUS", ids.campus, ids.admin);
-    await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "ASSOCIATED_TEACHERS", ids.planner, ids.admin);
+    await addRole(pool, ids.planningMentor, "PLANNING_MENTOR", "SELF", null, ids.admin);
     await addRole(pool, ids.groupLeader, "GROUP_LEADER", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
     await addRole(pool, ids.teachingMentor, "TEACHING_MENTOR", "ASSOCIATED_TEACHERS", ids.teacher, ids.admin);
     await addRole(pool, ids.teacher, "TEACHING_TEACHER", "SELF", ids.teacher, ids.admin);
@@ -177,6 +178,10 @@ test("真实PostgreSQL周结算分配、重放、并发与事务回滚", async (
     await addRelationship(pool, ids.teacher, "TEACHING_MENTOR", ids.teachingMentor);
     await addRelationship(pool, ids.teacherB, "GROUP_LEADER", ids.groupLeader);
     await addRelationship(pool, ids.teacherB, "TEACHING_MENTOR", ids.teachingMentor);
+    await pool.query(await readFile(
+      new URL("../../../../database/migrations/0035_planning_mentor_relationship_changes.sql", import.meta.url),
+      "utf8",
+    ));
     await pool.query(
       `INSERT INTO venue (id, owner_person_id, name, status, default_for_owner)
        VALUES ($1::uuid, $2::uuid, $3, 'ACTIVE', true)`,
